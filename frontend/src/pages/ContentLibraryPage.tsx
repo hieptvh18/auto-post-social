@@ -1,77 +1,114 @@
+import { EyeOutlined, PlusOutlined, SendOutlined, UploadOutlined } from '@ant-design/icons';
 import {
-  CheckOutlined,
-  CloseOutlined,
-  EyeOutlined,
-  SyncOutlined,
-} from '@ant-design/icons';
-import {
+  Alert,
   Button,
   Drawer,
+  Form,
   Input,
+  Modal,
   Select,
   Space,
   Table,
   Tag,
   Typography,
+  Upload,
+  type UploadFile,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
-import { mockContent } from '../api/mock/data';
+import { getUserDisplayName } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
+import { ContentStatusTag } from '../components/common/StatusTag';
 import { useAuth } from '../contexts/AuthContext';
-import type { ContentAsset } from '../types';
-import { MEDIA_TYPE_LABELS } from '../utils/constants';
+import { useMockData } from '../contexts/MockDataContext';
+import type { ContentAsset, MediaType } from '../types';
+import { CONTENT_CATEGORIES, MEDIA_TYPE_LABELS } from '../utils/constants';
 import { can } from '../utils/permissions';
 
 const { Text, Paragraph } = Typography;
 
+function detectMediaType(file: UploadFile): MediaType {
+  const mime = file.type ?? '';
+  if (mime.startsWith('video/')) return 'video';
+  return 'image';
+}
+
 export default function ContentLibraryPage() {
   const { user } = useAuth();
-  const [data, setData] = useState(mockContent);
+  const { content, addContent, submitContent } = useMockData();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
-  const [approvedFilter, setApprovedFilter] = useState<boolean | undefined>();
+  const [statusFilter, setStatusFilter] = useState<ContentAsset['status'] | undefined>();
   const [selected, setSelected] = useState<ContentAsset | null>(null);
-  const [syncing, setSyncing] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [form] = Form.useForm();
 
-  const categories = [...new Set(mockContent.map((c) => c.category))];
+  const myContent = useMemo(() => {
+    if (user.role === 'CONTENT') {
+      return content.filter((c) => c.createdBy === user.email);
+    }
+    return content;
+  }, [content, user]);
 
   const filtered = useMemo(() => {
-    return data.filter((item) => {
+    return myContent.filter((item) => {
       const matchSearch =
         !search ||
         item.title.toLowerCase().includes(search.toLowerCase()) ||
-        item.sheetRowId.toLowerCase().includes(search.toLowerCase());
+        item.code.toLowerCase().includes(search.toLowerCase());
       const matchCategory = !categoryFilter || item.category === categoryFilter;
-      const matchApproved =
-        approvedFilter === undefined || item.approved === approvedFilter;
-      return matchSearch && matchCategory && matchApproved;
+      const matchStatus = !statusFilter || item.status === statusFilter;
+      return matchSearch && matchCategory && matchStatus;
     });
-  }, [data, search, categoryFilter, approvedFilter]);
+  }, [myContent, search, categoryFilter, statusFilter]);
 
-  const toggleApprove = (id: string) => {
-    setData((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, approved: !item.approved } : item,
-      ),
-    );
-    message.success('Cập nhật trạng thái duyệt (mock)');
-  };
+  const handleSubmitUpload = (values: {
+    title: string;
+    description: string;
+    category: string;
+  }) => {
+    const pickedFile = fileList[0];
+    if (!pickedFile) {
+      message.error('Vui lòng chọn file ảnh hoặc video');
+      return;
+    }
 
-  const handleSync = () => {
-    setSyncing(true);
-    setTimeout(() => {
-      setSyncing(false);
-      message.success('Sync hoàn tất: created 2, updated 1, skipped 3');
-    }, 1500);
+    const now = new Date();
+    const contentCode = `CNT-${String(content.length + 1).padStart(3, '0')}`;
+    const fileId = `drive_${now.getTime()}`;
+    const mediaType = detectMediaType(pickedFile);
+
+    const newItem: ContentAsset = {
+      id: String(now.getTime()),
+      code: contentCode,
+      title: values.title,
+      description: values.description,
+      category: values.category,
+      mediaType,
+      driveFileId: fileId,
+      driveUrl: `https://drive.google.com/file/d/${fileId}`,
+      thumbnailUrl: `https://picsum.photos/seed/${contentCode}/200/120`,
+      status: 'WAITING_APPROVAL',
+      createdBy: user.email,
+      approvedBy: null,
+      updatedAt: now.toISOString(),
+      createdAt: now.toISOString(),
+    };
+
+    addContent(newItem);
+    setCreateOpen(false);
+    setFileList([]);
+    form.resetFields();
+    message.success(`Đã upload và gửi duyệt ${contentCode} — chờ Sếp approve`);
   };
 
   const columns: ColumnsType<ContentAsset> = [
     {
       title: 'ID',
-      dataIndex: 'sheetRowId',
+      dataIndex: 'code',
       width: 100,
       render: (v) => <Text code>{v}</Text>,
     },
@@ -90,34 +127,30 @@ export default function ContentLibraryPage() {
       title: 'Media',
       dataIndex: 'mediaType',
       width: 90,
-      render: (v: 'image' | 'video') => (
+      render: (v: MediaType) => (
         <Tag color={v === 'video' ? 'purple' : 'blue'}>{MEDIA_TYPE_LABELS[v]}</Tag>
       ),
     },
     {
-      title: 'Duyệt',
-      dataIndex: 'approved',
-      width: 100,
-      render: (approved: boolean, record) =>
-        can(user!.role, 'content:approve') ? (
-          <Button
-            size="small"
-            type={approved ? 'primary' : 'default'}
-            icon={approved ? <CheckOutlined /> : <CloseOutlined />}
-            onClick={() => toggleApprove(record.id)}
-          >
-            {approved ? 'Đã duyệt' : 'Chưa duyệt'}
-          </Button>
-        ) : (
-          <Tag color={approved ? 'success' : 'default'}>
-            {approved ? 'Đã duyệt' : 'Chưa duyệt'}
-          </Tag>
-        ),
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      width: 140,
+      render: (s) => <ContentStatusTag status={s} />,
     },
     {
-      title: 'Owner',
-      dataIndex: 'owner',
-      width: 130,
+      title: 'Người upload',
+      dataIndex: 'createdBy',
+      width: 170,
+      ellipsis: true,
+      render: (email: string) => (
+        <div>
+          <Text ellipsis>{getUserDisplayName(email)}</Text>
+          <br />
+          <Text type="secondary" style={{ fontSize: 12 }} ellipsis>
+            {email}
+          </Text>
+        </div>
+      ),
     },
     {
       title: 'Cập nhật',
@@ -127,13 +160,25 @@ export default function ContentLibraryPage() {
     },
     {
       title: '',
-      width: 60,
+      width: 140,
       render: (_, record) => (
-        <Button
-          type="text"
-          icon={<EyeOutlined />}
-          onClick={() => setSelected(record)}
-        />
+        <Space>
+          <Button type="text" icon={<EyeOutlined />} onClick={() => setSelected(record)} />
+          {can(user.role, 'content:submit') &&
+            (record.status === 'DRAFT' || record.status === 'REJECTED') && (
+              <Button
+                size="small"
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={() => {
+                  submitContent(record.id);
+                  message.success('Đã gửi lại duyệt (mock)');
+                }}
+              >
+                Gửi duyệt
+              </Button>
+            )}
+        </Space>
       ),
     },
   ];
@@ -142,19 +187,21 @@ export default function ContentLibraryPage() {
     <div>
       <PageHeader
         title="Content Library"
-        description="Quản lý nội dung sync từ Google Sheet"
+        description="Upload tài nguyên (ảnh/video) — chọn category, tiêu đề, mô tả ngắn — gửi Sếp duyệt"
         extra={
-          can(user!.role, 'content:sync') && (
-            <Button
-              type="primary"
-              icon={<SyncOutlined spin={syncing} />}
-              loading={syncing}
-              onClick={handleSync}
-            >
-              Sync Google Sheet
+          can(user.role, 'content:create') && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              Upload tài nguyên
             </Button>
           )
         }
+      />
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Content Team chỉ upload tài nguyên + metadata. Caption, hashtag và lịch đăng do Đội đăng bài xử lý sau khi được duyệt."
       />
 
       <Space wrap style={{ marginBottom: 16 }}>
@@ -168,18 +215,20 @@ export default function ContentLibraryPage() {
           placeholder="Category"
           allowClear
           style={{ width: 150 }}
-          options={categories.map((c) => ({ value: c, label: c }))}
+          options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
           onChange={setCategoryFilter}
         />
         <Select
-          placeholder="Trạng thái duyệt"
+          placeholder="Trạng thái"
           allowClear
-          style={{ width: 160 }}
+          style={{ width: 180 }}
           options={[
-            { value: true, label: 'Đã duyệt' },
-            { value: false, label: 'Chưa duyệt' },
+            { value: 'DRAFT', label: 'Nháp' },
+            { value: 'WAITING_APPROVAL', label: 'Chờ duyệt' },
+            { value: 'APPROVED', label: 'Đã duyệt' },
+            { value: 'REJECTED', label: 'Bị từ chối' },
           ]}
-          onChange={setApprovedFilter}
+          onChange={setStatusFilter}
         />
       </Space>
 
@@ -188,7 +237,7 @@ export default function ContentLibraryPage() {
         columns={columns}
         dataSource={filtered}
         pagination={{ pageSize: 10, showTotal: (t) => `${t} items` }}
-        scroll={{ x: 900 }}
+        scroll={{ x: 1100 }}
       />
 
       <Drawer
@@ -200,29 +249,102 @@ export default function ContentLibraryPage() {
         {selected && (
           <Space direction="vertical" size="middle" style={{ width: '100%' }}>
             <div>
-              <Text type="secondary">Sheet ID</Text>
+              <Text type="secondary">Mã tài nguyên</Text>
               <br />
-              <Text code>{selected.sheetRowId}</Text>
+              <Text code>{selected.code}</Text>
             </div>
             <div>
-              <Text type="secondary">Caption</Text>
-              <Paragraph>{selected.caption}</Paragraph>
-            </div>
-            <div>
-              <Text type="secondary">Drive URL</Text>
+              <Text type="secondary">Trạng thái</Text>
               <br />
-              <a href={selected.driveUrl} target="_blank" rel="noreferrer">
-                {selected.driveUrl}
-              </a>
+              <ContentStatusTag status={selected.status} />
             </div>
             <div>
-              <Text type="secondary">Media type</Text>
+              <Text type="secondary">Category</Text>
+              <br />
+              <Tag>{selected.category}</Tag>
+            </div>
+            <div>
+              <Text type="secondary">Người upload</Text>
+              <br />
+              <Text strong>{getUserDisplayName(selected.createdBy)}</Text>
+              <br />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {selected.createdBy}
+              </Text>
+            </div>
+            <div>
+              <Text type="secondary">Mô tả ngắn</Text>
+              <Paragraph>{selected.description}</Paragraph>
+            </div>
+            {selected.rejectComment && (
+              <Alert type="error" message="Lý do từ chối" description={selected.rejectComment} />
+            )}
+            <div>
+              <Text type="secondary">Google Drive</Text>
+              <br />
+              <Text code>fileId: {selected.driveFileId}</Text>
+            </div>
+            <div>
+              <Text type="secondary">Loại media</Text>
               <br />
               <Tag>{MEDIA_TYPE_LABELS[selected.mediaType]}</Tag>
             </div>
           </Space>
         )}
       </Drawer>
+
+      <Modal
+        title="Upload tài nguyên & gửi duyệt"
+        open={createOpen}
+        onCancel={() => {
+          setCreateOpen(false);
+          setFileList([]);
+          form.resetFields();
+        }}
+        onOk={() => form.submit()}
+        okText="Gửi duyệt"
+        width={560}
+      >
+        <Form form={form} layout="vertical" onFinish={handleSubmitUpload}>
+          <Form.Item
+            label="File ảnh/video"
+            required
+            tooltip="Mock upload — file chỉ dùng để demo trên UI"
+          >
+            <Upload
+              accept="image/*,video/*"
+              fileList={fileList}
+              maxCount={1}
+              beforeUpload={() => false}
+              onChange={({ fileList: next }) => setFileList(next)}
+            >
+              <Button icon={<UploadOutlined />}>Chọn ảnh hoặc video</Button>
+            </Upload>
+          </Form.Item>
+
+          <Form.Item name="category" label="Category tài nguyên" rules={[{ required: true }]}>
+            <Select
+              placeholder="Chọn category"
+              options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+            />
+          </Form.Item>
+
+          <Form.Item name="title" label="Tiêu đề tài nguyên" rules={[{ required: true }]}>
+            <Input placeholder="Ví dụ: Banner Flash Sale cuối tuần" />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="Mô tả ngắn tài nguyên"
+            rules={[{ required: true, min: 10, message: 'Mô tả tối thiểu 10 ký tự' }]}
+          >
+            <Input.TextArea
+              rows={3}
+              placeholder="Mô tả ngắn giúp Sếp hiểu nội dung tài nguyên (không phải caption đăng bài)"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

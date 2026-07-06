@@ -1,21 +1,27 @@
 # 00 — Overview
 
-> Social Publishing Automation Platform — Tài liệu tổng quan triển khai coding
+> Social Content Workflow Management Platform — Tài liệu tổng quan triển khai coding
 
-**Version:** v1.0  
+**Version:** v2.0  
 **Tham chiếu:** [Plan.md](../Plan.md)
 
 ---
 
 ## 1. Tóm tắt dự án
 
-Nền tảng nội bộ tự động hóa đăng bài lên **Facebook Page**, với luồng dữ liệu:
+Nền tảng nội bộ quản lý quy trình Content và tự động đăng bài lên **Facebook Page**.
 
 ```text
-Content Team → Google Sheet → Sync Service → PostgreSQL → Web Admin / BullMQ Worker → Meta Graph API → Facebook Pages
+Content User → Web Admin (upload + workflow)
+Reviewer → Web Admin (approve/reject)
+Publisher → Web Admin (schedule)
+         ↓
+    PostgreSQL (source of truth)
+         ↓
+Google Drive API (media storage) + BullMQ Worker → Meta Graph API → Facebook Pages
 ```
 
-**PostgreSQL** là Single Source of Truth. Google Sheet chỉ là workspace cho đội Content.
+**Google Sheet bị loại bỏ hoàn toàn.** Web Admin là cổng làm việc duy nhất.
 
 ---
 
@@ -23,23 +29,24 @@ Content Team → Google Sheet → Sync Service → PostgreSQL → Web Admin / Bu
 
 | Mục tiêu | Mô tả |
 |----------|--------|
-| Tự động publish | Đăng image/video lên Facebook Page theo lịch |
-| Web Admin | Quản lý content, lịch đăng, pages, users |
-| RBAC | 4 role: ADMIN, CONTENT, PUBLISHER, VIEWER |
-| Google Sheet Sync | Import/upsert content từ sheet |
-| Scheduler + BullMQ | Hàng đợi job, retry, delay |
+| Content workflow | DRAFT → Review → APPROVED → Schedule → Publish |
+| Upload media | Upload ảnh/video qua Web Admin → Google Drive |
+| Web Admin | Content Library, Review Center, Publisher Center |
+| RBAC | 4 role: ADMIN, CONTENT, REVIEWER, PUBLISHER |
+| Scheduler + BullMQ | Hàng đợi job, delay, retry, DLQ |
 | Audit log | Ghi lại mọi thay đổi quan trọng |
-| Dashboard | Thống kê posts, success/fail rate |
+| Dashboard | Thống kê content, publish, top creators |
 
 ---
 
 ## 3. Out of Scope (V1)
 
+- Google Sheet sync
 - Facebook Group / Profile
 - Instagram, TikTok, YouTube
 - AI caption/hashtag
 - Multi-tenant SaaS
-- MinIO/S3 (dùng Google Drive URL trực tiếp)
+- Lưu video/file trên server (chỉ stream từ Drive)
 
 ---
 
@@ -47,54 +54,57 @@ Content Team → Google Sheet → Sync Service → PostgreSQL → Web Admin / Bu
 
 | Layer | Công nghệ |
 |-------|-----------|
-| Backend API | NestJS, TypeScript, Prisma |
+| Backend API | NestJS, TypeScript, Prisma, Pino |
 | Database | PostgreSQL 16 |
 | Queue | BullMQ + Redis 7 |
 | Auth | JWT (access + refresh) |
 | Frontend | React, Ant Design, React Query, React Router |
+| Integrations | Google Drive API v3, Meta Graph API |
 | Infra | Docker Compose, Nginx |
 
 ---
 
-## 5. Cấu trúc monorepo đề xuất
+## 5. Cấu trúc monorepo
 
 ```text
 tool-auto-fb/
 ├── docs/                    # Tài liệu (bạn đang đọc)
-├── backend/                 # NestJS API + Scheduler
+├── backend/                 # NestJS API
 │   ├── prisma/
-│   ├── src/
-│   │   ├── modules/
-│   │   │   ├── auth/
-│   │   │   ├── users/
-│   │   │   ├── facebook-pages/
-│   │   │   ├── content-assets/
-│   │   │   ├── google-sheet-sync/
-│   │   │   ├── publish-jobs/
-│   │   │   ├── audit-logs/
-│   │   │   └── dashboard/
-│   │   ├── common/          # guards, decorators, filters, interceptors
-│   │   └── config/
-│   └── test/
-├── worker/                  # BullMQ consumer (có thể gộp vào backend)
+│   └── src/
+│       ├── modules/
+│       │   ├── auth/
+│       │   ├── users/
+│       │   ├── roles/
+│       │   ├── facebook-pages/
+│       │   ├── content-assets/
+│       │   ├── reviews/           # Review Center
+│       │   ├── comments/
+│       │   ├── publish-jobs/
+│       │   ├── google-drive/
+│       │   ├── audit-logs/
+│       │   └── dashboard/
+│       ├── common/
+│       └── config/
+├── worker/                  # BullMQ consumer (process riêng)
 │   └── src/
 │       ├── processors/
-│       └── publishers/      # Facebook Graph API client
+│       └── publishers/
 ├── frontend/
 │   └── src/
 │       ├── pages/
+│       │   ├── ContentLibrary/
+│       │   ├── ReviewCenter/
+│       │   ├── PublisherCenter/
+│       │   └── ...
 │       ├── components/
 │       ├── hooks/
-│       ├── api/
-│       └── routes/
+│       └── api/
 ├── docker/
 │   ├── docker-compose.yml
 │   └── nginx/
 └── .env.example
 ```
-
-**Quyết định kiến trúc:** Worker là process riêng (`worker/`) ở server, có thể dùng supervisord.
-**process riêng** để scale worker độc lập API.
 
 ---
 
@@ -104,10 +114,11 @@ tool-auto-fb/
 2. **Repository pattern** — controller không gọi Prisma trực tiếp
 3. **DTO + class-validator** — validate mọi input
 4. **Swagger** — document tất cả endpoints
-5. **RBAC Guards** — không hardcode role string trong controller
+5. **RBAC Guards** — permission-based, không hardcode role trong controller
 6. **Audit interceptor** — log thay đổi quan trọng
 7. **Không lưu plaintext token** — encrypt `access_token` Facebook
-8. **ConfigModule** — mọi secret qua env
+8. **Không lưu media trên server** — stream từ Google Drive khi publish
+9. **ConfigModule** — mọi secret qua env
 
 ---
 
@@ -115,29 +126,37 @@ tool-auto-fb/
 
 ```mermaid
 sequenceDiagram
-    participant CT as Content Team
-    participant GS as Google Sheet
+    participant CU as Content User
     participant API as NestJS API
+    participant GD as Google Drive
     participant DB as PostgreSQL
+    participant RV as Reviewer
+    participant PB as Publisher
     participant Q as BullMQ
     participant W as Worker
     participant FB as Meta Graph API
 
-    CT->>GS: Nhập/sửa content, approved=TRUE
-    API->>GS: Sync (manual/cron)
-    GS-->>API: Rows
-    API->>DB: Upsert content_assets
+    CU->>API: Tạo content + upload media
+    API->>GD: Upload file
+    GD-->>API: fileId
+    API->>DB: content_assets (DRAFT)
 
-    Note over API,DB: Publisher tạo publish_job
-    API->>DB: INSERT publish_jobs (APPROVED)
-    API->>Q: add job (delay = scheduled_at)
-    API->>DB: status = QUEUED
+    CU->>API: Submit review
+    API->>DB: status = WAITING_APPROVAL
 
-    Q->>W: dequeue
+    RV->>API: Approve / Reject + comment
+    API->>DB: status = APPROVED / REJECTED
+
+    PB->>API: Setup caption, page, schedule
+    API->>DB: publish_jobs (SCHEDULED)
+    API->>Q: add job (delay)
+
+    Q->>W: dequeue at schedule time
     W->>DB: status = PUBLISHING
-    W->>FB: POST feed/photos/videos
+    W->>GD: Stream download
+    W->>FB: POST photos/videos
     FB-->>W: post_id
-    W->>DB: status = SUCCESS, published_at
+    W->>DB: status = SUCCESS
 ```
 
 ---
@@ -151,7 +170,7 @@ PORT=3000
 API_PREFIX=api
 
 # Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/social_publish
+DATABASE_URL=postgresql://user:pass@localhost:5432/social_workflow
 
 # Redis / BullMQ
 REDIS_HOST=localhost
@@ -166,10 +185,9 @@ JWT_REFRESH_EXPIRES=7d
 # Encryption (Facebook tokens)
 TOKEN_ENCRYPTION_KEY=  # 32 bytes hex
 
-# Google
+# Google Drive
 GOOGLE_SERVICE_ACCOUNT_JSON=  # path hoặc base64
-GOOGLE_SHEET_ID=
-GOOGLE_SHEET_RANGE=Sheet1!A1:I1000
+GOOGLE_DRIVE_FOLDER_ID=       # folder upload mặc định
 
 # Meta
 META_APP_ID=
@@ -183,14 +201,14 @@ META_GRAPH_API_VERSION=v21.0
 
 | File | Nội dung |
 |------|----------|
-| [01-business-requirements.md](./01-business-requirements.md) | User stories, acceptance criteria |
+| [01-business-requirements.md](./01-business-requirements.md) | User stories, workflow, acceptance criteria |
 | [02-architecture.md](./02-architecture.md) | Kiến trúc chi tiết, module boundaries |
 | [03-database-design.md](./03-database-design.md) | Prisma schema, indexes, migrations |
 | [04-api-spec.md](./04-api-spec.md) | REST API đầy đủ |
 | [05-rbac.md](./05-rbac.md) | Roles, permissions, guards |
-| [06-google-sheet-sync.md](./06-google-sheet-sync.md) | Sync flow, mapping, dedup |
+| [06-google-drive.md](./06-google-drive.md) | Upload, stream, thumbnail |
 | [07-facebook-publisher.md](./07-facebook-publisher.md) | Graph API, media upload |
-| [08-bullmq.md](./08-bullmq.md) | Queue, worker, retry |
+| [08-bullmq.md](./08-bullmq.md) | Queue, worker, retry, DLQ |
 | [09-deployment.md](./09-deployment.md) | Docker, Nginx, production |
 | [10-roadmap.md](./10-roadmap.md) | Sprint plan, task breakdown |
 
@@ -201,10 +219,12 @@ META_GRAPH_API_VERSION=v21.0
 - [ ] User login/logout, refresh token
 - [ ] CRUD users + gán role (ADMIN)
 - [ ] CRUD Facebook pages + token encrypted
-- [ ] Sync Google Sheet → content_assets
-- [ ] Approve content, tạo publish job, schedule
-- [ ] Worker publish image + video lên FB Page
-- [ ] Retry failed jobs
+- [ ] Upload media → Google Drive, lưu metadata DB
+- [ ] Content workflow: DRAFT → WAITING_APPROVAL → APPROVED/REJECTED
+- [ ] Review Center: approve, reject, comment
+- [ ] Publisher schedule bài APPROVED lên FB Page
+- [ ] Worker stream publish image + video (không lưu file server)
+- [ ] Retry failed jobs + DLQ monitor
 - [ ] Dashboard metrics
 - [ ] Audit log cho actions quan trọng
 - [ ] Docker Compose chạy full stack local

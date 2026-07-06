@@ -1,6 +1,6 @@
 # 02 — Architecture
 
-> Kiến trúc chi tiết cho triển khai coding
+> Kiến trúc chi tiết cho triển khai coding v2.0
 
 ---
 
@@ -8,13 +8,12 @@
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Social Publishing Platform                  │
+│              Social Content Workflow Platform                    │
 │                                                                  │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
 │  │ Frontend │───▶│   API    │───▶│ Postgres │    │  Redis   │  │
 │  │  React   │    │  NestJS  │    └──────────┘    └────┬─────┘  │
 │  └──────────┘    └────┬─────┘                        │        │
-│                        │                              │        │
 │                        │         ┌──────────┐         │        │
 │                        └────────▶│  Worker  │◀────────┘        │
 │                                  │  NestJS  │                   │
@@ -23,7 +22,7 @@
                                         │
                     ┌───────────────────┼───────────────────┐
                     ▼                   ▼                   ▼
-              Google Sheets      Google Drive        Meta Graph API
+              Google Drive        Meta Graph API         (no Sheet)
 ```
 
 ---
@@ -42,7 +41,7 @@
 │  Entities, Enums, Domain errors          │
 ├─────────────────────────────────────────┤
 │  Infrastructure Layer                    │
-│  Prisma repos, BullMQ, Google APIs, FB   │
+│  Prisma repos, BullMQ, Google Drive, FB  │
 └─────────────────────────────────────────┘
 ```
 
@@ -50,7 +49,8 @@
 
 - Controller → Service → Repository → Prisma
 - Không import Prisma trong Controller
-- External API (Google, Meta) wrap trong adapter/service infra
+- External API (Google Drive, Meta) wrap trong adapter/infra service
+- Clean Architecture + DDD-lite + feature-first module
 
 ---
 
@@ -58,13 +58,15 @@
 
 | Module | Responsibility | Depends on |
 |--------|----------------|------------|
-| `AuthModule` | Login, refresh, JWT strategy | UsersModule |
+| `AuthModule` | Login, refresh, JWT | UsersModule |
 | `UsersModule` | User CRUD | Prisma, AuditLogs |
+| `RolesModule` | Role/permission lookup | Prisma |
 | `FacebookPagesModule` | Page CRUD, token crypto | Prisma, AuditLogs |
-| `ContentAssetsModule` | Content CRUD, approve | Prisma, AuditLogs |
-| `GoogleSheetSyncModule` | Fetch sheet, map, upsert | ContentAssets, Google API |
+| `ContentAssetsModule` | Content CRUD, submit review | Prisma, GoogleDrive, AuditLogs |
+| `ReviewsModule` | Approve, reject workflow | ContentAssets, Comments, AuditLogs |
+| `CommentsModule` | Review comments | Prisma |
+| `GoogleDriveModule` | Upload, stream, thumbnail | Google API |
 | `PublishJobsModule` | CRUD jobs, cancel, retry | Prisma, BullMQ, AuditLogs |
-| `SchedulerModule` | Cron scan APPROVED → queue | PublishJobs, BullMQ |
 | `AuditLogsModule` | Write/read audit | Prisma |
 | `DashboardModule` | Aggregations | Prisma |
 | `HealthModule` | `/health`, readiness | Prisma, Redis |
@@ -73,128 +75,103 @@
 
 | Module | Responsibility |
 |--------|----------------|
-| `PublishProcessorModule` | `@Processor('publish-post')` |
+| `PublishProcessorModule` | `@Processor('publish-facebook')` |
 | `FacebookPublisherModule` | Graph API client |
-| `MediaDownloadModule` | Download từ Drive URL |
+| `MediaStreamModule` | Stream từ Google Drive (không lưu disk) |
 
 ---
 
-## 4. Folder Structure (Backend Detail)
+## 4. Workspace Separation (Frontend)
 
 ```text
-backend/src/
-├── main.ts
-├── app.module.ts
-├── common/
-│   ├── decorators/
-│   │   ├── roles.decorator.ts
-│   │   ├── current-user.decorator.ts
-│   │   └── audit-action.decorator.ts
-│   ├── enums/
-│   │   ├── role.enum.ts
-│   │   ├── publish-status.enum.ts
-│   │   └── media-type.enum.ts
-│   ├── guards/
-│   │   ├── jwt-auth.guard.ts
-│   │   └── roles.guard.ts
-│   ├── interceptors/
-│   │   └── audit-log.interceptor.ts
-│   ├── filters/
-│   │   └── http-exception.filter.ts
-│   └── utils/
-│       ├── crypto.util.ts          # token encrypt/decrypt
-│       └── pagination.util.ts
-├── config/
-│   ├── app.config.ts
-│   ├── jwt.config.ts
-│   ├── google.config.ts
-│   └── meta.config.ts
-├── prisma/
-│   ├── prisma.module.ts
-│   └── prisma.service.ts
-└── modules/
-    └── publish-jobs/
-        ├── publish-jobs.module.ts
-        ├── publish-jobs.controller.ts
-        ├── publish-jobs.service.ts
-        ├── publish-jobs.repository.ts
-        ├── dto/
-        │   ├── create-publish-job.dto.ts
-        │   └── list-publish-jobs.dto.ts
-        └── entities/
-            └── publish-job.entity.ts
+Content Workspace          Publish Workspace
+├── ContentLibrary         ├── PublisherCenter
+│   upload, edit           │   approved list
+│   submit review          │   caption, hashtag
+└── (no schedule UI)       ├── ScheduleCalendar
+                           ├── QueueMonitor
+                           └── FailedJobs
+
+Shared: Dashboard, Auth
+Admin-only: Users, Pages, Audit, Settings
+Reviewer-only: ReviewCenter
 ```
 
 ---
 
 ## 5. Request Flow Examples
 
-### 5.1 Authenticated API Request
+### 5.1 Upload Media + Create Content
 
 ```text
-HTTP Request
-  → JwtAuthGuard (validate access token)
-  → RolesGuard (check @Roles())
-  → ValidationPipe (DTO)
-  → Controller
-  → Service (business logic)
-  → Repository
-  → Prisma
-  → Response + AuditLogInterceptor (if @AuditAction)
+POST /media/upload (multipart)
+  → GoogleDriveService.upload(file)
+  → Return { fileId, mimeType, size, thumbnailUrl }
+
+POST /content
+  → ContentAssetsService.create()
+      1. Validate drive_file_id exists
+      2. Insert content_assets (DRAFT)
+      3. Audit log
 ```
 
-### 5.2 Create Publish Job
+### 5.2 Submit Review → Approve
 
 ```text
-POST /api/publish-jobs
+PATCH /content/:id/submit
+  → status: DRAFT|REJECTED → WAITING_APPROVAL
+
+POST /content/:id/approve (REVIEWER)
+  → ReviewsService.approve()
+      1. Validate status = WAITING_APPROVAL
+      2. Update → APPROVED, set approved_by
+      3. Audit log
+```
+
+### 5.3 Publisher Schedule
+
+```text
+POST /publish-jobs
   → PublishJobsService.create()
-      1. Validate content approved
+      1. Validate content status = APPROVED
       2. Validate page active
-      3. Validate scheduled_at
-      4. Insert publish_jobs (APPROVED)
-      5. PublishQueueService.enqueue(jobId, delay)
-      6. Update status → QUEUED
-      7. Audit log
+      3. Insert publish_jobs (SCHEDULED) + caption, hashtags
+      4. BullMQ enqueue(delay = schedule_time - now)
+      5. Update → QUEUED
+      6. Audit log
 ```
 
-### 5.3 Worker Publish
+### 5.4 Worker Publish (Stream)
 
 ```text
 BullMQ job received
-  → PublishPostProcessor.process()
+  → PublishFacebookProcessor.process()
       1. Load job + content + page (decrypt token)
       2. If CANCELLED/SUCCESS → skip (idempotent)
       3. Update → PUBLISHING
-      4. MediaDownloadService.download(drive_url)
-      5. FacebookPublisher.publish(media_type, ...)
+      4. GoogleDriveService.createReadStream(fileId)
+      5. FacebookPublisher.publishStream(mediaType, stream, caption)
       6. Update → SUCCESS + facebook_post_id
       OR catch → FAILED + error_message (BullMQ retry)
 ```
+
+Chi tiết Drive: [06-google-drive.md](./06-google-drive.md)  
+Chi tiết FB: [07-facebook-publisher.md](./07-facebook-publisher.md)
 
 ---
 
 ## 6. Scheduler Design
 
-**Option A (khuyến nghị V1):** Enqueue ngay khi tạo job với `delay = scheduled_at - now`
+**Khuyến nghị V1:** Enqueue ngay khi tạo job với `delay = schedule_time - now`
 
 ```typescript
-const delayMs = Math.max(0, scheduledAt.getTime() - Date.now());
-await queue.add('publish-post', { publishJobId }, { delay: delayMs, ... });
+const delayMs = Math.max(0, scheduleTime.getTime() - Date.now());
+await queue.add('publish-facebook', { publishJobId }, { delay: delayMs, ... });
 ```
 
-**Option B:** Cron mỗi phút scan `APPROVED` jobs có `scheduled_at <= now`
+**Reconciliation cron** (mỗi 5 phút): scan jobs `SCHEDULED`/`QUEUED` quá hạn chưa vào queue → enqueue lại.
 
-- Dùng khi cần recovery nếu Redis mất job
-- V1 có thể kết hợp: Option A + cron reconciliation mỗi 5 phút
-
-### Reconciliation Cron
-
-```text
-Every 5 min:
-  SELECT * FROM publish_jobs
-  WHERE status = 'APPROVED' AND scheduled_at <= NOW()
-  → enqueue + set QUEUED
-```
+Chi tiết: [08-bullmq.md](./08-bullmq.md)
 
 ---
 
@@ -204,20 +181,21 @@ Every 5 min:
 
 | Layer | Strategy |
 |-------|----------|
-| Validation | 400 Bad Request + field errors |
-| Auth | 401 Unauthorized |
-| RBAC | 403 Forbidden |
+| Validation | 400 + field errors |
+| Auth | 401 |
+| RBAC | 403 |
 | Not found | 404 |
-| Business rule | 409 Conflict (e.g. duplicate schedule) |
+| Business rule | 409 Conflict |
+| Invalid status transition | 422 |
 | External API | Wrap → domain error, log full response |
 
-### 7.2 Logging
+### 7.2 Logging (Pino)
 
 ```typescript
-// Structured log fields
 {
   correlationId,
   userId,
+  contentId,
   publishJobId,
   action: 'PUBLISH_START',
   durationMs
@@ -227,10 +205,9 @@ Every 5 min:
 ### 7.3 Token Encryption
 
 ```text
-encrypt(plaintext, TOKEN_ENCRYPTION_KEY)
-  → store: iv:authTag:ciphertext (base64)
+encrypt(plaintext, TOKEN_ENCRYPTION_KEY) → iv:authTag:ciphertext (base64)
 decrypt on worker only when publishing
-API list pages: mask token (show last 4 chars)
+API list pages: mask token (last 4 chars)
 ```
 
 ---
@@ -239,105 +216,113 @@ API list pages: mask token (show last 4 chars)
 
 ```text
 frontend/src/
-├── api/                 # axios instance + API functions
-├── hooks/               # useAuth, usePublishJobs, ...
-├── contexts/
-│   └── AuthContext.tsx
-├── routes/
-│   └── AppRoutes.tsx    # role-based route guard
+├── api/
+├── hooks/
+├── contexts/AuthContext.tsx
+├── routes/AppRoutes.tsx
 ├── pages/
 │   ├── Dashboard/
 │   ├── ContentLibrary/
-│   ├── PublishScheduler/
+│   ├── ReviewCenter/          # NEW
+│   ├── PublisherCenter/       # NEW
+│   ├── ScheduleCalendar/
 │   ├── QueueMonitor/
 │   ├── FailedJobs/
 │   ├── PageManagement/
 │   ├── UserManagement/
 │   └── AuditLogs/
-├── components/
-│   ├── layout/          # Sidebar, Header
-│   └── common/          # StatusTag, RoleBadge
-└── utils/
-    └── permissions.ts   # can(user, 'content:approve')
+├── components/layout/
+└── utils/permissions.ts
 ```
-
-### State Management
-
-- **React Query** — server state (lists, detail, mutations)
-- **Auth Context** — user + tokens
-- Không Redux V1
 
 ### Route Guard Matrix
 
-| Route | ADMIN | CONTENT | PUBLISHER | VIEWER |
-|-------|-------|---------|-----------|--------|
+| Route | ADMIN | CONTENT | REVIEWER | PUBLISHER |
+|-------|-------|---------|----------|-----------|
 | /dashboard | ✓ | ✓ | ✓ | ✓ |
-| /content | ✓ | ✓ | read | read |
-| /scheduler | ✓ | read | ✓ | read |
-| /queue | ✓ | - | ✓ | read |
+| /content | ✓ | ✓ | read | - |
+| /review | ✓ | - | ✓ | - |
+| /publisher | ✓ | - | - | ✓ |
+| /calendar | ✓ | - | read | ✓ |
+| /queue | ✓ | - | - | ✓ |
 | /pages | ✓ | - | - | - |
 | /users | ✓ | - | - | - |
 | /audit | ✓ | - | - | - |
+
+Chi tiết: [05-rbac.md](./05-rbac.md)
 
 ---
 
 ## 9. Integration Boundaries
 
-### Google APIs
+### Google Drive API v3
 
-| API | Usage |
-|-----|-------|
-| Google Sheets API v4 | `spreadsheets.values.get` |
-| Google Drive API v3 | `files.get` + `alt=media` export (nếu cần) |
+| Operation | API |
+|-----------|-----|
+| Upload | `files.create` (multipart) |
+| Stream download | `files.get` + `alt=media` |
+| Thumbnail | `files.get` thumbnailLink hoặc generate |
 
-Adapter: `GoogleSheetClient`, `GoogleDriveClient`
+Adapter: `GoogleDriveClient` — [06-google-drive.md](./06-google-drive.md)
 
 ### Meta Graph API
 
-Adapter: `FacebookGraphClient`
+Adapter: `FacebookGraphClient` — [07-facebook-publisher.md](./07-facebook-publisher.md)
 
-- Base URL: `https://graph.facebook.com/{version}`
-- Timeout: 60s (video upload lâu hơn)
-- Retry: chỉ 5xx/network — business errors không retry blind
+- Base: `https://graph.facebook.com/{version}`
+- Timeout: 120s (video upload)
+- Retry: chỉ 5xx/network
 
 ---
 
-## 10. Scalability Notes (V1 → V2)
+## 10. Scalability (V1 → V2)
 
 | Concern | V1 | Scale path |
 |---------|-----|------------|
-| API | 1 instance | Horizontal + load balancer |
+| API | 1 instance | Horizontal + LB |
 | Worker | 1 instance | N workers, same queue |
-| Redis | Single | Redis Cluster / Sentinel |
-| Media | Drive direct | MinIO cache layer |
-| DB | Single Postgres | Read replica for dashboard |
+| Redis | Single | Sentinel / Cluster |
+| Media | Drive stream | Optional MinIO cache |
+| DB | Single Postgres | Read replica (dashboard) |
 
 ---
 
-## 11. Sequence: Full Publish Lifecycle
+## 11. State Diagrams
+
+### Content Status
 
 ```mermaid
 stateDiagram-v2
-    [*] --> APPROVED: Create job
-    APPROVED --> QUEUED: Enqueue BullMQ
-    QUEUED --> PUBLISHING: Worker picks up
-    PUBLISHING --> SUCCESS: FB API OK
+    [*] --> DRAFT: Create
+    DRAFT --> WAITING_APPROVAL: Submit
+    REJECTED --> DRAFT: Edit
+    REJECTED --> WAITING_APPROVAL: Resubmit
+    WAITING_APPROVAL --> APPROVED: Approve
+    WAITING_APPROVAL --> REJECTED: Reject
+```
+
+### Publish Job Status
+
+```mermaid
+stateDiagram-v2
+    [*] --> SCHEDULED: Publisher creates
+    SCHEDULED --> QUEUED: Enqueue BullMQ
+    QUEUED --> PUBLISHING: Worker pickup
+    PUBLISHING --> SUCCESS: FB OK
     PUBLISHING --> FAILED: Error
-    FAILED --> QUEUED: Manual/Auto retry
-    QUEUED --> CANCELLED: User cancel
-    APPROVED --> CANCELLED: User cancel
+    FAILED --> QUEUED: Retry
+    QUEUED --> CANCELLED: Cancel
+    SCHEDULED --> CANCELLED: Cancel
 ```
 
 ---
 
 ## 12. Coding Checklist per Module
 
-Khi implement mỗi module, đảm bảo có:
-
-- [ ] `*.module.ts` — imports/exports
-- [ ] `*.controller.ts` — thin, Swagger decorators
+- [ ] `*.module.ts`
+- [ ] `*.controller.ts` — thin, Swagger
 - [ ] `*.service.ts` — business logic + unit tests
 - [ ] `*.repository.ts` — Prisma queries
 - [ ] `dto/*.dto.ts` — class-validator
-- [ ] Guards applied at controller/method level
+- [ ] Guards + permission decorators
 - [ ] Audit decorator trên mutation endpoints

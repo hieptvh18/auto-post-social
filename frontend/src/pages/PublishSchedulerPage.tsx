@@ -1,77 +1,28 @@
-import { CalendarOutlined, PlusOutlined } from '@ant-design/icons';
-import {
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Form,
-  Modal,
-  Row,
-  Select,
-  Space,
-  Tag,
-  Timeline,
-  Typography,
-  message,
-} from 'antd';
+import { CalendarOutlined } from '@ant-design/icons';
+import { Card, Col, DatePicker, Row, Space, Tag, Timeline, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
-import { mockContent, mockPages, mockPublishJobs } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
 import { StatusTag } from '../components/common/StatusTag';
-import { useAuth } from '../contexts/AuthContext';
+import { useMockData } from '../contexts/MockDataContext';
 import type { PublishJob } from '../types';
-import { can } from '../utils/permissions';
 
 const { Text } = Typography;
 
 export default function PublishSchedulerPage() {
-  const { user } = useAuth();
-  const [jobs, setJobs] = useState(mockPublishJobs);
+  const { publishJobs } = useMockData();
   const [selectedDate, setSelectedDate] = useState(dayjs('2026-07-05'));
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form] = Form.useForm();
-
-  const approvedContent = mockContent.filter((c) => c.approved);
-  const activePages = mockPages.filter((p) => p.isActive);
 
   const dayJobs = useMemo(() => {
-    return jobs
-      .filter((j) => dayjs(j.scheduledAt).isSame(selectedDate, 'day'))
-      .sort((a, b) => dayjs(a.scheduledAt).unix() - dayjs(b.scheduledAt).unix());
-  }, [jobs, selectedDate]);
-
-  const handleCreate = (values: {
-    contentAssetId: string;
-    facebookPageId: string;
-    scheduledAt: dayjs.Dayjs;
-  }) => {
-    const content = approvedContent.find((c) => c.id === values.contentAssetId)!;
-    const page = activePages.find((p) => p.id === values.facebookPageId)!;
-    const newJob: PublishJob = {
-      id: String(Date.now()),
-      contentAssetId: content.id,
-      contentTitle: content.title,
-      facebookPageId: page.id,
-      pageName: page.pageName,
-      scheduledAt: values.scheduledAt.toISOString(),
-      status: 'QUEUED',
-      publishedAt: null,
-      errorMessage: null,
-      attempts: 0,
-      facebookPostId: null,
-      createdBy: user!.email,
-    };
-    setJobs((prev) => [...prev, newJob]);
-    setModalOpen(false);
-    form.resetFields();
-    message.success('Đã tạo lịch đăng bài (mock)');
-  };
+    return publishJobs
+      .filter((j) => dayjs(j.scheduleTime).isSame(selectedDate, 'day'))
+      .sort((a, b) => dayjs(a.scheduleTime).unix() - dayjs(b.scheduleTime).unix());
+  }, [publishJobs, selectedDate]);
 
   const groupedByHour = useMemo(() => {
     const groups: Record<string, PublishJob[]> = {};
     dayJobs.forEach((job) => {
-      const hour = dayjs(job.scheduledAt).format('HH:00');
+      const hour = dayjs(job.scheduleTime).format('HH:00');
       if (!groups[hour]) groups[hour] = [];
       groups[hour].push(job);
     });
@@ -82,18 +33,7 @@ export default function PublishSchedulerPage() {
     <div>
       <PageHeader
         title="Lịch đăng bài"
-        description="Calendar view — xem và tạo lịch publish"
-        extra={
-          can(user!.role, 'publish:schedule') && (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setModalOpen(true)}
-            >
-              Tạo lịch mới
-            </Button>
-          )
-        }
+        description="Xem timeline các bài đã lên lịch — tạo lịch mới tại Publisher Center"
       />
 
       <Row gutter={24}>
@@ -146,6 +86,15 @@ export default function PublishSchedulerPage() {
                               </Space>
                               <Text strong>{job.contentTitle}</Text>
                               <Text type="secondary" style={{ fontSize: 12 }}>
+                                {job.caption.slice(0, 80)}
+                                {job.caption.length > 80 ? '...' : ''}
+                              </Text>
+                              {job.hashtags && (
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  {job.hashtags}
+                                </Text>
+                              )}
+                              <Text type="secondary" style={{ fontSize: 12 }}>
                                 Job #{job.id} · {job.createdBy}
                               </Text>
                             </Space>
@@ -160,55 +109,6 @@ export default function PublishSchedulerPage() {
           </Card>
         </Col>
       </Row>
-
-      <Modal
-        title="Tạo lịch đăng bài"
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => form.submit()}
-        okText="Tạo lịch"
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <Form.Item
-            name="contentAssetId"
-            label="Content"
-            rules={[{ required: true }]}
-          >
-            <Select
-              placeholder="Chọn content đã duyệt"
-              options={approvedContent.map((c) => ({
-                value: c.id,
-                label: `${c.sheetRowId} — ${c.title}`,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item
-            name="facebookPageId"
-            label="Facebook Page"
-            rules={[{ required: true }]}
-          >
-            <Select
-              placeholder="Chọn page"
-              options={activePages.map((p) => ({
-                value: p.id,
-                label: p.pageName,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item
-            name="scheduledAt"
-            label="Thời gian đăng"
-            rules={[{ required: true }]}
-          >
-            <DatePicker
-              showTime
-              format="DD/MM/YYYY HH:mm"
-              style={{ width: '100%' }}
-              disabledDate={(d) => d && d.isBefore(dayjs(), 'day')}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 }

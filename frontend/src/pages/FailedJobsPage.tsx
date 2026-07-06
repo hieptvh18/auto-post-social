@@ -3,7 +3,7 @@ import { Button, Modal, Space, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useState } from 'react';
-import { mockPublishJobs } from '../api/mock/data';
+import { useMockData } from '../contexts/MockDataContext';
 import { PageHeader } from '../components/common/PageHeader';
 import { StatusTag } from '../components/common/StatusTag';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,13 +14,14 @@ const { Text, Paragraph } = Typography;
 
 export default function FailedJobsPage() {
   const { user } = useAuth();
-  const [jobs, setJobs] = useState(
-    mockPublishJobs.filter((j) => j.status === 'FAILED'),
-  );
+  const { publishJobs } = useMockData();
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [errorJob, setErrorJob] = useState<PublishJob | null>(null);
 
+  const jobs = publishJobs.filter((j) => j.status === 'FAILED' && !hiddenIds.includes(j.id));
+
   const handleRetry = (id: string) => {
-    setJobs((prev) => prev.filter((j) => j.id !== id));
+    setHiddenIds((prev) => [...prev, id]);
     message.success(`Job #${id} đã được đưa vào queue retry (mock)`);
   };
 
@@ -55,7 +56,7 @@ export default function FailedJobsPage() {
     },
     {
       title: 'Scheduled',
-      dataIndex: 'scheduledAt',
+      dataIndex: 'scheduleTime',
       width: 150,
       render: (v) => dayjs(v).format('DD/MM/YYYY HH:mm'),
     },

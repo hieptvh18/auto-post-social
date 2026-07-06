@@ -5,16 +5,19 @@ import {
   FileImageOutlined,
   FacebookOutlined,
   LogoutOutlined,
+  MedicineBoxOutlined,
   TeamOutlined,
   UnorderedListOutlined,
   WarningOutlined,
+  CheckCircleOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
-import { Avatar, Dropdown, Layout, Menu, Select, Tag, Typography, theme } from 'antd';
+import { Avatar, Dropdown, Layout, Menu, Select, Space, Tag, Typography, theme } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { RoleTag } from '../components/common/StatusTag';
 import { canAccessRoute } from '../utils/permissions';
-import { ROLE_LABELS } from '../utils/constants';
+import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS, ROLE_LABELS } from '../utils/constants';
 import type { UserRole } from '../types';
 
 const { Header, Sider, Content } = Layout;
@@ -23,11 +26,13 @@ const { Text } = Typography;
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/content', icon: <FileImageOutlined />, label: 'Content Library' },
+  { key: '/review', icon: <CheckCircleOutlined />, label: 'Review Center' },
+  { key: '/publisher', icon: <SendOutlined />, label: 'Publisher Center' },
   { key: '/scheduler', icon: <CalendarOutlined />, label: 'Lịch đăng bài' },
   { key: '/queue', icon: <UnorderedListOutlined />, label: 'Queue Monitor' },
   { key: '/failed', icon: <WarningOutlined />, label: 'Failed Jobs' },
   { key: '/pages', icon: <FacebookOutlined />, label: 'Facebook Pages' },
-  { key: '/users', icon: <TeamOutlined />, label: 'Users' },
+  { key: '/users', icon: <TeamOutlined />, label: 'Nhân viên' },
   { key: '/audit', icon: <AuditOutlined />, label: 'Audit Logs' },
 ];
 
@@ -68,13 +73,13 @@ export function AdminLayout() {
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <FacebookOutlined style={{ fontSize: 22, color: '#1877f2' }} />
+          <MedicineBoxOutlined style={{ fontSize: 22, color: '#36cfc9' }} />
           <div>
             <Text strong style={{ color: '#fff', display: 'block', lineHeight: 1.2 }}>
-              Social Publish
+              {APP_NAME}
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
-              Admin Panel
+              {APP_TAGLINE}
             </Text>
           </div>
         </div>
@@ -108,62 +113,72 @@ export function AdminLayout() {
         <Header
           style={{
             background: token.colorBgContainer,
+            height: 64,
+            lineHeight: '64px',
             padding: '0 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: 16,
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
             position: 'sticky',
             top: 0,
             zIndex: 99,
           }}
         >
-          {isPreviewMode && (
-            <Select
-              size="small"
-              value={user.role}
-              style={{ width: 160 }}
-              options={(Object.keys(ROLE_LABELS) as UserRole[]).map((role) => ({
-                value: role,
-                label: ROLE_LABELS[role],
-              }))}
-              onChange={(role: UserRole) =>
-                login(`${role.toLowerCase()}@company.com`, role)
-              }
-            />
-          )}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'logout',
-                  icon: <LogoutOutlined />,
-                  label: 'Đăng xuất',
-                  onClick: logout,
-                },
-              ],
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 16,
+              height: 64,
             }}
           >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                cursor: 'pointer',
+            {isPreviewMode && (
+              <Select
+                size="small"
+                value={user.role}
+                style={{ width: 160 }}
+                options={(Object.keys(ROLE_LABELS) as UserRole[]).map((role) => ({
+                  value: role,
+                  label: ROLE_LABELS[role],
+                }))}
+                onChange={(role: UserRole) => login(PREVIEW_EMAILS[role], role)}
+              />
+            )}
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: 'logout',
+                    icon: <LogoutOutlined />,
+                    label: 'Đăng xuất',
+                    onClick: logout,
+                  },
+                ],
               }}
             >
-              <Avatar style={{ backgroundColor: '#1877f2' }}>
-                {user.email.charAt(0).toUpperCase()}
-              </Avatar>
-              <div>
-                <Text strong style={{ display: 'block', lineHeight: 1.2 }}>
+              <Space
+                size={8}
+                style={{
+                  cursor: 'pointer',
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  lineHeight: 1,
+                }}
+              >
+                <Avatar size={32} style={{ backgroundColor: '#13a8a8', flexShrink: 0 }}>
+                  {user.email.charAt(0).toUpperCase()}
+                </Avatar>
+                <Text
+                  strong
+                  ellipsis
+                  style={{ maxWidth: 160, fontSize: 13, lineHeight: '20px' }}
+                >
                   {user.email}
                 </Text>
                 <RoleTag role={user.role} />
-              </div>
-            </div>
-          </Dropdown>
+              </Space>
+            </Dropdown>
+          </div>
         </Header>
 
         <Content style={{ padding: 24, background: '#f5f7fa', minHeight: 'calc(100vh - 64px)' }}>

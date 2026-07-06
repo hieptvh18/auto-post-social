@@ -1,17 +1,17 @@
-import { FacebookOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
+import { LockOutlined, MedicineBoxOutlined, UserOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, Select, Typography, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import type { UserRole } from '../types';
-import { ROLE_LABELS } from '../utils/constants';
+import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS, ROLE_LABELS } from '../utils/constants';
 
 const { Title, Text } = Typography;
 
 const DEMO_ACCOUNTS: { email: string; role: UserRole }[] = [
-  { email: 'admin@company.com', role: 'ADMIN' },
-  { email: 'content@company.com', role: 'CONTENT' },
-  { email: 'publisher@company.com', role: 'PUBLISHER' },
-  { email: 'viewer@company.com', role: 'VIEWER' },
+  { email: PREVIEW_EMAILS.ADMIN, role: 'ADMIN' },
+  { email: PREVIEW_EMAILS.CONTENT, role: 'CONTENT' },
+  { email: PREVIEW_EMAILS.REVIEWER, role: 'REVIEWER' },
+  { email: PREVIEW_EMAILS.PUBLISHER, role: 'PUBLISHER' },
 ];
 
 export default function LoginPage() {
@@ -40,7 +40,7 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0a1628 0%, #1a3a6b 50%, #1877f2 100%)',
+        background: 'linear-gradient(135deg, #0a2e2e 0%, #135200 50%, #13a8a8 100%)',
         padding: 24,
       }}
     >
@@ -49,25 +49,25 @@ export default function LoginPage() {
         styles={{ body: { padding: 32 } }}
       >
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <FacebookOutlined style={{ fontSize: 40, color: '#1877f2' }} />
+          <MedicineBoxOutlined style={{ fontSize: 40, color: '#13a8a8' }} />
           <Title level={3} style={{ marginTop: 12, marginBottom: 4 }}>
-            Social Publish Admin
+            {APP_NAME}
           </Title>
-          <Text type="secondary">Đăng nhập để xem UI preview</Text>
+          <Text type="secondary">{APP_TAGLINE}</Text>
         </div>
 
         <Form
           form={form}
           layout="vertical"
           onFinish={onFinish}
-          initialValues={{ role: 'ADMIN', password: 'demo123' }}
+          initialValues={{ role: 'ADMIN', password: 'demo123', email: PREVIEW_EMAILS.ADMIN }}
         >
           <Form.Item
             name="email"
             label="Email"
             rules={[{ required: true, message: 'Nhập email' }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="admin@company.com" />
+            <Input prefix={<UserOutlined />} placeholder={PREVIEW_EMAILS.ADMIN} />
           </Form.Item>
 
           <Form.Item

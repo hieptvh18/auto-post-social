@@ -8,7 +8,9 @@ import FailedJobsPage from './pages/FailedJobsPage';
 import LoginPage from './pages/LoginPage';
 import PageManagementPage from './pages/PageManagementPage';
 import PublishSchedulerPage from './pages/PublishSchedulerPage';
+import PublisherCenterPage from './pages/PublisherCenterPage';
 import QueueMonitorPage from './pages/QueueMonitorPage';
+import ReviewCenterPage from './pages/ReviewCenterPage';
 import UserManagementPage from './pages/UserManagementPage';
 import { ProtectedRoute, RoleRoute } from './routes/ProtectedRoute';
 
@@ -27,8 +29,18 @@ export function AppRoutes() {
         <Route element={<AdminLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="content" element={<ContentLibraryPage />} />
-          <Route path="scheduler" element={<PublishSchedulerPage />} />
+          <Route element={<RoleRoute path="/content" />}>
+            <Route path="content" element={<ContentLibraryPage />} />
+          </Route>
+          <Route element={<RoleRoute path="/review" />}>
+            <Route path="review" element={<ReviewCenterPage />} />
+          </Route>
+          <Route element={<RoleRoute path="/publisher" />}>
+            <Route path="publisher" element={<PublisherCenterPage />} />
+          </Route>
+          <Route element={<RoleRoute path="/scheduler" />}>
+            <Route path="scheduler" element={<PublishSchedulerPage />} />
+          </Route>
           <Route path="queue" element={<QueueMonitorPage />} />
           <Route path="failed" element={<FailedJobsPage />} />
 

@@ -27,15 +27,15 @@ export default function DashboardPage() {
     <div>
       <PageHeader
         title="Dashboard"
-        description="Tổng quan hoạt động publish trong 7 ngày qua"
+        description="Tổng quan workflow content & publish (mock data)"
       />
 
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={8} xl={4}>
           <Card>
             <Statistic
-              title="Tổng bài đăng"
-              value={stats.totalPosts}
+              title="Chờ duyệt"
+              value={stats.waitingReview}
               prefix={<FileTextOutlined />}
             />
           </Card>
@@ -43,7 +43,37 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={8} xl={4}>
           <Card>
             <Statistic
-              title="Thành công"
+              title="Đã duyệt"
+              value={stats.approved}
+              valueStyle={{ color: '#1677ff' }}
+              prefix={<CheckCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <Card>
+            <Statistic
+              title="Đã lên lịch"
+              value={stats.scheduled}
+              valueStyle={{ color: '#722ed1' }}
+              prefix={<ClockCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <Card>
+            <Statistic
+              title="Đang đăng"
+              value={stats.publishing}
+              valueStyle={{ color: '#faad14' }}
+              prefix={<ClockCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={8} xl={4}>
+          <Card>
+            <Statistic
+              title="Publish thành công"
               value={stats.successPosts}
               valueStyle={{ color: '#3f8600' }}
               prefix={<CheckCircleOutlined />}
@@ -53,20 +83,10 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={8} xl={4}>
           <Card>
             <Statistic
-              title="Thất bại"
+              title="Publish thất bại"
               value={stats.failedPosts}
               valueStyle={{ color: '#cf1322' }}
               prefix={<CloseCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={8} xl={4}>
-          <Card>
-            <Statistic
-              title="Đang chờ"
-              value={stats.queuedPosts}
-              valueStyle={{ color: '#1677ff' }}
-              prefix={<ClockCircleOutlined />}
             />
           </Card>
         </Col>
@@ -108,7 +128,13 @@ export default function DashboardPage() {
         <Col xs={24} lg={12}>
           <Card title="Tỷ lệ thành công">
             <Statistic
-              value={((stats.successPosts / stats.totalPosts) * 100).toFixed(1)}
+              value={
+                (
+                  (stats.successPosts /
+                    Math.max(1, stats.successPosts + stats.failedPosts)) *
+                  100
+                ).toFixed(1)
+              }
               suffix="%"
               valueStyle={{ color: '#3f8600', fontSize: 36 }}
             />
@@ -117,7 +143,13 @@ export default function DashboardPage() {
         <Col xs={24} lg={12}>
           <Card title="Tỷ lệ thất bại">
             <Statistic
-              value={((stats.failedPosts / stats.totalPosts) * 100).toFixed(1)}
+              value={
+                (
+                  (stats.failedPosts /
+                    Math.max(1, stats.successPosts + stats.failedPosts)) *
+                  100
+                ).toFixed(1)
+              }
               suffix="%"
               valueStyle={{ color: '#cf1322', fontSize: 36 }}
             />

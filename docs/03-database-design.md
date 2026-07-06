@@ -1,6 +1,6 @@
 # 03 — Database Design
 
-> Schema Prisma, indexes, migrations, và data rules
+> Schema Prisma, indexes, migrations — v2.0
 
 ---
 
@@ -8,20 +8,36 @@
 
 ```mermaid
 erDiagram
+    users ||--o{ content_assets : creates
+    users ||--o{ content_assets : approves
     users ||--o{ publish_jobs : creates
     users ||--o{ audit_logs : performs
+    users ||--o{ comments : writes
     users ||--o{ facebook_pages : creates
     content_assets ||--o{ publish_jobs : has
+    content_assets ||--o{ comments : has
     facebook_pages ||--o{ publish_jobs : targets
+    roles ||--o{ users : assigns
 
     users {
         uuid id PK
+        string name
         string email UK
         string password_hash
-        enum role
+        uuid role_id FK
         boolean is_active
         datetime created_at
         datetime updated_at
+    }
+
+    roles {
+        uuid id PK
+        string name UK
+    }
+
+    permissions {
+        uuid id PK
+        string code UK
     }
 
     facebook_pages {
@@ -32,21 +48,20 @@ erDiagram
         datetime token_expire_at
         boolean is_active
         uuid created_by FK
-        datetime created_at
-        datetime updated_at
     }
 
     content_assets {
         uuid id PK
-        string sheet_row_id UK
-        string category
         string title
-        text caption
+        text description
+        string category
         enum media_type
+        string drive_file_id
         string drive_url
-        boolean approved
-        string owner
-        datetime sheet_updated_at
+        string thumbnail_url
+        enum status
+        uuid created_by FK
+        uuid approved_by FK
         datetime created_at
         datetime updated_at
     }
@@ -55,15 +70,23 @@ erDiagram
         uuid id PK
         uuid content_asset_id FK
         uuid facebook_page_id FK
-        datetime scheduled_at
+        text caption
+        text hashtags
+        datetime schedule_time
         enum status
         datetime published_at
         string facebook_post_id
         text error_message
         int attempt_count
         uuid created_by FK
+    }
+
+    comments {
+        uuid id PK
+        uuid content_id FK
+        uuid user_id FK
+        text comment
         datetime created_at
-        datetime updated_at
     }
 
     audit_logs {
@@ -71,32 +94,51 @@ erDiagram
         uuid user_id FK
         string action
         string resource
-        jsonb old_value
-        jsonb new_value
-        string ip_address
+        jsonb before_value
+        jsonb after_value
         datetime created_at
-    }
-
-    sync_logs {
-        uuid id PK
-        uuid triggered_by FK
-        int rows_created
-        int rows_updated
-        int rows_skipped
-        int rows_failed
-        jsonb errors
-        datetime started_at
-        datetime finished_at
     }
 ```
 
 ---
 
-## 2. Prisma Schema (đầy đủ)
+## 2. Enums
 
 ```prisma
-// prisma/schema.prisma
+enum UserRole {
+  ADMIN
+  CONTENT
+  REVIEWER
+  PUBLISHER
+}
 
+enum MediaType {
+  image
+  video
+}
+
+enum ContentStatus {
+  DRAFT
+  WAITING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum PublishStatus {
+  SCHEDULED
+  QUEUED
+  PUBLISHING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+```
+
+---
+
+## 3. Prisma Schema
+
+```prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -106,55 +148,52 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  ADMIN
-  CONTENT
-  PUBLISHER
-  VIEWER
+model Role {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  users User[]
+
+  @@map("roles")
 }
 
-enum MediaType {
-  image
-  video
-}
+model Permission {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique
 
-enum PublishStatus {
-  DRAFT
-  APPROVED
-  QUEUED
-  PUBLISHING
-  SUCCESS
-  FAILED
-  CANCELLED
+  @@map("permissions")
 }
 
 model User {
   id           String   @id @default(uuid()) @db.Uuid
+  name         String
   email        String   @unique
   passwordHash String   @map("password_hash")
-  role         UserRole @default(VIEWER)
+  role         UserRole @default(CONTENT)
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  publishJobs    PublishJob[]
-  auditLogs      AuditLog[]
-  facebookPages  FacebookPage[]
-  syncLogs       SyncLog[]
+  contentCreated   ContentAsset[] @relation("ContentCreator")
+  contentApproved  ContentAsset[] @relation("ContentApprover")
+  publishJobs      PublishJob[]
+  comments         Comment[]
+  auditLogs        AuditLog[]
+  facebookPages    FacebookPage[]
 
   @@map("users")
 }
 
 model FacebookPage {
-  id               String    @id @default(uuid()) @db.Uuid
-  pageName         String    @map("page_name")
-  pageId           String    @unique @map("page_id")
-  accessTokenEnc   String    @map("access_token_enc") @db.Text
-  tokenExpireAt    DateTime? @map("token_expire_at")
-  isActive         Boolean   @default(true) @map("is_active")
-  createdById      String    @map("created_by") @db.Uuid
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  pageName       String    @map("page_name")
+  pageId         String    @unique @map("page_id")
+  accessTokenEnc String    @map("access_token_enc") @db.Text
+  tokenExpireAt  DateTime? @map("token_expire_at")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdById    String    @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   createdBy   User         @relation(fields: [createdById], references: [id])
   publishJobs PublishJob[]
@@ -164,24 +203,31 @@ model FacebookPage {
 }
 
 model ContentAsset {
-  id              String    @id @default(uuid()) @db.Uuid
-  sheetRowId      String    @unique @map("sheet_row_id")
-  category        String?
-  title           String
-  caption         String    @db.Text
-  mediaType       MediaType @map("media_type")
-  driveUrl        String    @map("drive_url")
-  approved        Boolean   @default(false)
-  owner           String?
-  sheetUpdatedAt  DateTime? @map("sheet_updated_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id            String        @id @default(uuid()) @db.Uuid
+  title         String
+  description   String?       @db.Text
+  category      String?
+  mediaType     MediaType     @map("media_type")
+  driveFileId   String        @map("drive_file_id")
+  driveUrl      String?       @map("drive_url")
+  thumbnailUrl  String?       @map("thumbnail_url")
+  mimeType      String?       @map("mime_type")
+  fileSize      BigInt?       @map("file_size")
+  status        ContentStatus @default(DRAFT)
+  createdById   String        @map("created_by") @db.Uuid
+  approvedById  String?       @map("approved_by") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
 
+  createdBy   User         @relation("ContentCreator", fields: [createdById], references: [id])
+  approvedBy  User?        @relation("ContentApprover", fields: [approvedById], references: [id])
   publishJobs PublishJob[]
+  comments    Comment[]
 
-  @@index([approved])
+  @@index([status])
   @@index([category])
   @@index([mediaType])
+  @@index([createdById])
   @@map("content_assets")
 }
 
@@ -189,8 +235,10 @@ model PublishJob {
   id              String        @id @default(uuid()) @db.Uuid
   contentAssetId  String        @map("content_asset_id") @db.Uuid
   facebookPageId  String        @map("facebook_page_id") @db.Uuid
-  scheduledAt     DateTime      @map("scheduled_at")
-  status          PublishStatus @default(APPROVED)
+  caption         String        @db.Text
+  hashtags        String?       @db.Text
+  scheduleTime    DateTime      @map("schedule_time")
+  status          PublishStatus @default(SCHEDULED)
   publishedAt     DateTime?     @map("published_at")
   facebookPostId  String?       @map("facebook_post_id")
   errorMessage    String?       @map("error_message") @db.Text
@@ -205,20 +253,34 @@ model PublishJob {
   createdBy    User         @relation(fields: [createdById], references: [id])
 
   @@index([status])
-  @@index([scheduledAt])
-  @@index([contentAssetId, facebookPageId, scheduledAt])
+  @@index([scheduleTime])
+  @@index([contentAssetId, facebookPageId, scheduleTime])
   @@map("publish_jobs")
 }
 
-model AuditLog {
+model Comment {
   id        String   @id @default(uuid()) @db.Uuid
+  contentId String   @map("content_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
-  action    String
-  resource  String
-  oldValue  Json?    @map("old_value")
-  newValue  Json?    @map("new_value")
-  ipAddress String?  @map("ip_address")
+  comment   String   @db.Text
   createdAt DateTime @default(now()) @map("created_at")
+
+  content ContentAsset @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id])
+
+  @@index([contentId])
+  @@map("comments")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  action     String
+  resource   String
+  beforeValue Json?   @map("before_value")
+  afterValue  Json?   @map("after_value")
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -227,56 +289,74 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
-
-model SyncLog {
-  id           String    @id @default(uuid()) @db.Uuid
-  triggeredById String   @map("triggered_by") @db.Uuid
-  rowsCreated  Int       @default(0) @map("rows_created")
-  rowsUpdated  Int       @default(0) @map("rows_updated")
-  rowsSkipped  Int       @default(0) @map("rows_skipped")
-  rowsFailed   Int       @default(0) @map("rows_failed")
-  errors       Json?
-  startedAt    DateTime  @default(now()) @map("started_at")
-  finishedAt   DateTime? @map("finished_at")
-
-  triggeredBy User @relation(fields: [triggeredById], references: [id])
-
-  @@map("sync_logs")
-}
 ```
 
 ---
 
-## 3. Indexes Rationale
+## 4. Indexes Rationale
 
 | Index | Lý do |
 |-------|-------|
-| `content_assets.sheet_row_id` UNIQUE | Dedup sync |
-| `publish_jobs(status)` | Filter queue/failed |
-| `publish_jobs(scheduled_at)` | Calendar + cron reconciliation |
-| `publish_jobs(content, page, scheduled)` | Detect duplicate schedule |
-| `audit_logs(created_at)` | Time-range queries |
+| `content_assets(status)` | Filter theo workflow state |
+| `content_assets(created_by)` | Content user xem bài của mình |
+| `publish_jobs(status)` | Queue/failed monitor |
+| `publish_jobs(schedule_time)` | Calendar + reconciliation |
+| `comments(content_id)` | Review history |
 | `facebook_pages.page_id` UNIQUE | Meta API identifier |
 
 ---
 
-## 4. Migration Strategy
+## 5. Content Status Transitions
 
-### Initial migration
+| From \ To | WAITING_APPROVAL | APPROVED | REJECTED | DRAFT |
+|-----------|------------------|----------|----------|-------|
+| DRAFT | ✓ (submit) | - | - | - |
+| REJECTED | ✓ (resubmit) | - | - | ✓ (edit) |
+| WAITING_APPROVAL | - | ✓ | ✓ | - |
+| APPROVED | - | - | - | - |
 
-```bash
-cd backend
-npx prisma migrate dev --name init
-```
+Enforce trong `ContentAssetsService.transitionStatus()`.
 
-### Seed data (`prisma/seed.ts`)
+---
+
+## 6. Publish Job Status Transitions
+
+| From \ To | QUEUED | PUBLISHING | SUCCESS | FAILED | CANCELLED |
+|-----------|--------|------------|---------|--------|-----------|
+| SCHEDULED | ✓ | - | - | - | ✓ |
+| QUEUED | - | ✓ | - | - | ✓ |
+| PUBLISHING | - | - | ✓ | ✓ | - |
+| FAILED | ✓ (retry) | - | - | - | ✓ |
+
+---
+
+## 7. Data Rules
+
+| Field | Constraint |
+|-------|------------|
+| `users.email` | Unique, lowercase trim |
+| `content_assets.drive_file_id` | Required khi submit review |
+| `content_assets` media | DB không lưu binary — chỉ metadata |
+| `publish_jobs.caption` | Max 63206 chars |
+| `publish_jobs.schedule_time` | UTC stored, UI `Asia/Ho_Chi_Minh` |
+| `publish_jobs.attempt_count` | Increment mỗi worker try |
+
+---
+
+## 8. Seed Data
 
 ```typescript
-// Tạo admin mặc định (đổi password sau login)
-const admin = await prisma.user.upsert({
+// prisma/seed.ts
+const roles = ['ADMIN', 'CONTENT', 'REVIEWER', 'PUBLISHER'];
+for (const name of roles) {
+  await prisma.role.upsert({ where: { name }, update: {}, create: { name } });
+}
+
+await prisma.user.upsert({
   where: { email: 'admin@company.local' },
   update: {},
   create: {
+    name: 'System Admin',
     email: 'admin@company.local',
     passwordHash: await bcrypt.hash('ChangeMe123!', 12),
     role: 'ADMIN',
@@ -284,116 +364,37 @@ const admin = await prisma.user.upsert({
 });
 ```
 
-Chạy: `npx prisma db seed`
-
----
-
-## 5. Repository Patterns
-
-### PublishJobsRepository — ví dụ queries
-
-```typescript
-// findDueForReconciliation
-findApprovedDue(now: Date) {
-  return this.prisma.publishJob.findMany({
-    where: {
-      status: PublishStatus.APPROVED,
-      scheduledAt: { lte: now },
-    },
-  });
-}
-
-// optimistic lock khi worker pickup
-updateStatusIfCurrent(id: string, from: PublishStatus, to: PublishStatus) {
-  return this.prisma.publishJob.updateMany({
-    where: { id, status: from },
-    data: { status: to },
-  });
-}
-```
-
-### Idempotent worker pickup
-
-Chỉ transition `QUEUED → PUBLISHING` nếu `updateMany.count === 1` — tránh double publish.
-
----
-
-## 6. Data Validation Rules (DB + App)
-
-| Field | Constraint |
-|-------|------------|
-| `users.email` | Unique, lowercase trim |
-| `facebook_pages.page_id` | Numeric string (Meta page ID) |
-| `content_assets.caption` | Max 63206 chars (app validate) |
-| `publish_jobs.scheduled_at` | Timezone UTC stored |
-| `publish_jobs.attempt_count` | Increment mỗi lần worker try |
-
----
-
-## 7. Status Transition Matrix
-
-| From \ To | QUEUED | PUBLISHING | SUCCESS | FAILED | CANCELLED |
-|-----------|--------|------------|---------|--------|-----------|
-| APPROVED | ✓ | - | - | - | ✓ |
-| QUEUED | - | ✓ | - | - | ✓ |
-| PUBLISHING | - | - | ✓ | ✓ | - |
-| FAILED | ✓ (retry) | - | - | - | ✓ |
-| SUCCESS | - | - | - | - | - |
-| CANCELLED | - | - | - | - | - |
-
-Enforce trong `PublishJobsService.updateStatus()` — throw nếu invalid transition.
-
----
-
-## 8. Soft Delete vs Hard Delete
-
-| Entity | Strategy V1 |
-|--------|-------------|
-| users | Soft: `is_active=false` |
-| facebook_pages | Soft: `is_active=false` |
-| content_assets | Hard delete chỉ ADMIN; prefer keep history |
-| publish_jobs | Never delete — CANCELLED terminal |
-
 ---
 
 ## 9. Dashboard Queries
 
 ```sql
--- Posts by status in date range
+-- Content by status
+SELECT status, COUNT(*) FROM content_assets GROUP BY status;
+
+-- Publish by status (date range)
 SELECT status, COUNT(*)
 FROM publish_jobs
-WHERE scheduled_at BETWEEN $1 AND $2
+WHERE schedule_time BETWEEN $1 AND $2
 GROUP BY status;
 
--- Daily success rate (7 days)
-SELECT DATE(published_at) AS day,
-       COUNT(*) FILTER (WHERE status = 'SUCCESS') AS success,
-       COUNT(*) FILTER (WHERE status = 'FAILED') AS failed
-FROM publish_jobs
-WHERE published_at >= NOW() - INTERVAL '7 days'
-GROUP BY day
-ORDER BY day;
+-- Top content creators
+SELECT u.name, COUNT(c.id) AS content_count
+FROM content_assets c
+JOIN users u ON c.created_by = u.id
+WHERE c.created_at >= NOW() - INTERVAL '30 days'
+GROUP BY u.id, u.name
+ORDER BY content_count DESC
+LIMIT 10;
 ```
 
-Implement trong `DashboardRepository` dùng Prisma `$queryRaw` hoặc aggregate.
-
 ---
 
-## 10. Backup & Retention
+## 10. Implementation Tasks
 
-| Data | Retention V1 |
-|------|--------------|
-| publish_jobs | Giữ vĩnh viễn |
-| audit_logs | 1 năm (cron purge V2) |
-| sync_logs | 90 ngày |
-
----
-
-## 11. Implementation Tasks
-
-- [ ] Tạo `schema.prisma` theo spec trên
-- [ ] Migration init + seed admin
+- [ ] `schema.prisma` theo spec trên
+- [ ] Migration init + seed roles + admin
 - [ ] `PrismaService` global module
-- [ ] Repository base interface (optional)
-- [ ] Unit test repositories với test DB hoặc mock
-- [ ] Document timezone: **lưu UTC**, UI convert `Asia/Ho_Chi_Minh`
+- [ ] Repository per aggregate
+- [ ] Unit test status transition logic
+- [ ] Document timezone: **UTC in DB**, UI convert local

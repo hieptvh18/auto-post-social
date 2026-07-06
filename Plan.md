@@ -1,804 +1,112 @@
 # Social Content Workflow Management Platform
 
-Version: 2.0
+**Version:** 2.0  
+**Tài liệu chi tiết:** [docs/00-overview.md](./docs/00-overview.md)
 
 ---
 
-# 1. Business Problem
+## Tóm tắt
 
-## Hiện trạng
+Nền tảng quản lý quy trình Content nội bộ — thay thế hoàn toàn Google Sheet bằng **Web Admin** làm cổng làm việc duy nhất. Media lưu trên **Google Drive**; metadata và workflow lưu trên **PostgreSQL**.
 
-Hiện doanh nghiệp có quy trình như sau:
-
-Content Team
-↓
-
-Upload video lên Google Drive
-
-↓
-
-Paste link vào Google Sheet
-
-↓
-
-Đội đăng bài mở Google Sheet
-
-↓
-
-Copy link
-
-↓
-
-Đăng Facebook thủ công
-
-↓
-
-Đánh dấu đã đăng
-
-Quy trình này tồn tại nhiều vấn đề:
-
-- Không có workflow rõ ràng.
-- Không có phân quyền.
-- Không biết ai đang xử lý bài nào.
-- Không có người duyệt nội dung.
-- Không có lịch đăng tập trung.
-- Không có retry khi đăng lỗi.
-- Không có thống kê.
-- Google Sheet chỉ là nơi lưu dữ liệu, không quản lý quy trình.
+| Vai trò | Workspace |
+|---------|-----------|
+| Content User | Content Library — upload, tạo, sửa, submit review |
+| Reviewer (Leader) | Review Center — approve, reject, comment |
+| Publisher | Publisher Center — schedule, caption, hashtag, retry |
+| Admin | Toàn quyền — users, pages, queue, audit |
 
 ---
 
-# 2. Mục tiêu
+## Kiến trúc tổng quan
 
-Xây dựng hệ thống quản lý quy trình Content cho doanh nghiệp.
-
-Google Sheet sẽ được loại bỏ hoàn toàn.
-
-Google Drive vẫn là nơi lưu Media.
-
-Web Admin trở thành nơi làm việc duy nhất của:
-
-- Content Team
-- Reviewer
-- Publisher
-- Admin
-
-Toàn bộ workflow được quản lý trên hệ thống.
-
----
-
-# 3. High Level Architecture
-
+```text
                     Web Admin
-
         ┌──────────────┬───────────────┐
-
         ▼                              ▼
-
  Content Workspace             Publish Workspace
-
         │                              │
-
         └──────────────┬───────────────┘
-
                        ▼
-
                  PostgreSQL
-
                        ▼
-
-                Google Drive API
-
+                Google Drive API → Google Drive (media only)
                        ▼
-
-                Google Drive
-
-                       ▼
-
                   BullMQ Worker
-
                        ▼
+               Meta Graph API → Facebook Pages
+```
 
-               Meta Graph API
-
-                       ▼
-
-                Facebook Pages
+Chi tiết: [docs/02-architecture.md](./docs/02-architecture.md)
 
 ---
 
-# 4. Vai trò hệ thống
+## Content Lifecycle
 
-## 4.1 Content User
+```text
+DRAFT → WAITING_APPROVAL → APPROVED → SCHEDULED → PUBLISHING → SUCCESS
+                              ↓                              ↓
+                          REJECTED                         FAILED → RETRY
+```
 
-Nhiệm vụ
-
-- Upload video
-- Upload ảnh
-- Tạo Content
-- Chỉnh sửa Content
-
-Không được:
-
-- Schedule
-- Publish
+Chi tiết workflow: [docs/01-business-requirements.md](./docs/01-business-requirements.md#4-workflow)
 
 ---
 
-## 4.2 Reviewer (Leader)
+## Nguyên tắc phát triển
 
-Nhiệm vụ
-
-- Review Content
-- Approve
-- Reject
-- Comment
-
----
-
-## 4.3 Publisher
-
-Nhiệm vụ
-
-- Chọn bài đã được duyệt
-- Chọn Fanpage
-- Setup Caption
-- Setup Hashtag
-- Setup Thumbnail
-- Chọn giờ đăng
-- Retry bài lỗi
+| Nguyên tắc | Giá trị |
+|------------|---------|
+| Single Source of Truth | PostgreSQL |
+| Single Working Portal | Web Admin |
+| Media Storage | Google Drive (chỉ `fileId`, không lưu file trên server) |
+| Background Processing | BullMQ + Redis |
+| Authentication | JWT |
+| Authorization | RBAC |
+| Audit | Mọi action quan trọng phải log |
+| Architecture | Clean Architecture, DDD-lite, feature-first module |
 
 ---
 
-## 4.4 Admin
+## Tech Stack
 
-Toàn quyền.
-
-- User
-- Role
-- Fanpage
-- Token
-- Dashboard
-- Queue
-- Audit Log
+| Layer | Công nghệ |
+|-------|-----------|
+| Backend | NestJS, Prisma, PostgreSQL, BullMQ, Redis, Pino, Swagger |
+| Integrations | Google Drive API, Meta Graph API |
+| Frontend | React, Ant Design, React Query |
+| Infra | Docker Compose, Nginx — 2 vCPU, 4GB RAM, 50GB SSD |
 
 ---
 
-# 5. Workflow
+## Web Admin Modules
 
-## Bước 1
+Authentication · Dashboard · User/Role/Permission Management · Content Library · Review Center · Publisher Center · Schedule Calendar · Facebook Pages · Queue Monitor · Failed Jobs · Audit Logs · System Settings
 
-Content
-
-↓
-
-Tạo Content
-
-↓
-
-Upload Media
-
-↓
-
-Google Drive
-
-↓
-
-Status
-
-DRAFT
+Chi tiết UI/FR: [docs/01-business-requirements.md](./docs/01-business-requirements.md)
 
 ---
 
-## Bước 2
+## Index tài liệu (`docs/`)
 
-Content
-
-↓
-
-Submit Review
-
-↓
-
-Status
-
-WAITING_APPROVAL
-
----
-
-## Bước 3
-
-Leader
-
-↓
-
-Review
-
-↓
-
-Approve
-
-↓
-
-Status
-
-APPROVED
-
-Hoặc
-
-Reject
-
-↓
-
-REJECTED
+| File | Nội dung |
+|------|----------|
+| [00-overview.md](./docs/00-overview.md) | Tổng quan, monorepo, env, definition of done |
+| [01-business-requirements.md](./docs/01-business-requirements.md) | Pain points, roles, workflow, FR/NFR, user stories |
+| [02-architecture.md](./docs/02-architecture.md) | System context, modules, request flows |
+| [03-database-design.md](./docs/03-database-design.md) | ERD, Prisma schema, indexes, migrations |
+| [04-api-spec.md](./docs/04-api-spec.md) | REST API đầy đủ |
+| [05-rbac.md](./docs/05-rbac.md) | Roles, permissions, route guards |
+| [06-google-drive.md](./docs/06-google-drive.md) | Upload media, stream publish |
+| [07-facebook-publisher.md](./docs/07-facebook-publisher.md) | Meta Graph API, image/video publish |
+| [08-bullmq.md](./docs/08-bullmq.md) | Queue `publish-facebook`, retry, DLQ |
+| [09-deployment.md](./docs/09-deployment.md) | Docker Compose, Nginx, production |
+| [10-roadmap.md](./docs/10-roadmap.md) | Sprint plan, task breakdown |
 
 ---
 
-## Bước 4
+## Future Features (V2+)
 
-Publisher
+Campaign · Content Calendar · Multi-platform (Instagram, TikTok, YouTube) · AI Caption/Hashtag/SEO · Multi-level approval · Notifications (Email, Telegram, Slack)
 
-↓
-
-Danh sách
-
-APPROVED
-
-↓
-
-Setup
-
-- Caption
-- Fanpage
-- Schedule Time
-
-↓
-
-Status
-
-SCHEDULED
-
----
-
-## Bước 5
-
-Đến giờ
-
-BullMQ
-
-↓
-
-Publish
-
-↓
-
-Facebook
-
----
-
-## Thành công
-
-SUCCESS
-
----
-
-## Lỗi
-
-FAILED
-
-↓
-
-Retry
-
----
-
-# 6. Content Lifecycle
-
-NEW
-
-↓
-
-DRAFT
-
-↓
-
-WAITING_APPROVAL
-
-↓
-
-APPROVED
-
-↓
-
-SCHEDULED
-
-↓
-
-PUBLISHING
-
-↓
-
-SUCCESS
-
-FAILED
-
-↓
-
-RETRY
-
-↓
-
-SUCCESS
-
----
-
-# 7. Google Drive
-
-Google Drive chỉ còn nhiệm vụ:
-
-Media Storage.
-
-Không còn:
-
-Google Sheet.
-
----
-
-Upload
-
-Web Admin
-
-↓
-
-Backend
-
-↓
-
-Google Drive API
-
-↓
-
-Google Drive
-
-↓
-
-Trả về
-
-fileId
-
-↓
-
-Lưu Database.
-
-Database KHÔNG lưu video.
-
-Chỉ lưu
-
-- fileId
-- mimeType
-- size
-- thumbnail
-
----
-
-# 8. Database
-
-## users
-
-id
-
-name
-
-email
-
-password
-
-role
-
----
-
-## roles
-
-id
-
-name
-
----
-
-## permissions
-
-id
-
-code
-
----
-
-## facebook_pages
-
-id
-
-page_name
-
-page_id
-
-access_token
-
----
-
-## content_assets
-
-id
-
-title
-
-description
-
-category
-
-media_type
-
-drive_file_id
-
-drive_url
-
-thumbnail_url
-
-created_by
-
-approved_by
-
-status
-
-created_at
-
-updated_at
-
----
-
-## publish_jobs
-
-id
-
-content_asset_id
-
-facebook_page_id
-
-caption
-
-hashtags
-
-schedule_time
-
-status
-
-published_at
-
-error_message
-
-created_by
-
----
-
-## comments
-
-id
-
-content_id
-
-user_id
-
-comment
-
-created_at
-
----
-
-## audit_logs
-
-id
-
-user
-
-action
-
-resource
-
-before
-
-after
-
-created_at
-
----
-
-# 9. Web Admin Modules
-
-Authentication
-
-Dashboard
-
-User Management
-
-Role Management
-
-Permission Management
-
-Content Library
-
-Review Center
-
-Publisher Center
-
-Schedule Calendar
-
-Facebook Pages
-
-Queue Monitor
-
-Failed Jobs
-
-Audit Logs
-
-System Settings
-
----
-
-# 10. Content Library
-
-Content User thấy:
-
-+ Upload
-
-+ Edit
-
-+ Delete
-
-+ Submit Review
-
-Không thấy
-
-Schedule.
-
----
-
-# 11. Review Center
-
-Leader thấy
-
-Waiting Approval
-
-Approve
-
-Reject
-
-Comment
-
-History
-
----
-
-# 12. Publisher Center
-
-Publisher chỉ thấy
-
-Approved
-
-Content.
-
-Có thể
-
-Setup
-
-Caption
-
-Hashtag
-
-Facebook Page
-
-Publish Time
-
-Priority
-
-Save
-
----
-
-# 13. Scheduler
-
-BullMQ
-
-Queue
-
-publish-facebook
-
-Delay Job
-
-Retry
-
-Dead Letter Queue
-
----
-
-# 14. Facebook Publish
-
-Worker
-
-↓
-
-Load Publish Job
-
-↓
-
-Load Content
-
-↓
-
-Download Stream từ Google Drive
-
-↓
-
-Upload Facebook
-
-↓
-
-Update Status
-
-↓
-
-Audit Log
-
-Không lưu video lên Server.
-
-Chỉ Stream.
-
----
-
-# 15. Dashboard
-
-Widgets
-
-Content
-
-Waiting Review
-
-Approved
-
-Scheduled
-
-Publishing
-
-Success
-
-Failed
-
-Top Publisher
-
-Top Content Creator
-
-Posts Today
-
-Posts This Month
-
----
-
-# 16. Future Features
-
-Campaign
-
-Content Calendar
-
-Multi Platform
-
-Facebook
-
-Instagram
-
-TikTok
-
-Youtube
-
-AI Caption
-
-AI Hashtag
-
-AI SEO
-
-Approval Workflow nhiều cấp
-
-Notification
-
-Email
-
-Telegram
-
-Slack
-
----
-
-# 17. Tech Stack
-
-Backend
-
-NestJS
-
-Prisma
-
-PostgreSQL
-
-BullMQ
-
-Redis
-
-Google Drive API
-
-Meta Graph API
-
-Swagger
-
-Docker
-
-Pino
-
----
-
-Frontend
-
-React
-
-Ant Design
-
-React Query
-
----
-
-Infrastructure
-
-Docker Compose
-
-Nginx
-
-2 vCPU
-
-4GB RAM
-
-50GB SSD
-
----
-
-# 18. Development Principle
-
-Single Source of Truth:
-
-PostgreSQL
-
-Single Working Portal:
-
-Web Admin
-
-Media Storage:
-
-Google Drive
-
-Background Processing:
-
-BullMQ
-
-Authentication:
-
-JWT
-
-Authorization:
-
-RBAC
-
-Audit:
-
-Every Action Must Be Logged
-
-Architecture:
-
-Clean Architecture
-
-DDD-lite
-
-Feature-first Module
+Chi tiết: [docs/10-roadmap.md](./docs/10-roadmap.md#phase-2--future)

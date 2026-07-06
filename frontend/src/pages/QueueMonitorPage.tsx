@@ -3,7 +3,7 @@ import { Button, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
-import { mockPublishJobs } from '../api/mock/data';
+import { useMockData } from '../contexts/MockDataContext';
 import { PageHeader } from '../components/common/PageHeader';
 import { StatusTag } from '../components/common/StatusTag';
 import type { PublishJob, PublishStatus } from '../types';
@@ -11,20 +11,21 @@ import type { PublishJob, PublishStatus } from '../types';
 const { Text } = Typography;
 
 const QUEUE_STATUSES: PublishStatus[] = [
+  'SCHEDULED',
   'QUEUED',
   'PUBLISHING',
-  'APPROVED',
 ];
 
 export default function QueueMonitorPage() {
+  const { publishJobs } = useMockData();
   const [statusFilter, setStatusFilter] = useState<PublishStatus | undefined>();
 
   const queueJobs = useMemo(() => {
-    return mockPublishJobs
+    return publishJobs
       .filter((j) => QUEUE_STATUSES.includes(j.status))
       .filter((j) => !statusFilter || j.status === statusFilter)
-      .sort((a, b) => dayjs(a.scheduledAt).unix() - dayjs(b.scheduledAt).unix());
-  }, [statusFilter]);
+      .sort((a, b) => dayjs(a.scheduleTime).unix() - dayjs(b.scheduleTime).unix());
+  }, [publishJobs, statusFilter]);
 
   const columns: ColumnsType<PublishJob> = [
     {
@@ -57,7 +58,7 @@ export default function QueueMonitorPage() {
     },
     {
       title: 'Scheduled Time',
-      dataIndex: 'scheduledAt',
+      dataIndex: 'scheduleTime',
       width: 170,
       render: (v) => dayjs(v).format('DD/MM/YYYY HH:mm:ss'),
     },

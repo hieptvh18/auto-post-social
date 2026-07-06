@@ -154,7 +154,7 @@ export default function UserManagementPage() {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{ role: 'VIEWER', isActive: true }}
+          initialValues={{ role: 'CONTENT', isActive: true }}
         >
           <Form.Item
             name="email"

@@ -1,10 +1,11 @@
-export type UserRole = 'ADMIN' | 'CONTENT' | 'PUBLISHER' | 'VIEWER';
+export type UserRole = 'ADMIN' | 'CONTENT' | 'REVIEWER' | 'PUBLISHER';
 
 export type MediaType = 'image' | 'video';
 
+export type ContentStatus = 'DRAFT' | 'WAITING_APPROVAL' | 'APPROVED' | 'REJECTED';
+
 export type PublishStatus =
-  | 'DRAFT'
-  | 'APPROVED'
+  | 'SCHEDULED'
   | 'QUEUED'
   | 'PUBLISHING'
   | 'SUCCESS'
@@ -13,6 +14,7 @@ export type PublishStatus =
 
 export interface User {
   id: string;
+  name?: string;
   email: string;
   role: UserRole;
   isActive: boolean;
@@ -31,15 +33,20 @@ export interface FacebookPage {
 
 export interface ContentAsset {
   id: string;
-  sheetRowId: string;
+  code: string;
   category: string;
   title: string;
-  caption: string;
+  description: string;
   mediaType: MediaType;
-  driveUrl: string;
-  approved: boolean;
-  owner: string;
+  driveFileId: string;
+  driveUrl?: string;
+  thumbnailUrl?: string;
+  status: ContentStatus;
+  createdBy: string;
+  approvedBy?: string | null;
+  rejectComment?: string | null;
   updatedAt: string;
+  createdAt?: string;
 }
 
 export interface PublishJob {
@@ -48,7 +55,9 @@ export interface PublishJob {
   contentTitle: string;
   facebookPageId: string;
   pageName: string;
-  scheduledAt: string;
+  caption: string;
+  hashtags?: string;
+  scheduleTime: string;
   status: PublishStatus;
   publishedAt: string | null;
   errorMessage: string | null;
@@ -69,12 +78,16 @@ export interface AuditLog {
 }
 
 export interface DashboardStats {
-  totalPosts: number;
+  waitingReview: number;
+  approved: number;
+  scheduled: number;
+  publishing: number;
   successPosts: number;
   failedPosts: number;
+  postsToday: number;
+  postsThisMonth: number;
   activePages: number;
   activeUsers: number;
-  queuedPosts: number;
 }
 
 export interface AuthUser {

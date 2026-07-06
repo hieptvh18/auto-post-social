@@ -1,6 +1,6 @@
 # 01 — Business Requirements
 
-> Yêu cầu nghiệp vụ chi tiết cho triển khai coding V1
+> Yêu cầu nghiệp vụ chi tiết cho triển khai coding V1 (v2.0)
 
 ---
 
@@ -8,270 +8,307 @@
 
 ### 1.1 Hiện trạng
 
-- Đội Content tạo nội dung trên **Google Sheet**
-- Media (ảnh/video) lưu trên **Google Drive**
-- Đội vận hành đăng thủ công lên nhiều Facebook Page (~50 bài/ngày)
-- Không có audit, phân quyền, retry, hoặc dashboard tập trung
+```text
+Content Team → Upload video lên Google Drive
+            → Paste link vào Google Sheet
+            → Đội đăng bài mở Sheet → copy link → đăng FB thủ công → đánh dấu đã đăng
+```
 
 ### 1.2 Pain points
 
 | Vấn đề | Impact |
 |--------|--------|
-| Tốn nhân lực | Chi phí vận hành cao |
-| Khó kiểm soát lịch | Trùng giờ, bỏ sót bài |
-| Không audit | Không truy vết ai đổi gì |
+| Không có workflow rõ ràng | Không biết trạng thái bài |
 | Không phân quyền | Rủi ro bảo mật |
-| Không retry | Mất bài khi API lỗi tạm thời |
+| Không biết ai xử lý bài nào | Trùng công, bỏ sót |
+| Không có người duyệt | Nội dung chất lượng không kiểm soát |
+| Không có lịch đăng tập trung | Trùng giờ, bỏ sót bài |
+| Không retry khi lỗi | Mất bài khi API lỗi tạm thời |
+| Không thống kê | Không đo hiệu quả |
+| Google Sheet chỉ lưu data | Không quản lý quy trình |
+
+### 1.3 Mục tiêu
+
+- Loại bỏ **Google Sheet** hoàn toàn
+- **Google Drive** vẫn là nơi lưu media
+- **Web Admin** là cổng làm việc duy nhất cho Content, Reviewer, Publisher, Admin
 
 ---
 
 ## 2. Stakeholders & Roles
 
-| Stakeholder | Vai trò hệ thống | Mục tiêu |
-|-------------|------------------|----------|
-| Admin IT | ADMIN | Cấu hình hệ thống, users, pages |
-| Content Team | CONTENT | Tạo/duyệt nội dung, sync sheet |
-| Publisher / Ops | PUBLISHER | Lên lịch và đăng bài |
-| Manager | VIEWER | Xem báo cáo, không sửa |
+| Stakeholder | Role hệ thống | Workspace | Mục tiêu |
+|-------------|---------------|-----------|----------|
+| Admin IT | ADMIN | Toàn hệ thống | Cấu hình users, pages, queue, audit |
+| Content Team | CONTENT | Content Library | Upload, tạo, sửa content |
+| Leader | REVIEWER | Review Center | Duyệt, reject, comment |
+| Publisher / Ops | PUBLISHER | Publisher Center | Schedule, caption, retry |
+
+Chi tiết RBAC: [05-rbac.md](./05-rbac.md)
 
 ---
 
-## 3. Functional Requirements
+## 3. Workflow
+
+### Bước 1 — Tạo Content
+
+```text
+Content User → Tạo Content → Upload Media → Google Drive → status: DRAFT
+```
+
+### Bước 2 — Submit Review
+
+```text
+Content User → Submit Review → status: WAITING_APPROVAL
+```
+
+### Bước 3 — Review
+
+```text
+Reviewer → Review → Approve → APPROVED
+                  → Reject  → REJECTED (+ comment)
+```
+
+Content REJECTED có thể sửa và submit lại → WAITING_APPROVAL.
+
+### Bước 4 — Schedule
+
+```text
+Publisher → Chọn APPROVED → Setup (caption, hashtag, fanpage, time) → status: SCHEDULED
+```
+
+### Bước 5 — Publish
+
+```text
+Đến giờ → BullMQ → Worker stream từ Drive → Facebook → SUCCESS / FAILED
+FAILED → Retry (manual hoặc auto)
+```
+
+---
+
+## 4. Content Lifecycle
+
+```text
+DRAFT
+  ↓ submit review
+WAITING_APPROVAL
+  ↓ approve          ↓ reject
+APPROVED            REJECTED → (edit) → DRAFT
+  ↓ publisher schedule
+SCHEDULED (publish_job)
+  ↓ worker pickup
+PUBLISHING
+  ↓
+SUCCESS / FAILED → RETRY → SUCCESS
+```
+
+---
+
+## 5. Functional Requirements
 
 ### FR-01: Authentication
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-01.1 | User đăng nhập bằng email + password | Must |
-| FR-01.2 | JWT access token (ngắn hạn) + refresh token | Must |
-| FR-01.3 | Chỉ user `is_active=true` được login | Must |
-| FR-01.4 | Logout invalidate refresh token (optional V1: client-side only) | Should |
+| FR-01.1 | Login email + password | Must |
+| FR-01.2 | JWT access + refresh token | Must |
+| FR-01.3 | Chỉ user `is_active=true` login được | Must |
 
-### FR-02: User Management (ADMIN)
+### FR-02: User & Role Management (ADMIN)
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-02.1 | Tạo/sửa/xóa user | Must |
-| FR-02.2 | Gán role: ADMIN, CONTENT, PUBLISHER, VIEWER | Must |
-| FR-02.3 | Vô hiệu hóa user (`is_active=false`) | Must |
-| FR-02.4 | Không cho xóa user cuối cùng có role ADMIN | Must |
+| FR-02.1 | CRUD users | Must |
+| FR-02.2 | Gán role: ADMIN, CONTENT, REVIEWER, PUBLISHER | Must |
+| FR-02.3 | Vô hiệu hóa user | Must |
+| FR-02.4 | Không xóa admin cuối cùng | Must |
 
 ### FR-03: Facebook Page Management (ADMIN)
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-03.1 | Thêm Page: `page_name`, `page_id`, `access_token` | Must |
+| FR-03.1 | Thêm page: name, page_id, access_token | Must |
 | FR-03.2 | Cập nhật token khi hết hạn | Must |
-| FR-03.3 | Hiển thị `token_expire_at` (nếu có) | Should |
-| FR-03.4 | Vô hiệu hóa page (`is_active=false`) | Must |
-| FR-03.5 | Token lưu encrypted, không hiển thị full trên UI | Must |
+| FR-03.3 | Token encrypted at rest | Must |
+| FR-03.4 | Vô hiệu hóa page | Must |
 
-### FR-04: Content Library
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-04.1 | Danh sách content với search/filter (category, approved, media_type) | Must |
-| FR-04.2 | Sync từ Google Sheet (manual trigger) | Must |
-| FR-04.3 | Upsert theo `sheet_row_id` — không duplicate | Must |
-| FR-04.4 | CONTENT role: approve/unapprove content | Must |
-| FR-04.5 | Chỉ content `approved=true` mới được schedule publish | Must |
-| FR-04.6 | Hiển thị `drive_url`, `caption`, `title` | Must |
-
-### FR-05: Publish Scheduler
+### FR-04: Content Library (CONTENT)
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-05.1 | Tạo publish job: chọn content + page + `scheduled_at` | Must |
-| FR-05.2 | Calendar/list view theo ngày/giờ | Must |
-| FR-05.3 | Hủy job trước khi publish (status → CANCELLED) | Must |
-| FR-05.4 | Không cho schedule quá khứ (trừ publish ngay) | Must |
-| FR-05.5 | Một content có thể publish lên nhiều page (nhiều job) | Must |
-| FR-05.6 | Tránh trùng: cùng content + page + scheduled_at (trong 1 phút) | Should |
+| FR-04.1 | Upload ảnh/video → Google Drive | Must |
+| FR-04.2 | Tạo/sửa/xóa content (status DRAFT, REJECTED) | Must |
+| FR-04.3 | Submit review → WAITING_APPROVAL | Must |
+| FR-04.4 | Không thấy schedule/publish UI | Must |
+| FR-04.5 | Danh sách + filter (category, status, media_type) | Must |
 
-### FR-06: Publishing Engine
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-06.1 | Publish text + image qua Graph API | Must |
-| FR-06.2 | Publish video qua Graph API | Must |
-| FR-06.3 | Download media từ Google Drive URL | Must |
-| FR-06.4 | Cập nhật status realtime: QUEUED → PUBLISHING → SUCCESS/FAILED | Must |
-| FR-06.5 | Retry tự động 3 lần (exponential backoff) | Must |
-| FR-06.6 | Retry thủ công từ UI (PUBLISHER/ADMIN) | Must |
-| FR-06.7 | Lưu `error_message` khi FAILED | Must |
-| FR-06.8 | Lưu `facebook_post_id` khi SUCCESS | Should |
-
-### FR-07: Dashboard
+### FR-05: Review Center (REVIEWER)
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-07.1 | Tổng posts (theo khoảng thời gian) | Must |
-| FR-07.2 | Success / Failed count | Must |
-| FR-07.3 | Số page active, user active | Must |
-| FR-07.4 | Biểu đồ posts theo ngày (7/30 ngày) | Should |
+| FR-05.1 | Danh sách WAITING_APPROVAL | Must |
+| FR-05.2 | Approve → APPROVED | Must |
+| FR-05.3 | Reject → REJECTED + bắt buộc comment | Must |
+| FR-05.4 | Comment trên content | Must |
+| FR-05.5 | Xem lịch sử review | Should |
 
-### FR-08: Queue Monitor
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-08.1 | Danh sách job: status, attempts, scheduled_at | Must |
-| FR-08.2 | Filter theo status | Must |
-| FR-08.3 | Xem chi tiết lỗi failed job | Must |
-
-### FR-09: Audit Logs
+### FR-06: Publisher Center (PUBLISHER)
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| FR-09.1 | Ghi log: user, action, resource, old/new value | Must |
-| FR-09.2 | Actions: user CRUD, page CRUD, schedule change, retry, sync | Must |
-| FR-09.3 | ADMIN xem toàn bộ; VIEWER không xem | Must |
+| FR-06.1 | Chỉ thấy content APPROVED | Must |
+| FR-06.2 | Setup caption, hashtag, thumbnail, fanpage, publish time | Must |
+| FR-06.3 | Tạo publish job → SCHEDULED | Must |
+| FR-06.4 | Calendar/list view lịch đăng | Must |
+| FR-06.5 | Hủy job trước khi publish | Must |
+| FR-06.6 | Retry bài FAILED | Must |
+| FR-06.7 | Một content → nhiều page (nhiều job) | Must |
+
+### FR-07: Publishing Engine
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR-07.1 | Publish image + video qua Graph API | Must |
+| FR-07.2 | Stream download từ Google Drive (không lưu server) | Must |
+| FR-07.3 | Status: SCHEDULED → PUBLISHING → SUCCESS/FAILED | Must |
+| FR-07.4 | Auto retry 3 lần (exponential backoff) | Must |
+| FR-07.5 | Lưu error_message, facebook_post_id | Must |
+
+### FR-08: Dashboard
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR-08.1 | Widgets: Waiting Review, Approved, Scheduled, Publishing, Success, Failed | Must |
+| FR-08.2 | Top Publisher, Top Content Creator | Should |
+| FR-08.3 | Posts Today / This Month | Must |
+
+### FR-09: Queue Monitor & Failed Jobs (ADMIN, PUBLISHER)
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR-09.1 | Danh sách job BullMQ | Must |
+| FR-09.2 | Filter theo status | Must |
+| FR-09.3 | Xem chi tiết lỗi + DLQ | Must |
+
+### FR-10: Audit Logs (ADMIN)
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| FR-10.1 | Log user, action, resource, before/after | Must |
+| FR-10.2 | Actions: CRUD user/page, content status change, schedule, retry | Must |
 
 ---
 
-## 4. Non-Functional Requirements
+## 6. Non-Functional Requirements
 
-### NFR-01: Performance
-
-| ID | Requirement | Target |
-|----|-------------|--------|
-| NFR-01.1 | API response (list) | < 500ms p95 |
-| NFR-01.2 | Throughput | 200 posts/day, 20 pages |
-| NFR-01.3 | Sync sheet 1000 rows | < 30s |
-
-### NFR-02: Reliability
-
-| ID | Requirement |
-|----|-------------|
-| NFR-02.1 | Job không mất khi worker restart (BullMQ persistence) |
-| NFR-02.2 | Idempotent publish: check status trước khi gọi FB API |
-| NFR-02.3 | DB transaction cho sync upsert batch |
-
-### NFR-03: Security
-
-| ID | Requirement |
-|----|-------------|
-| NFR-03.1 | Password bcrypt (cost ≥ 10) |
-| NFR-03.2 | Facebook token AES-256-GCM encrypted at rest |
-| NFR-03.3 | RBAC trên mọi endpoint |
-| NFR-03.4 | Rate limit login (optional V1) |
-
-### NFR-04: Observability
-
-| ID | Requirement |
-|----|-------------|
-| NFR-04.1 | Structured logging (JSON) |
-| NFR-04.2 | Correlation ID per request |
-| NFR-04.3 | Sentry/Prometheus — V2 |
+| Category | Requirement | Target |
+|----------|-------------|--------|
+| Performance | API list p95 | < 500ms |
+| Throughput | Posts/day | ~50–200 |
+| Reliability | BullMQ persistence | Job không mất khi restart |
+| Security | Password bcrypt, token AES-256-GCM | Must |
+| Security | RBAC mọi endpoint | Must |
+| Observability | Structured JSON logging (Pino) | Must |
 
 ---
 
-## 5. User Stories (coding-ready)
+## 7. User Stories (coding-ready)
 
-### Epic A: Auth & Users
+### Epic A: Content Creation
 
 ```text
-US-A1: Là ADMIN, tôi tạo user mới với email và role để phân quyền truy cập.
-  AC: POST /api/users → 201, audit log created, password hashed.
+US-A1: Là CONTENT, tôi upload video và tạo content mới.
+  AC: POST /content + POST /media/upload → drive_file_id lưu DB, status=DRAFT.
 
-US-A2: Là user, tôi login để vào Web Admin.
-  AC: POST /api/auth/login → access + refresh token; inactive user → 403.
+US-A2: Là CONTENT, tôi submit review khi content sẵn sàng.
+  AC: PATCH /content/:id/submit → WAITING_APPROVAL; không submit nếu thiếu media.
 ```
 
-### Epic B: Content Sync
+### Epic B: Review
 
 ```text
-US-B1: Là CONTENT, tôi bấm "Sync Sheet" để import content mới.
-  AC: Rows mới upsert; rows đã có update nếu updated_at thay đổi; sync log trả về {created, updated, skipped}.
+US-B1: Là REVIEWER, tôi approve content đang chờ duyệt.
+  AC: POST /content/:id/approve → APPROVED; audit log.
 
-US-B2: Là CONTENT, tôi approve content để Publisher có thể schedule.
-  AC: PATCH approved=true; audit log; chỉ CONTENT/ADMIN.
+US-B2: Là REVIEWER, tôi reject kèm lý do.
+  AC: POST /content/:id/reject + comment bắt buộc → REJECTED.
 ```
 
 ### Epic C: Publishing
 
 ```text
-US-C1: Là PUBLISHER, tôi schedule bài lên Page A lúc 08:00.
-  AC: publish_job created APPROVED→QUEUED; BullMQ job delay đúng; calendar hiển thị.
+US-C1: Là PUBLISHER, tôi schedule bài APPROVED lên Page A lúc 08:00.
+  AC: publish_job SCHEDULED; BullMQ delay đúng; calendar hiển thị.
 
 US-C2: Là PUBLISHER, tôi retry bài failed.
-  AC: POST retry → status QUEUED, attempts reset hoặc increment theo design; audit log.
+  AC: POST /publish-jobs/:id/retry → QUEUED; audit log.
 ```
 
-### Epic D: Monitoring
+### Epic D: Admin
 
 ```text
-US-D1: Là VIEWER, tôi xem dashboard thống kê tuần này.
-  AC: GET /api/dashboard/stats?from=&to= → counts chính xác.
+US-D1: Là ADMIN, tôi tạo user REVIEWER mới.
+  AC: POST /users role=REVIEWER; audit log.
 
 US-D2: Là ADMIN, tôi xem audit log ai đổi lịch đăng.
-  AC: Filter action=SCHEDULE_UPDATE; old/new value JSON.
+  AC: Filter action=SCHEDULE_UPDATE.
 ```
 
 ---
 
-## 6. Business Rules
+## 8. Business Rules
 
 | Rule ID | Rule |
 |---------|------|
-| BR-01 | Google Sheet không phải source of truth — DB wins khi conflict manual edit |
-| BR-02 | `sheet_row_id` unique — key dedup sync |
-| BR-03 | Publish chỉ khi: content approved + page active + token valid |
-| BR-04 | Job CANCELLED không được worker xử lý |
-| BR-05 | Job SUCCESS không retry (trừ tạo job mới) |
-| BR-06 | Media type `image` → `/photos`; `video` → `/videos` |
-| BR-07 | Caption max length theo FB limit (63206 chars) — validate trước queue |
+| BR-01 | PostgreSQL là source of truth — không sync sheet |
+| BR-02 | DB không lưu video/file — chỉ `drive_file_id`, mimeType, size, thumbnail |
+| BR-03 | Publish chỉ khi: content APPROVED + page active + token valid |
+| BR-04 | CONTENT không được schedule/publish |
+| BR-05 | REVIEWER không được schedule/publish |
+| BR-06 | Chỉ sửa content khi status DRAFT hoặc REJECTED |
+| BR-07 | Reject bắt buộc có comment |
+| BR-08 | Media `image` → `/photos`; `video` → `/videos` |
+| BR-09 | Caption max 63206 chars (FB limit) |
 
 ---
 
-## 7. Google Sheet Column Contract
+## 9. Web Admin Modules
 
-| Column | Type | Required | Notes |
-|--------|------|----------|-------|
-| id | string | Yes | Maps to `sheet_row_id`, e.g. CNT-001 |
-| category | string | No | Filter UI |
-| title | string | Yes | Display only |
-| caption | string | Yes | FB post message |
-| media_type | enum | Yes | `image` \| `video` |
-| drive_url | url | Yes | Public or service-account accessible |
-| approved | boolean | Yes | TRUE/FALSE string parsed |
-| owner | string | No | Metadata |
-| updated_at | datetime | No | ISO hoặc sheet date — dùng detect changes |
-
----
-
-## 8. Publish Job State Machine
-
-```text
-DRAFT       → (optional, nếu cần workflow phức tạp hơn)
-APPROVED    → user tạo job, chưa vào queue
-QUEUED      → đã add BullMQ
-PUBLISHING  → worker đang xử lý
-SUCCESS     → terminal
-FAILED      → terminal (có thể retry → QUEUED)
-CANCELLED   → terminal
-```
-
-**V1 đơn giản hóa:** Tạo job → trực tiếp `APPROVED` → scheduler push `QUEUED`.
+| Module | Roles | Mô tả |
+|--------|-------|-------|
+| Authentication | All | Login, logout |
+| Dashboard | All | Thống kê tổng quan |
+| User Management | ADMIN | CRUD users |
+| Role Management | ADMIN | Gán role |
+| Content Library | CONTENT | Upload, edit, submit |
+| Review Center | REVIEWER | Approve, reject, comment |
+| Publisher Center | PUBLISHER | Schedule approved content |
+| Schedule Calendar | PUBLISHER, ADMIN | Lịch đăng |
+| Facebook Pages | ADMIN | CRUD pages + token |
+| Queue Monitor | ADMIN, PUBLISHER | BullMQ status |
+| Failed Jobs | ADMIN, PUBLISHER | Retry failed |
+| Audit Logs | ADMIN | Lịch sử thay đổi |
+| System Settings | ADMIN | Cấu hình hệ thống |
 
 ---
 
-## 9. Acceptance Test Scenarios (E2E)
+## 10. Acceptance Test Scenarios (E2E)
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 1 | Sync sheet 10 rows mới | 10 content_assets created |
-| 2 | Sync lại không đổi | 0 updated (hoặc skipped) |
-| 3 | Schedule image post | SUCCESS trong 2 phút (staging page) |
-| 4 | Invalid drive_url | FAILED + error_message |
-| 5 | Expired FB token | FAILED + hint refresh token |
-| 6 | PUBLISHER không tạo user | 403 |
-| 7 | Cancel job đang QUEUED | CANCELLED, BullMQ job removed |
+| 1 | Upload video + tạo content | DRAFT, drive_file_id có |
+| 2 | Submit review | WAITING_APPROVAL |
+| 3 | Approve content | APPROVED |
+| 4 | Schedule image post | SUCCESS trong 2 phút |
+| 5 | Reject without comment | 400 validation error |
+| 6 | CONTENT schedule publish | 403 |
+| 7 | Invalid drive file | FAILED + error_message |
+| 8 | Cancel job QUEUED | CANCELLED |
 
 ---
 
-## 10. Assumptions & Dependencies
+## 11. Assumptions & Dependencies
 
-- Có Facebook App đã review permissions: `pages_manage_posts`, `pages_show_list`, `pages_read_engagement`, `business_management`
-- Google Service Account có quyền đọc Sheet + Drive files
-- Drive URLs có thể download được bởi backend (shared link hoặc SA)
+- Facebook App permissions: `pages_manage_posts`, `pages_show_list`, `pages_read_engagement`
+- Google Service Account có quyền upload/read Drive folder
 - Một organization — không multi-tenant V1
