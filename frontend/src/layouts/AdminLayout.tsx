@@ -2,15 +2,15 @@ import {
   AuditOutlined,
   CalendarOutlined,
   DashboardOutlined,
+  FieldTimeOutlined,
   FileImageOutlined,
   FacebookOutlined,
   LogoutOutlined,
   MedicineBoxOutlined,
+  QuestionCircleOutlined,
   TeamOutlined,
   UnorderedListOutlined,
   WarningOutlined,
-  CheckCircleOutlined,
-  SendOutlined,
 } from '@ant-design/icons';
 import { Avatar, Dropdown, Layout, Menu, Select, Space, Tag, Typography, theme } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -23,16 +23,19 @@ import type { UserRole } from '../types';
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
-const menuItems = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { key: '/content', icon: <FileImageOutlined />, label: 'Content Library' },
-  { key: '/review', icon: <CheckCircleOutlined />, label: 'Review Center' },
-  { key: '/publisher', icon: <SendOutlined />, label: 'Publisher Center' },
-  { key: '/scheduler', icon: <CalendarOutlined />, label: 'Lịch đăng bài' },
+const mainMenuItems = [
+  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan' },
+  { key: '/content', icon: <FileImageOutlined />, label: 'Quản lý Ảnh/Video Edit' },
+  { key: '/timeline', icon: <CalendarOutlined />, label: 'Lịch đăng bài' },
+  { key: '/auto-post', icon: <FieldTimeOutlined />, label: 'Cài đặt đăng tự động' },
+  { key: '/pages', icon: <FacebookOutlined />, label: 'Quản lý FB Pages' },
+  { key: '/users', icon: <TeamOutlined />, label: 'Quản lý nhân sự' },
+  { key: '/guide', icon: <QuestionCircleOutlined />, label: 'Hướng dẫn sử dụng' },
+];
+
+const monitorMenuItems = [
   { key: '/queue', icon: <UnorderedListOutlined />, label: 'Queue Monitor' },
   { key: '/failed', icon: <WarningOutlined />, label: 'Failed Jobs' },
-  { key: '/pages', icon: <FacebookOutlined />, label: 'Facebook Pages' },
-  { key: '/users', icon: <TeamOutlined />, label: 'Nhân viên' },
   { key: '/audit', icon: <AuditOutlined />, label: 'Audit Logs' },
 ];
 
@@ -42,13 +45,31 @@ export function AdminLayout() {
   const location = useLocation();
   const { token } = theme.useToken();
 
-  const visibleMenu = menuItems.filter((item) =>
+  const visibleMain = mainMenuItems.filter((item) =>
+    user ? canAccessRoute(user.role, item.key) : false,
+  );
+  const visibleMonitor = monitorMenuItems.filter((item) =>
     user ? canAccessRoute(user.role, item.key) : false,
   );
 
+  const visibleMenu = [
+    ...visibleMain,
+    ...(visibleMonitor.length > 0
+      ? [
+          {
+            key: 'monitor-group',
+            label: 'Monitor',
+            type: 'group' as const,
+            children: visibleMonitor,
+          },
+        ]
+      : []),
+  ];
+
   const selectedKey =
-    visibleMenu.find((item) => location.pathname.startsWith(item.key))?.key ??
-    '/dashboard';
+    [...visibleMain, ...visibleMonitor].find((item) =>
+      location.pathname.startsWith(item.key),
+    )?.key ?? '/dashboard';
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

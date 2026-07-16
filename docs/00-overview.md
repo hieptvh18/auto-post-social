@@ -1,27 +1,30 @@
 # 00 — Overview
 
-> Social Content Workflow Management Platform — Tài liệu tổng quan triển khai coding
+> Tool Auto FB (Luca) — Tài liệu tổng quan triển khai coding
 
-**Version:** v2.0  
+**Version:** v3.0 (mô hình Auto-Post)  
 **Tham chiếu:** [Plan.md](../Plan.md)
 
 ---
 
 ## 1. Tóm tắt dự án
 
-Nền tảng nội bộ quản lý quy trình Content và tự động đăng bài lên **Facebook Page**.
+Nền tảng nội bộ quản lý content và **tự động đăng bài lên Facebook Page bằng Bot**.
 
 ```text
-Content User → Web Admin (upload + workflow)
-Reviewer → Web Admin (approve/reject)
-Publisher → Web Admin (schedule)
+Content/Editor → Web Admin (1 trang quản lý Ảnh/Video như sheet Excel:
+                 upload + edit + duyệt + phân bổ page)
          ↓
     PostgreSQL (source of truth)
          ↓
-Google Drive API (media storage) + BullMQ Worker → Meta Graph API → Facebook Pages
+Cài đặt đăng bài tự động (per FB Page: mốc giờ + dạng bài + số lượng)
+         ↓
+Cron Scheduler (Bot) → BullMQ Worker → Google Drive (stream) → Meta Graph API → FB Pages
 ```
 
 **Google Sheet bị loại bỏ hoàn toàn.** Web Admin là cổng làm việc duy nhất.
+**Không còn Review Center / Publisher Center** — duyệt bài nằm trong trang quản lý,
+đăng bài do Bot chạy theo lịch đã config.
 
 ---
 
@@ -29,13 +32,14 @@ Google Drive API (media storage) + BullMQ Worker → Meta Graph API → Facebook
 
 | Mục tiêu | Mô tả |
 |----------|--------|
-| Content workflow | DRAFT → Review → APPROVED → Schedule → Publish |
-| Upload media | Upload ảnh/video qua Web Admin → Google Drive |
-| Web Admin | Content Library, Review Center, Publisher Center |
-| RBAC | 4 role: ADMIN, CONTENT, REVIEWER, PUBLISHER |
-| Scheduler + BullMQ | Hàng đợi job, delay, retry, DLQ |
+| 1 trang quản lý Ảnh/Video | Upload, edit (drawer), duyệt trạng thái, Đạt ADS, phân bổ page — như file Excel |
+| Content workflow | Chờ duyệt → Đã duyệt/Không duyệt → (Bot) Đang đăng → Đã đăng |
+| Auto-Post | Config lịch per page (mốc giờ + dạng + media + số bài) — 1 lần, dùng suốt vòng đời |
+| Cron + BullMQ | Bot quét slot, lấy bài Đã duyệt (unique 1 lần/page, duyệt sớm đăng trước), retry, DLQ |
+| Timeline | Lịch đăng bài theo ngày, filter kênh/trạng thái, link bài FB/Drive |
+| RBAC | 3 role: ADMIN, EDITOR, CONTENT |
+| Dashboard | Filter theo khoảng thời gian; video đạt ADS; bài đăng theo page (video/ảnh) |
 | Audit log | Ghi lại mọi thay đổi quan trọng |
-| Dashboard | Thống kê content, publish, top creators |
 
 ---
 
@@ -56,7 +60,7 @@ Google Drive API (media storage) + BullMQ Worker → Meta Graph API → Facebook
 |-------|-----------|
 | Backend API | NestJS, TypeScript, Prisma, Pino |
 | Database | PostgreSQL 16 |
-| Queue | BullMQ + Redis 7 |
+| Queue + Cron | BullMQ + Redis 7, @nestjs/schedule |
 | Auth | JWT (access + refresh) |
 | Frontend | React, Ant Design, React Query, React Router |
 | Integrations | Google Drive API v3, Meta Graph API |
@@ -75,11 +79,9 @@ tool-auto-fb/
 │       ├── modules/
 │       │   ├── auth/
 │       │   ├── users/
-│       │   ├── roles/
 │       │   ├── facebook-pages/
-│       │   ├── content-assets/
-│       │   ├── reviews/           # Review Center
-│       │   ├── comments/
+│       │   ├── content-assets/    # CRUD + duyệt + assignments
+│       │   ├── auto-post/         # slots config + cron scheduler
 │       │   ├── publish-jobs/
 │       │   ├── google-drive/
 │       │   ├── audit-logs/
@@ -93,12 +95,13 @@ tool-auto-fb/
 ├── frontend/
 │   └── src/
 │       ├── pages/
-│       │   ├── ContentLibrary/
-│       │   ├── ReviewCenter/
-│       │   ├── PublisherCenter/
+│       │   ├── ContentManagementPage.tsx   # Quản lý Ảnh/Video Edit
+│       │   ├── AutoPostSettingsPage.tsx    # Cài đặt đăng bài tự động
+│       │   ├── TimelinePage.tsx            # Lịch đăng bài
+│       │   ├── DashboardPage.tsx
 │       │   └── ...
 │       ├── components/
-│       ├── hooks/
+│       ├── contexts/
 │       └── api/
 ├── docker/
 │   ├── docker-compose.yml
@@ -114,11 +117,12 @@ tool-auto-fb/
 2. **Repository pattern** — controller không gọi Prisma trực tiếp
 3. **DTO + class-validator** — validate mọi input
 4. **Swagger** — document tất cả endpoints
-5. **RBAC Guards** — permission-based, không hardcode role trong controller
-6. **Audit interceptor** — log thay đổi quan trọng
+5. **RBAC Guards** — permission-based; PATCH content kiểm tra quyền theo field
+6. **Audit interceptor** — log thay đổi quan trọng (kể cả Bot AUTO_PUBLISH)
 7. **Không lưu plaintext token** — encrypt `access_token` Facebook
 8. **Không lưu media trên server** — stream từ Google Drive khi publish
 9. **ConfigModule** — mọi secret qua env
+10. **Idempotent cron** — lock slot/date, unique content×page
 
 ---
 
@@ -127,36 +131,33 @@ tool-auto-fb/
 ```mermaid
 sequenceDiagram
     participant CU as Content User
+    participant ED as Editor
     participant API as NestJS API
     participant GD as Google Drive
     participant DB as PostgreSQL
-    participant RV as Reviewer
-    participant PB as Publisher
+    participant CR as Cron (Bot)
     participant Q as BullMQ
     participant W as Worker
     participant FB as Meta Graph API
 
-    CU->>API: Tạo content + upload media
+    CU->>API: Upload media + caption + phân bổ page
     API->>GD: Upload file
     GD-->>API: fileId
-    API->>DB: content_assets (DRAFT)
+    API->>DB: content_assets (PENDING_REVIEW) + assignments
 
-    CU->>API: Submit review
-    API->>DB: status = WAITING_APPROVAL
+    ED->>API: PATCH status = APPROVED (trong trang Quản lý Ảnh/Video)
+    API->>DB: APPROVED, updated_at = mốc xếp hàng
 
-    RV->>API: Approve / Reject + comment
-    API->>DB: status = APPROVED / REJECTED
+    CR->>DB: Đến mốc giờ slot: pick APPROVED, đúng dạng,<br/>chưa đăng page (unique), order updated_at ASC
+    CR->>DB: publish_jobs (QUEUED, created_by=Bot)
+    CR->>Q: enqueue
 
-    PB->>API: Setup caption, page, schedule
-    API->>DB: publish_jobs (SCHEDULED)
-    API->>Q: add job (delay)
-
-    Q->>W: dequeue at schedule time
-    W->>DB: status = PUBLISHING
+    Q->>W: dequeue
+    W->>DB: content → PUBLISHING
     W->>GD: Stream download
-    W->>FB: POST photos/videos
+    W->>FB: POST photos/videos (caption + hashtags)
     FB-->>W: post_id
-    W->>DB: status = SUCCESS
+    W->>DB: job SUCCESS, assignment.published_at,<br/>content → PUBLISHED (badge x/y page)
 ```
 
 ---
@@ -168,9 +169,10 @@ sequenceDiagram
 NODE_ENV=development
 PORT=3000
 API_PREFIX=api
+TZ_DISPLAY=Asia/Ho_Chi_Minh   # timezone slot auto-post
 
 # Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/social_workflow
+DATABASE_URL=postgresql://user:pass@localhost:5432/tool_auto_fb
 
 # Redis / BullMQ
 REDIS_HOST=localhost
@@ -202,13 +204,13 @@ META_GRAPH_API_VERSION=v21.0
 | File | Nội dung |
 |------|----------|
 | [01-business-requirements.md](./01-business-requirements.md) | User stories, workflow, acceptance criteria |
-| [02-architecture.md](./02-architecture.md) | Kiến trúc chi tiết, module boundaries |
-| [03-database-design.md](./03-database-design.md) | Prisma schema, indexes, migrations |
+| [02-architecture.md](./02-architecture.md) | Kiến trúc chi tiết, cron scheduler, module boundaries |
+| [03-database-design.md](./03-database-design.md) | Prisma schema, assignments/slots, cron picker query |
 | [04-api-spec.md](./04-api-spec.md) | REST API đầy đủ |
-| [05-rbac.md](./05-rbac.md) | Roles, permissions, guards |
+| [05-rbac.md](./05-rbac.md) | 3 role, permissions, guards |
 | [06-google-drive.md](./06-google-drive.md) | Upload, stream, thumbnail |
 | [07-facebook-publisher.md](./07-facebook-publisher.md) | Graph API, media upload |
-| [08-bullmq.md](./08-bullmq.md) | Queue, worker, retry, DLQ |
+| [08-bullmq.md](./08-bullmq.md) | Cron auto-post, queue, worker, retry, DLQ |
 | [09-deployment.md](./09-deployment.md) | Docker, Nginx, production |
 | [10-roadmap.md](./10-roadmap.md) | Sprint plan, task breakdown |
 
@@ -217,15 +219,19 @@ META_GRAPH_API_VERSION=v21.0
 ## 10. Định nghĩa Done (V1)
 
 - [ ] User login/logout, refresh token
-- [ ] CRUD users + gán role (ADMIN)
+- [ ] CRUD users + gán role (ADMIN) — 3 role
 - [ ] CRUD Facebook pages + token encrypted
-- [ ] Upload media → Google Drive, lưu metadata DB
-- [ ] Content workflow: DRAFT → WAITING_APPROVAL → APPROVED/REJECTED
-- [ ] Review Center: approve, reject, comment
-- [ ] Publisher schedule bài APPROVED lên FB Page
+- [ ] Upload media → Google Drive, lưu metadata DB, status Chờ duyệt
+- [ ] Trang Quản lý Ảnh/Video: filter đầy đủ, table, drawer edit full-field
+- [ ] Duyệt trong drawer: Đã duyệt / Không duyệt (+lý do), tick Đạt ADS
+- [ ] Phân bổ page (unique content × page)
+- [ ] Cài đặt đăng bài tự động: CRUD slots per page
+- [ ] Cron Bot: pick bài đúng luật (APPROVED, đúng dạng, 1 lần/page, updated_at ASC)
 - [ ] Worker stream publish image + video (không lưu file server)
+- [ ] Content PUBLISHING → PUBLISHED + badge x/y page
+- [ ] Timeline: filter kênh/trạng thái, link bài FB/Drive
 - [ ] Retry failed jobs + DLQ monitor
-- [ ] Dashboard metrics
+- [ ] Dashboard: range filter, ADS count, posts theo page (video/ảnh)
 - [ ] Audit log cho actions quan trọng
 - [ ] Docker Compose chạy full stack local
-- [ ] Unit tests cho core services
+- [ ] Unit tests cho core services (đặc biệt cron picker)

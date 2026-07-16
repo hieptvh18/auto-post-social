@@ -6,13 +6,11 @@ type Permission =
   | 'content:create'
   | 'content:edit'
   | 'content:delete'
-  | 'content:submit'
-  | 'content:review'
-  | 'content:comment'
-  | 'publish:schedule'
-  | 'publish:cancel'
-  | 'publish:retry'
+  | 'content:review' // đổi trạng thái duyệt, đánh dấu Đạt ADS
+  | 'autopost:manage'
+  | 'timeline:view'
   | 'queue:view'
+  | 'jobs:retry'
   | 'dashboard:view'
   | 'audit:view';
 
@@ -23,19 +21,24 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'content:create',
     'content:edit',
     'content:delete',
-    'content:submit',
     'content:review',
-    'content:comment',
-    'publish:schedule',
-    'publish:cancel',
-    'publish:retry',
+    'autopost:manage',
+    'timeline:view',
     'queue:view',
+    'jobs:retry',
     'dashboard:view',
     'audit:view',
   ],
-  CONTENT: ['content:create', 'content:edit', 'content:delete', 'content:submit', 'dashboard:view'],
-  REVIEWER: ['content:review', 'content:comment', 'dashboard:view'],
-  PUBLISHER: ['publish:schedule', 'publish:cancel', 'publish:retry', 'queue:view', 'dashboard:view'],
+  EDITOR: [
+    'content:create',
+    'content:edit',
+    'content:delete',
+    'content:review',
+    'autopost:manage',
+    'timeline:view',
+    'dashboard:view',
+  ],
+  CONTENT: ['content:create', 'content:edit', 'content:delete', 'dashboard:view'],
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -44,14 +47,13 @@ export function can(role: UserRole, permission: Permission): boolean {
 
 export function canAccessRoute(role: UserRole, path: string): boolean {
   const restricted: Record<string, UserRole[]> = {
-    '/content': ['ADMIN', 'CONTENT'],
-    '/review': ['ADMIN', 'REVIEWER'],
-    '/publisher': ['ADMIN', 'PUBLISHER'],
-    '/scheduler': ['ADMIN', 'PUBLISHER'],
-    '/queue': ['ADMIN', 'PUBLISHER'],
-    '/failed': ['ADMIN', 'PUBLISHER'],
-    '/users': ['ADMIN'],
+    '/content': ['ADMIN', 'EDITOR', 'CONTENT'],
+    '/timeline': ['ADMIN', 'EDITOR'],
+    '/auto-post': ['ADMIN', 'EDITOR'],
     '/pages': ['ADMIN'],
+    '/users': ['ADMIN'],
+    '/queue': ['ADMIN'],
+    '/failed': ['ADMIN'],
     '/audit': ['ADMIN'],
   };
 

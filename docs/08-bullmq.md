@@ -1,6 +1,6 @@
 # 08 — BullMQ
 
-> Queue, worker, retry, dead letter — v2.0
+> Queue, worker, cron auto-post, retry, dead letter — v3.0
 
 ---
 
@@ -8,9 +8,46 @@
 
 | Queue | Mô tả |
 |-------|-------|
-| `publish-facebook` | Delay job publish lên Facebook |
+| `publish-facebook` | Job đăng bài lên Facebook (do **Bot** cron tạo) |
 
 **Không dùng queue riêng cho upload** — upload đồng bộ qua API.
+
+---
+
+## 1b. Auto-Post Cron Scheduler (nguồn tạo job)
+
+Trong flow chuẩn v3.0, **không ai tạo publish job thủ công** — cron làm việc này:
+
+```typescript
+@Cron('* * * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
+async tick() {
+  const hhmm = dayjs().tz('Asia/Ho_Chi_Minh').format('HH:mm');
+  // slot enabled + page active + autopost_enabled, khớp giờ hiện tại
+  const slots = await this.slotRepo.findDueSlots(hhmm);
+  for (const slot of slots) {
+    // chống double-fire khi restart/scale: lock slot_id + date
+    const locked = await this.redis.setnx(`slot-run:${slot.id}:${today}`, 1);
+    if (!locked) continue;
+
+    // Cron Picker (docs/03 §7): APPROVED, đúng dạng/media,
+    // assignment (content, page) chưa published — unique 1 lần/page,
+    // ORDER BY updated_at ASC, LIMIT slot.postCount
+    const contents = await this.pickContents(slot);
+    for (const content of contents) {
+      const job = await this.publishJobsRepo.create({
+        contentAssetId: content.id,
+        facebookPageId: slot.facebookPageId,
+        caption: content.caption,
+        hashtags: content.hashtags,
+        scheduleTime: new Date(),
+        createdBy: 'Bot',
+      });
+      await this.enqueue(job.id);                    // delay 0 — đăng ngay mốc giờ
+      await this.contentRepo.markPublishing(content.id);
+    }
+  }
+}
+```
 
 ---
 
@@ -82,7 +119,7 @@ export class PublishFacebookProcessor extends WorkerHost {
 | Layer | Strategy |
 |-------|----------|
 | BullMQ auto | 3 attempts, exponential backoff 60s |
-| Manual retry | PUBLISHER/ADMIN → `POST /publish-jobs/:id/retry` |
+| Manual retry | ADMIN → `POST /publish-jobs/:id/retry` (Failed Jobs UI) |
 | Reconciliation | Cron 5 phút — jobs QUEUED/SCHEDULED missing in Redis |
 
 ### Manual retry
@@ -123,6 +160,10 @@ UI **Failed Jobs** page: list `publish_jobs WHERE status = FAILED`.
 ---
 
 ## 7. Cancel & Reschedule
+
+Khi job SUCCESS, worker đồng thời set `content_page_assignments.published_at`
+(+ `facebook_post_id`) và chuyển content → PUBLISHED — bài đó không bao giờ được
+cron chọn lại cho page đã đăng.
 
 ### Cancel
 

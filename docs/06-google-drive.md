@@ -1,6 +1,6 @@
 # 06 — Google Drive Integration
 
-> Upload media, metadata, stream publish — v2.0
+> Upload media, metadata, stream publish — v3.0
 
 ---
 

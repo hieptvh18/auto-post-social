@@ -11,10 +11,11 @@ import type { AuditLog } from '../types';
 const { Text } = Typography;
 
 const ACTION_LABELS: Record<string, string> = {
-  SCHEDULE_UPDATE: 'Đổi lịch đăng',
+  CONTENT_UPLOAD: 'Upload content',
+  CONTENT_STATUS_CHANGE: 'Đổi trạng thái duyệt',
+  CONTENT_ADS_MARK: 'Đánh dấu Đạt ADS',
+  AUTOPOST_CONFIG_UPDATE: 'Sửa cài đặt đăng tự động',
   JOB_RETRY: 'Retry job',
-  CONTENT_APPROVE: 'Duyệt content',
-  SHEET_SYNC: 'Sync Google Sheet',
   PAGE_TOKEN_UPDATE: 'Cập nhật token',
   USER_CREATE: 'Tạo user',
 };

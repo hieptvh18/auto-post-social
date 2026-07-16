@@ -72,7 +72,7 @@ export default function FailedJobsPage() {
           >
             Lỗi
           </Button>
-          {can(user!.role, 'publish:retry') && (
+          {can(user!.role, 'jobs:retry') && (
             <Button
               size="small"
               type="primary"
@@ -108,7 +108,7 @@ export default function FailedJobsPage() {
         open={!!errorJob}
         onCancel={() => setErrorJob(null)}
         footer={
-          can(user!.role, 'publish:retry') ? (
+          can(user!.role, 'jobs:retry') ? (
             <Button
               type="primary"
               icon={<ReloadOutlined />}

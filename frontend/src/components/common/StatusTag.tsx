@@ -17,8 +17,29 @@ export function StatusTag({ status }: { status: PublishStatus }) {
   return <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status]}</Tag>;
 }
 
-export function ContentStatusTag({ status }: { status: ContentStatus }) {
+interface ContentStatusTagProps {
+  status: ContentStatus;
+  /** Số page đã đăng thành công — hiện badge x/y khi Đang đăng/Đã đăng */
+  publishedCount?: number;
+  /** Số page được phân bổ */
+  assignedCount?: number;
+}
+
+export function ContentStatusTag({
+  status,
+  publishedCount,
+  assignedCount,
+}: ContentStatusTagProps) {
+  const showProgress =
+    (status === 'PUBLISHING' || status === 'PUBLISHED') &&
+    publishedCount !== undefined &&
+    assignedCount !== undefined &&
+    assignedCount > 0;
+
   return (
-    <Tag color={CONTENT_STATUS_COLORS[status]}>{CONTENT_STATUS_LABELS[status]}</Tag>
+    <Tag color={CONTENT_STATUS_COLORS[status]}>
+      {CONTENT_STATUS_LABELS[status]}
+      {showProgress ? ` · ${publishedCount}/${assignedCount} page` : ''}
+    </Tag>
   );
 }

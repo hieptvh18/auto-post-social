@@ -1,6 +1,6 @@
 # 02 — Architecture
 
-> Kiến trúc chi tiết cho triển khai coding v2.0
+> Kiến trúc chi tiết cho triển khai coding — v3.0 (mô hình Auto-Post)
 
 ---
 
@@ -8,12 +8,16 @@
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│              Social Content Workflow Platform                    │
+│              Tool Auto FB — Luca                                 │
 │                                                                  │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
 │  │ Frontend │───▶│   API    │───▶│ Postgres │    │  Redis   │  │
 │  │  React   │    │  NestJS  │    └──────────┘    └────┬─────┘  │
 │  └──────────┘    └────┬─────┘                        │        │
+│                        │   ┌───────────────┐          │        │
+│                        │   │ Cron Scheduler │──enqueue─┤        │
+│                        │   │ (auto-post)    │          │        │
+│                        │   └───────────────┘          │        │
 │                        │         ┌──────────┐         │        │
 │                        └────────▶│  Worker  │◀────────┘        │
 │                                  │  NestJS  │                   │
@@ -25,6 +29,9 @@
               Google Drive        Meta Graph API         (no Sheet)
 ```
 
+Khác biệt lớn so với v2.0: **không còn Publisher thao tác lên lịch từng bài**.
+Một **Cron Scheduler** quét `auto_post_slots` và tự tạo publish jobs (Bot).
+
 ---
 
 ## 2. Layered Architecture (Backend)
@@ -35,7 +42,7 @@
 │  Controllers, DTOs, Swagger, Guards      │
 ├─────────────────────────────────────────┤
 │  Application Layer                       │
-│  Services (use cases), Scheduler         │
+│  Services (use cases), AutoPost Scheduler│
 ├─────────────────────────────────────────┤
 │  Domain Layer                            │
 │  Entities, Enums, Domain errors          │
@@ -59,17 +66,18 @@
 | Module | Responsibility | Depends on |
 |--------|----------------|------------|
 | `AuthModule` | Login, refresh, JWT | UsersModule |
-| `UsersModule` | User CRUD | Prisma, AuditLogs |
-| `RolesModule` | Role/permission lookup | Prisma |
+| `UsersModule` | User CRUD (3 role) | Prisma, AuditLogs |
 | `FacebookPagesModule` | Page CRUD, token crypto | Prisma, AuditLogs |
-| `ContentAssetsModule` | Content CRUD, submit review | Prisma, GoogleDrive, AuditLogs |
-| `ReviewsModule` | Approve, reject workflow | ContentAssets, Comments, AuditLogs |
-| `CommentsModule` | Review comments | Prisma |
+| `ContentAssetsModule` | Content CRUD + duyệt qua PATCH, assignments | Prisma, GoogleDrive, AuditLogs |
+| `AutoPostModule` | CRUD slots/config + **cron scheduler picker** | Prisma, PublishJobs, AuditLogs |
 | `GoogleDriveModule` | Upload, stream, thumbnail | Google API |
-| `PublishJobsModule` | CRUD jobs, cancel, retry | Prisma, BullMQ, AuditLogs |
+| `PublishJobsModule` | Jobs (Bot tạo), cancel, retry, timeline | Prisma, BullMQ, AuditLogs |
 | `AuditLogsModule` | Write/read audit | Prisma |
-| `DashboardModule` | Aggregations | Prisma |
+| `DashboardModule` | Aggregations (range, ADS, per-page) | Prisma |
 | `HealthModule` | `/health`, readiness | Prisma, Redis |
+
+Đã bỏ: `ReviewsModule`, `CommentsModule` (duyệt gộp vào ContentAssets qua PATCH,
+lý do không duyệt lưu ở `reject_comment`).
 
 **Worker app modules:**
 
@@ -81,20 +89,22 @@
 
 ---
 
-## 4. Workspace Separation (Frontend)
+## 4. Frontend Workspace (6 menu + Monitor)
 
 ```text
-Content Workspace          Publish Workspace
-├── ContentLibrary         ├── PublisherCenter
-│   upload, edit           │   approved list
-│   submit review          │   caption, hashtag
-└── (no schedule UI)       ├── ScheduleCalendar
-                           ├── QueueMonitor
-                           └── FailedJobs
+Menu chính (theo role)
+├── Tổng quan (Dashboard)            All
+├── Quản lý Ảnh/Video Edit           All (CONTENT: bài của mình)
+│     upload, edit drawer, duyệt trạng thái, Đạt ADS, phân bổ page
+├── Lịch đăng bài (Timeline)         ADMIN, EDITOR
+├── Cài đặt đăng bài tự động         ADMIN, EDITOR
+├── Quản lý FB Pages                 ADMIN
+└── Quản lý nhân sự                  ADMIN
 
-Shared: Dashboard, Auth
-Admin-only: Users, Pages, Audit, Settings
-Reviewer-only: ReviewCenter
+Monitor (ADMIN)
+├── Queue Monitor
+├── Failed Jobs
+└── Audit Logs
 ```
 
 ---
@@ -108,37 +118,41 @@ POST /media/upload (multipart)
   → GoogleDriveService.upload(file)
   → Return { fileId, mimeType, size, thumbnailUrl }
 
-POST /content
+POST /content-assets
   → ContentAssetsService.create()
-      1. Validate drive_file_id exists
-      2. Insert content_assets (DRAFT)
-      3. Audit log
+      1. Validate drive_file_id + caption
+      2. Insert content_assets (PENDING_REVIEW)
+      3. Insert content_page_assignments (nếu có assignedPageIds)
+      4. Audit log CONTENT_UPLOAD
 ```
 
-### 5.2 Submit Review → Approve
+### 5.2 Duyệt bài (trong trang Quản lý Ảnh/Video)
 
 ```text
-PATCH /content/:id/submit
-  → status: DRAFT|REJECTED → WAITING_APPROVAL
-
-POST /content/:id/approve (REVIEWER)
-  → ReviewsService.approve()
-      1. Validate status = WAITING_APPROVAL
-      2. Update → APPROVED, set approved_by
-      3. Audit log
+PATCH /content-assets/:id  { status: APPROVED, isAds: true }
+  → ContentAssetsService.update()
+      1. Check permission: field status/isAds đòi content:review
+      2. Validate transition (PENDING_REVIEW → APPROVED)
+      3. Update: status, approved_by, updated_at (mốc xếp hàng cho bot)
+      4. Audit log CONTENT_STATUS_CHANGE
 ```
 
-### 5.3 Publisher Schedule
+### 5.3 Cron Auto-Post Scheduler (Bot tạo job)
 
 ```text
-POST /publish-jobs
-  → PublishJobsService.create()
-      1. Validate content status = APPROVED
-      2. Validate page active
-      3. Insert publish_jobs (SCHEDULED) + caption, hashtags
-      4. BullMQ enqueue(delay = schedule_time - now)
-      5. Update → QUEUED
-      6. Audit log
+Cron mỗi phút (timezone Asia/Ho_Chi_Minh)
+  → AutoPostSchedulerService.tick()
+      1. Tìm slots enabled có time == HH:mm hiện tại,
+         page active + autopost_enabled + token valid
+      2. Với mỗi slot: chạy Cron Picker Query (docs/03 §7):
+         - status APPROVED (hoặc PUBLISHED/PUBLISHING còn page khác chưa đăng)
+         - category ∈ slot.categories, media_type khớp slot
+         - assignment (content, page) chưa published  ← unique 1 lần/page
+         - chưa có job QUEUED/PUBLISHING trùng (content, page)
+         - ORDER BY updated_at ASC, LIMIT slot.post_count
+      3. Tạo publish_jobs (created_by = 'Bot') + enqueue BullMQ ngay
+      4. Update content → PUBLISHING
+      5. Audit log AUTO_PUBLISH
 ```
 
 ### 5.4 Worker Publish (Stream)
@@ -148,11 +162,14 @@ BullMQ job received
   → PublishFacebookProcessor.process()
       1. Load job + content + page (decrypt token)
       2. If CANCELLED/SUCCESS → skip (idempotent)
-      3. Update → PUBLISHING
+      3. Update job → PUBLISHING
       4. GoogleDriveService.createReadStream(fileId)
-      5. FacebookPublisher.publishStream(mediaType, stream, caption)
-      6. Update → SUCCESS + facebook_post_id
-      OR catch → FAILED + error_message (BullMQ retry)
+      5. FacebookPublisher.publishStream(mediaType, stream, caption + hashtags)
+      6. SUCCESS:
+         - job → SUCCESS + facebook_post_id
+         - content_page_assignments.published_at = now, facebook_post_id
+         - content → PUBLISHED (≥1 assignment published; badge x/y từ assignments)
+      OR catch → FAILED + error_message (BullMQ retry 3 lần → DLQ)
 ```
 
 Chi tiết Drive: [06-google-drive.md](./06-google-drive.md)  
@@ -162,14 +179,23 @@ Chi tiết FB: [07-facebook-publisher.md](./07-facebook-publisher.md)
 
 ## 6. Scheduler Design
 
-**Khuyến nghị V1:** Enqueue ngay khi tạo job với `delay = schedule_time - now`
+Hai tầng:
+
+1. **AutoPost cron (mỗi phút)** — nguồn tạo job duy nhất trong flow chuẩn.
+   So khớp `auto_post_slots.time` với giờ hiện tại (`Asia/Ho_Chi_Minh`), chống
+   double-fire bằng khoá `slot_id + date + time` (Redis SETNX hoặc bảng
+   `slot_runs` unique).
+2. **Reconciliation cron (mỗi 5 phút)** — scan jobs `QUEUED` quá hạn chưa vào
+   queue → enqueue lại.
 
 ```typescript
-const delayMs = Math.max(0, scheduleTime.getTime() - Date.now());
-await queue.add('publish-facebook', { publishJobId }, { delay: delayMs, ... });
+@Cron('* * * * *', { timeZone: 'Asia/Ho_Chi_Minh' })
+async tick() {
+  const hhmm = dayjs().tz('Asia/Ho_Chi_Minh').format('HH:mm');
+  const slots = await this.slotRepo.findDueSlots(hhmm);
+  for (const slot of slots) await this.runSlot(slot); // idempotent per slot/day
+}
 ```
-
-**Reconciliation cron** (mỗi 5 phút): scan jobs `SCHEDULED`/`QUEUED` quá hạn chưa vào queue → enqueue lại.
 
 Chi tiết: [08-bullmq.md](./08-bullmq.md)
 
@@ -181,12 +207,12 @@ Chi tiết: [08-bullmq.md](./08-bullmq.md)
 
 | Layer | Strategy |
 |-------|----------|
-| Validation | 400 + field errors |
+| Validation | 400 + field errors (REJECTED thiếu comment...) |
 | Auth | 401 |
-| RBAC | 403 |
+| RBAC | 403 (CONTENT đổi status...) |
 | Not found | 404 |
-| Business rule | 409 Conflict |
-| Invalid status transition | 422 |
+| Business rule | 409 Conflict (assignment trùng content × page) |
+| Invalid status transition | 422 (client set PUBLISHING/PUBLISHED) |
 | External API | Wrap → domain error, log full response |
 
 ### 7.2 Logging (Pino)
@@ -194,10 +220,11 @@ Chi tiết: [08-bullmq.md](./08-bullmq.md)
 ```typescript
 {
   correlationId,
-  userId,
+  userId,            // null khi actor là Bot
   contentId,
   publishJobId,
-  action: 'PUBLISH_START',
+  slotId,
+  action: 'AUTO_PUBLISH_START',
   durationMs
 }
 ```
@@ -217,37 +244,34 @@ API list pages: mask token (last 4 chars)
 ```text
 frontend/src/
 ├── api/
-├── hooks/
-├── contexts/AuthContext.tsx
-├── routes/AppRoutes.tsx
+├── contexts/AuthContext.tsx, MockDataContext.tsx
+├── routes/ProtectedRoute.tsx
+├── layouts/AdminLayout.tsx          # 6 menu + group Monitor
 ├── pages/
-│   ├── Dashboard/
-│   ├── ContentLibrary/
-│   ├── ReviewCenter/          # NEW
-│   ├── PublisherCenter/       # NEW
-│   ├── ScheduleCalendar/
-│   ├── QueueMonitor/
-│   ├── FailedJobs/
-│   ├── PageManagement/
-│   ├── UserManagement/
-│   └── AuditLogs/
-├── components/layout/
+│   ├── DashboardPage.tsx            # range filter, ADS, per-page stats
+│   ├── ContentManagementPage.tsx    # Quản lý Ảnh/Video Edit (sheet-like)
+│   ├── TimelinePage.tsx             # Lịch đăng bài + filter kênh/trạng thái
+│   ├── AutoPostSettingsPage.tsx     # Cài đặt đăng bài tự động per page
+│   ├── PageManagementPage.tsx
+│   ├── UserManagementPage.tsx
+│   ├── QueueMonitorPage.tsx
+│   ├── FailedJobsPage.tsx
+│   └── AuditLogsPage.tsx
+├── components/common/
 └── utils/permissions.ts
 ```
 
 ### Route Guard Matrix
 
-| Route | ADMIN | CONTENT | REVIEWER | PUBLISHER |
-|-------|-------|---------|----------|-----------|
-| /dashboard | ✓ | ✓ | ✓ | ✓ |
-| /content | ✓ | ✓ | read | - |
-| /review | ✓ | - | ✓ | - |
-| /publisher | ✓ | - | - | ✓ |
-| /calendar | ✓ | - | read | ✓ |
-| /queue | ✓ | - | - | ✓ |
-| /pages | ✓ | - | - | - |
-| /users | ✓ | - | - | - |
-| /audit | ✓ | - | - | - |
+| Route | ADMIN | EDITOR | CONTENT |
+|-------|-------|--------|---------|
+| /dashboard | ✓ | ✓ | ✓ |
+| /content | ✓ | ✓ | ✓ (bài của mình) |
+| /timeline | ✓ | ✓ | - |
+| /auto-post | ✓ | ✓ | - |
+| /pages | ✓ | - | - |
+| /users | ✓ | - | - |
+| /queue, /failed, /audit | ✓ | - | - |
 
 Chi tiết: [05-rbac.md](./05-rbac.md)
 
@@ -279,7 +303,7 @@ Adapter: `FacebookGraphClient` — [07-facebook-publisher.md](./07-facebook-publ
 
 | Concern | V1 | Scale path |
 |---------|-----|------------|
-| API | 1 instance | Horizontal + LB |
+| API | 1 instance | Horizontal + LB (cron cần leader-election/lock) |
 | Worker | 1 instance | N workers, same queue |
 | Redis | Single | Sentinel / Cluster |
 | Media | Drive stream | Optional MinIO cache |
@@ -293,26 +317,25 @@ Adapter: `FacebookGraphClient` — [07-facebook-publisher.md](./07-facebook-publ
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DRAFT: Create
-    DRAFT --> WAITING_APPROVAL: Submit
-    REJECTED --> DRAFT: Edit
-    REJECTED --> WAITING_APPROVAL: Resubmit
-    WAITING_APPROVAL --> APPROVED: Approve
-    WAITING_APPROVAL --> REJECTED: Reject
+    [*] --> PENDING_REVIEW: Upload
+    PENDING_REVIEW --> APPROVED: EDITOR duyệt
+    PENDING_REVIEW --> REJECTED: EDITOR không duyệt (+lý do)
+    REJECTED --> PENDING_REVIEW: CONTENT sửa lại
+    APPROVED --> PUBLISHING: Bot lấy bài theo slot
+    PUBLISHING --> PUBLISHED: ≥1 page thành công
+    PUBLISHED --> PUBLISHING: Bot đăng page tiếp theo
 ```
 
 ### Publish Job Status
 
 ```mermaid
 stateDiagram-v2
-    [*] --> SCHEDULED: Publisher creates
-    SCHEDULED --> QUEUED: Enqueue BullMQ
+    [*] --> QUEUED: Bot (cron slot) tạo + enqueue
     QUEUED --> PUBLISHING: Worker pickup
     PUBLISHING --> SUCCESS: FB OK
     PUBLISHING --> FAILED: Error
     FAILED --> QUEUED: Retry
-    QUEUED --> CANCELLED: Cancel
-    SCHEDULED --> CANCELLED: Cancel
+    QUEUED --> CANCELLED: ADMIN cancel
 ```
 
 ---
@@ -321,8 +344,8 @@ stateDiagram-v2
 
 - [ ] `*.module.ts`
 - [ ] `*.controller.ts` — thin, Swagger
-- [ ] `*.service.ts` — business logic + unit tests
+- [ ] `*.service.ts` — business logic + unit tests (đặc biệt AutoPostScheduler picker)
 - [ ] `*.repository.ts` — Prisma queries
 - [ ] `dto/*.dto.ts` — class-validator
-- [ ] Guards + permission decorators
+- [ ] Guards + permission decorators (field-level cho PATCH content)
 - [ ] Audit decorator trên mutation endpoints

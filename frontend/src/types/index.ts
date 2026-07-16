@@ -1,8 +1,13 @@
-export type UserRole = 'ADMIN' | 'CONTENT' | 'REVIEWER' | 'PUBLISHER';
+export type UserRole = 'ADMIN' | 'EDITOR' | 'CONTENT';
 
 export type MediaType = 'image' | 'video';
 
-export type ContentStatus = 'DRAFT' | 'WAITING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type ContentStatus =
+  | 'PENDING_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'PUBLISHING'
+  | 'PUBLISHED';
 
 export type PublishStatus =
   | 'SCHEDULED'
@@ -37,16 +42,21 @@ export interface ContentAsset {
   category: string;
   title: string;
   description: string;
+  caption: string;
+  hashtags?: string;
   mediaType: MediaType;
   driveFileId: string;
   driveUrl?: string;
   thumbnailUrl?: string;
   status: ContentStatus;
+  isAds: boolean;
+  assignedPageIds: string[];
+  publishedPageIds: string[];
   createdBy: string;
   approvedBy?: string | null;
   rejectComment?: string | null;
+  createdAt: string;
   updatedAt: string;
-  createdAt?: string;
 }
 
 export interface PublishJob {
@@ -57,6 +67,9 @@ export interface PublishJob {
   pageName: string;
   caption: string;
   hashtags?: string;
+  category?: string;
+  mediaType?: MediaType;
+  driveUrl?: string;
   scheduleTime: string;
   status: PublishStatus;
   publishedAt: string | null;
@@ -64,6 +77,24 @@ export interface PublishJob {
   attempts: number;
   facebookPostId: string | null;
   createdBy: string;
+}
+
+export type SlotMediaType = MediaType | 'all';
+
+export interface AutoPostSlot {
+  id: string;
+  pageId: string;
+  time: string; // 'HH:mm'
+  categories: string[];
+  mediaType: SlotMediaType;
+  postCount: number;
+  enabled: boolean;
+}
+
+export interface AutoPostConfig {
+  pageId: string;
+  enabled: boolean;
+  slots: AutoPostSlot[];
 }
 
 export interface AuditLog {
@@ -78,16 +109,23 @@ export interface AuditLog {
 }
 
 export interface DashboardStats {
-  waitingReview: number;
+  pendingReview: number;
   approved: number;
-  scheduled: number;
   publishing: number;
   successPosts: number;
   failedPosts: number;
+  adsVideos: number;
   postsToday: number;
   postsThisMonth: number;
   activePages: number;
   activeUsers: number;
+}
+
+export interface PagePostStats {
+  pageId: string;
+  pageName: string;
+  imagePosts: number;
+  videoPosts: number;
 }
 
 export interface AuthUser {

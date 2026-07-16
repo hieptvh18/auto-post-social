@@ -1,6 +1,6 @@
 # 07 — Facebook Publisher
 
-> Meta Graph API — publish image/video từ stream — v2.0
+> Meta Graph API — publish image/video từ stream — v3.0
 
 ---
 

@@ -14,9 +14,16 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const STORAGE_KEY = 'social-publish-auth';
 
+const VALID_ROLES: UserRole[] = ['ADMIN', 'EDITOR', 'CONTENT'];
+
 function loadUser(): AuthUser {
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return JSON.parse(stored) as AuthUser;
+  if (stored) {
+    const parsed = JSON.parse(stored) as AuthUser;
+    // Role cũ (REVIEWER/PUBLISHER...) còn trong localStorage → reset về demo user
+    if (VALID_ROLES.includes(parsed.role)) return parsed;
+    localStorage.removeItem(STORAGE_KEY);
+  }
   if (UI_PREVIEW_SKIP_AUTH) return DEMO_USER;
   return DEMO_USER; // fallback, ProtectedRoute sẽ chặn nếu tắt preview
 }

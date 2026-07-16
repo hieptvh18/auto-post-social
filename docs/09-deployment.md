@@ -1,6 +1,6 @@
 # 09 — Deployment
 
-> Docker Compose, Nginx, production — v2.0
+> Docker Compose, Nginx, production — v3.0
 
 ---
 

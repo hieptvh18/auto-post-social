@@ -1,6 +1,6 @@
 # 03 — Database Design
 
-> Schema Prisma, indexes, migrations — v2.0
+> Schema Prisma, indexes, migrations — v3.0 (mô hình Auto-Post)
 
 ---
 
@@ -10,34 +10,23 @@
 erDiagram
     users ||--o{ content_assets : creates
     users ||--o{ content_assets : approves
-    users ||--o{ publish_jobs : creates
     users ||--o{ audit_logs : performs
-    users ||--o{ comments : writes
     users ||--o{ facebook_pages : creates
+    content_assets ||--o{ content_page_assignments : assigned
+    facebook_pages ||--o{ content_page_assignments : receives
     content_assets ||--o{ publish_jobs : has
-    content_assets ||--o{ comments : has
     facebook_pages ||--o{ publish_jobs : targets
-    roles ||--o{ users : assigns
+    facebook_pages ||--o{ auto_post_slots : schedules
 
     users {
         uuid id PK
         string name
         string email UK
         string password_hash
-        uuid role_id FK
+        enum role
         boolean is_active
         datetime created_at
         datetime updated_at
-    }
-
-    roles {
-        uuid id PK
-        string name UK
-    }
-
-    permissions {
-        uuid id PK
-        string code UK
     }
 
     facebook_pages {
@@ -47,6 +36,7 @@ erDiagram
         string access_token_enc
         datetime token_expire_at
         boolean is_active
+        boolean autopost_enabled
         uuid created_by FK
     }
 
@@ -54,16 +44,38 @@ erDiagram
         uuid id PK
         string title
         text description
+        text caption
+        text hashtags
         string category
         enum media_type
         string drive_file_id
         string drive_url
         string thumbnail_url
         enum status
+        boolean is_ads
+        text reject_comment
         uuid created_by FK
         uuid approved_by FK
         datetime created_at
         datetime updated_at
+    }
+
+    content_page_assignments {
+        uuid id PK
+        uuid content_asset_id FK
+        uuid facebook_page_id FK
+        datetime published_at
+        string facebook_post_id
+    }
+
+    auto_post_slots {
+        uuid id PK
+        uuid facebook_page_id FK
+        string time
+        string_array categories
+        enum media_type
+        int post_count
+        boolean enabled
     }
 
     publish_jobs {
@@ -78,15 +90,7 @@ erDiagram
         string facebook_post_id
         text error_message
         int attempt_count
-        uuid created_by FK
-    }
-
-    comments {
-        uuid id PK
-        uuid content_id FK
-        uuid user_id FK
-        text comment
-        datetime created_at
+        string created_by
     }
 
     audit_logs {
@@ -107,9 +111,8 @@ erDiagram
 ```prisma
 enum UserRole {
   ADMIN
+  EDITOR
   CONTENT
-  REVIEWER
-  PUBLISHER
 }
 
 enum MediaType {
@@ -117,11 +120,18 @@ enum MediaType {
   video
 }
 
+enum SlotMediaType {
+  image
+  video
+  all
+}
+
 enum ContentStatus {
-  DRAFT
-  WAITING_APPROVAL
-  APPROVED
-  REJECTED
+  PENDING_REVIEW   // Chờ duyệt (mặc định sau upload — không có DRAFT)
+  APPROVED         // Đã duyệt — pool cho bot lấy đăng
+  REJECTED         // Không duyệt — bắt buộc reject_comment
+  PUBLISHING       // Đang đăng — bot cập nhật
+  PUBLISHED        // Đã đăng (≥ 1 page thành công) — bot cập nhật
 }
 
 enum PublishStatus {
@@ -148,22 +158,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Role {
-  id   String @id @default(uuid()) @db.Uuid
-  name String @unique
-
-  users User[]
-
-  @@map("roles")
-}
-
-model Permission {
-  id   String @id @default(uuid()) @db.Uuid
-  code String @unique
-
-  @@map("permissions")
-}
-
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -174,29 +168,30 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  contentCreated   ContentAsset[] @relation("ContentCreator")
-  contentApproved  ContentAsset[] @relation("ContentApprover")
-  publishJobs      PublishJob[]
-  comments         Comment[]
-  auditLogs        AuditLog[]
-  facebookPages    FacebookPage[]
+  contentCreated  ContentAsset[] @relation("ContentCreator")
+  contentApproved ContentAsset[] @relation("ContentApprover")
+  auditLogs       AuditLog[]
+  facebookPages   FacebookPage[]
 
   @@map("users")
 }
 
 model FacebookPage {
-  id             String    @id @default(uuid()) @db.Uuid
-  pageName       String    @map("page_name")
-  pageId         String    @unique @map("page_id")
-  accessTokenEnc String    @map("access_token_enc") @db.Text
-  tokenExpireAt  DateTime? @map("token_expire_at")
-  isActive       Boolean   @default(true) @map("is_active")
-  createdById    String    @map("created_by") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  pageName        String    @map("page_name")
+  pageId          String    @unique @map("page_id")
+  accessTokenEnc  String    @map("access_token_enc") @db.Text
+  tokenExpireAt   DateTime? @map("token_expire_at")
+  isActive        Boolean   @default(true) @map("is_active")
+  autopostEnabled Boolean   @default(false) @map("autopost_enabled")
+  createdById     String    @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  createdBy   User         @relation(fields: [createdById], references: [id])
-  publishJobs PublishJob[]
+  createdBy    User                    @relation(fields: [createdById], references: [id])
+  publishJobs  PublishJob[]
+  assignments  ContentPageAssignment[]
+  autoPostSlots AutoPostSlot[]
 
   @@index([isActive])
   @@map("facebook_pages")
@@ -206,83 +201,110 @@ model ContentAsset {
   id            String        @id @default(uuid()) @db.Uuid
   title         String
   description   String?       @db.Text
-  category      String?
+  caption       String        @db.Text          // Bot dùng khi đăng
+  hashtags      String?       @db.Text
+  category      String                          // "Dạng" bài
   mediaType     MediaType     @map("media_type")
   driveFileId   String        @map("drive_file_id")
   driveUrl      String?       @map("drive_url")
   thumbnailUrl  String?       @map("thumbnail_url")
   mimeType      String?       @map("mime_type")
   fileSize      BigInt?       @map("file_size")
-  status        ContentStatus @default(DRAFT)
+  status        ContentStatus @default(PENDING_REVIEW)
+  isAds         Boolean       @default(false) @map("is_ads")  // Đạt ADS
+  rejectComment String?       @map("reject_comment") @db.Text
   createdById   String        @map("created_by") @db.Uuid
   approvedById  String?       @map("approved_by") @db.Uuid
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  createdAt     DateTime      @default(now()) @map("created_at")  // Ngày upload
+  updatedAt     DateTime      @updatedAt @map("updated_at")        // = thời điểm duyệt gần nhất
 
-  createdBy   User         @relation("ContentCreator", fields: [createdById], references: [id])
-  approvedBy  User?        @relation("ContentApprover", fields: [approvedById], references: [id])
+  createdBy   User                    @relation("ContentCreator", fields: [createdById], references: [id])
+  approvedBy  User?                   @relation("ContentApprover", fields: [approvedById], references: [id])
   publishJobs PublishJob[]
-  comments    Comment[]
+  assignments ContentPageAssignment[]
 
   @@index([status])
   @@index([category])
   @@index([mediaType])
   @@index([createdById])
+  @@index([isAds])
+  @@index([status, updatedAt])   // Cron picker: APPROVED order by updated_at ASC
   @@map("content_assets")
 }
 
+// Phân bổ content → page. published_at != null nghĩa là ĐÃ đăng trên page đó.
+// UNIQUE(content, page) enforce rule "mỗi bài chỉ đăng 1 lần / 1 page".
+model ContentPageAssignment {
+  id             String    @id @default(uuid()) @db.Uuid
+  contentAssetId String    @map("content_asset_id") @db.Uuid
+  facebookPageId String    @map("facebook_page_id") @db.Uuid
+  publishedAt    DateTime? @map("published_at")
+  facebookPostId String?   @map("facebook_post_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id], onDelete: Cascade)
+  facebookPage FacebookPage @relation(fields: [facebookPageId], references: [id])
+
+  @@unique([contentAssetId, facebookPageId])
+  @@index([facebookPageId, publishedAt])
+  @@map("content_page_assignments")
+}
+
+// Mốc giờ đăng tự động của từng page — config 1 lần, dùng suốt vòng đời.
+model AutoPostSlot {
+  id             String        @id @default(uuid()) @db.Uuid
+  facebookPageId String        @map("facebook_page_id") @db.Uuid
+  time           String                        // 'HH:mm' — giờ cố định trong ngày
+  categories     String[]                      // các Dạng bài được phép đăng ở mốc này
+  mediaType      SlotMediaType @default(all) @map("media_type")
+  postCount      Int           @default(1) @map("post_count")
+  enabled        Boolean       @default(true)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  facebookPage FacebookPage @relation(fields: [facebookPageId], references: [id], onDelete: Cascade)
+
+  @@index([facebookPageId, enabled])
+  @@map("auto_post_slots")
+}
+
 model PublishJob {
-  id              String        @id @default(uuid()) @db.Uuid
-  contentAssetId  String        @map("content_asset_id") @db.Uuid
-  facebookPageId  String        @map("facebook_page_id") @db.Uuid
-  caption         String        @db.Text
-  hashtags        String?       @db.Text
-  scheduleTime    DateTime      @map("schedule_time")
-  status          PublishStatus @default(SCHEDULED)
-  publishedAt     DateTime?     @map("published_at")
-  facebookPostId  String?       @map("facebook_post_id")
-  errorMessage    String?       @map("error_message") @db.Text
-  attemptCount    Int           @default(0) @map("attempt_count")
-  bullJobId       String?       @map("bull_job_id")
-  createdById     String        @map("created_by") @db.Uuid
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  id             String        @id @default(uuid()) @db.Uuid
+  contentAssetId String        @map("content_asset_id") @db.Uuid
+  facebookPageId String        @map("facebook_page_id") @db.Uuid
+  caption        String        @db.Text
+  hashtags       String?       @db.Text
+  scheduleTime   DateTime      @map("schedule_time")
+  status         PublishStatus @default(QUEUED)
+  publishedAt    DateTime?     @map("published_at")
+  facebookPostId String?       @map("facebook_post_id")
+  errorMessage   String?       @map("error_message") @db.Text
+  attemptCount   Int           @default(0) @map("attempt_count")
+  bullJobId      String?       @map("bull_job_id")
+  createdBy      String        @default("Bot") @map("created_by")  // luôn là Bot trong flow auto
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
   contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id])
   facebookPage FacebookPage @relation(fields: [facebookPageId], references: [id])
-  createdBy    User         @relation(fields: [createdById], references: [id])
 
   @@index([status])
   @@index([scheduleTime])
-  @@index([contentAssetId, facebookPageId, scheduleTime])
+  @@index([contentAssetId, facebookPageId])
   @@map("publish_jobs")
 }
 
-model Comment {
-  id        String   @id @default(uuid()) @db.Uuid
-  contentId String   @map("content_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  comment   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-
-  content ContentAsset @relation(fields: [contentId], references: [id], onDelete: Cascade)
-  user    User         @relation(fields: [userId], references: [id])
-
-  @@index([contentId])
-  @@map("comments")
-}
-
 model AuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
-  action     String
-  resource   String
-  beforeValue Json?   @map("before_value")
-  afterValue  Json?   @map("after_value")
-  ipAddress  String?  @map("ip_address")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid   // null = Bot/system
+  action      String
+  resource    String
+  beforeValue Json?    @map("before_value")
+  afterValue  Json?    @map("after_value")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([action])
@@ -297,25 +319,30 @@ model AuditLog {
 
 | Index | Lý do |
 |-------|-------|
-| `content_assets(status)` | Filter theo workflow state |
-| `content_assets(created_by)` | Content user xem bài của mình |
-| `publish_jobs(status)` | Queue/failed monitor |
-| `publish_jobs(schedule_time)` | Calendar + reconciliation |
-| `comments(content_id)` | Review history |
+| `content_assets(status, updated_at)` | Cron picker: lấy APPROVED, order `updated_at ASC` |
+| `content_assets(is_ads)` | Dashboard đếm video đạt ADS |
+| `content_page_assignments UNIQUE(content, page)` | **Enforce đăng 1 lần / 1 page** |
+| `content_page_assignments(page, published_at)` | Dashboard bài đăng theo page |
+| `auto_post_slots(page, enabled)` | Cron quét slot đến giờ |
+| `publish_jobs(status)` / `(schedule_time)` | Queue/failed monitor + timeline |
 | `facebook_pages.page_id` UNIQUE | Meta API identifier |
 
 ---
 
 ## 5. Content Status Transitions
 
-| From \ To | WAITING_APPROVAL | APPROVED | REJECTED | DRAFT |
-|-----------|------------------|----------|----------|-------|
-| DRAFT | ✓ (submit) | - | - | - |
-| REJECTED | ✓ (resubmit) | - | - | ✓ (edit) |
-| WAITING_APPROVAL | - | ✓ | ✓ | - |
-| APPROVED | - | - | - | - |
+| From \ To | PENDING_REVIEW | APPROVED | REJECTED | PUBLISHING | PUBLISHED |
+|-----------|:---:|:---:|:---:|:---:|:---:|
+| (upload) | ✓ mặc định | - | - | - | - |
+| PENDING_REVIEW | - | ✓ EDITOR | ✓ EDITOR (+lý do) | - | - |
+| REJECTED | ✓ (CONTENT sửa lại) | ✓ EDITOR | - | - | - |
+| APPROVED | ✓ (EDITOR rút lại) | - | ✓ EDITOR | ✓ **Bot** | - |
+| PUBLISHING | - | - | - | - | ✓ **Bot** (≥1 page OK) |
+| PUBLISHED | - | - | - | ✓ **Bot** (page tiếp theo) | - |
 
-Enforce trong `ContentAssetsService.transitionStatus()`.
+- Người dùng (EDITOR/ADMIN) chỉ chuyển giữa 3 trạng thái duyệt.
+- `PUBLISHING`/`PUBLISHED` chỉ do worker cập nhật. Enforce trong
+  `ContentAssetsService.transitionStatus()`.
 
 ---
 
@@ -328,30 +355,55 @@ Enforce trong `ContentAssetsService.transitionStatus()`.
 | PUBLISHING | - | - | ✓ | ✓ | - |
 | FAILED | ✓ (retry) | - | - | - | ✓ |
 
+Khi job SUCCESS → set `content_page_assignments.published_at` + `facebook_post_id`,
+recompute content status (PUBLISHED nếu ≥ 1 assignment published).
+
 ---
 
-## 7. Data Rules
+## 7. Cron Picker Query (logic lấy bài)
+
+```sql
+-- Đến mốc giờ slot S của page P: chọn tối đa S.post_count bài
+SELECT c.*
+FROM content_assets c
+JOIN content_page_assignments a
+  ON a.content_asset_id = c.id
+ AND a.facebook_page_id = $pageId
+ AND a.published_at IS NULL          -- chưa đăng trên page này (unique 1 lần/page)
+WHERE c.status IN ('APPROVED', 'PUBLISHED', 'PUBLISHING')
+  -- PUBLISHED/PUBLISHING vẫn hợp lệ cho page KHÁC chưa đăng
+  AND c.category = ANY($slot.categories)
+  AND ($slot.media_type = 'all' OR c.media_type = $slot.media_type)
+  AND NOT EXISTS (                    -- không tạo job trùng đang chờ
+    SELECT 1 FROM publish_jobs j
+    WHERE j.content_asset_id = c.id
+      AND j.facebook_page_id = $pageId
+      AND j.status IN ('QUEUED', 'PUBLISHING')
+  )
+ORDER BY c.updated_at ASC             -- duyệt sớm → đăng trước
+LIMIT $slot.post_count;
+```
+
+---
+
+## 8. Data Rules
 
 | Field | Constraint |
 |-------|------------|
 | `users.email` | Unique, lowercase trim |
-| `content_assets.drive_file_id` | Required khi submit review |
+| `content_assets.caption` | Required — bot dùng khi đăng, max 63206 chars |
+| `content_assets.reject_comment` | Required khi status → REJECTED |
 | `content_assets` media | DB không lưu binary — chỉ metadata |
-| `publish_jobs.caption` | Max 63206 chars |
+| `content_page_assignments` | UNIQUE(content, page) — không đăng lặp |
+| `auto_post_slots.time` | 'HH:mm' 24h, timezone `Asia/Ho_Chi_Minh` |
 | `publish_jobs.schedule_time` | UTC stored, UI `Asia/Ho_Chi_Minh` |
-| `publish_jobs.attempt_count` | Increment mỗi worker try |
 
 ---
 
-## 8. Seed Data
+## 9. Seed Data
 
 ```typescript
 // prisma/seed.ts
-const roles = ['ADMIN', 'CONTENT', 'REVIEWER', 'PUBLISHER'];
-for (const name of roles) {
-  await prisma.role.upsert({ where: { name }, update: {}, create: { name } });
-}
-
 await prisma.user.upsert({
   where: { email: 'admin@company.local' },
   update: {},
@@ -362,39 +414,42 @@ await prisma.user.upsert({
     role: 'ADMIN',
   },
 });
+// Roles là enum (ADMIN | EDITOR | CONTENT) — không cần bảng roles ở V1.
 ```
 
 ---
 
-## 9. Dashboard Queries
+## 10. Dashboard Queries
 
 ```sql
+-- Video đạt ADS (theo range)
+SELECT COUNT(*) FROM content_assets
+WHERE is_ads = true AND media_type = 'video'
+  AND updated_at BETWEEN $1 AND $2;
+
+-- Bài đăng theo page + media type (theo range)
+SELECT p.page_name, c.media_type, COUNT(*)
+FROM content_page_assignments a
+JOIN facebook_pages p ON p.id = a.facebook_page_id
+JOIN content_assets c ON c.id = a.content_asset_id
+WHERE a.published_at BETWEEN $1 AND $2
+GROUP BY p.page_name, c.media_type;
+
 -- Content by status
 SELECT status, COUNT(*) FROM content_assets GROUP BY status;
 
--- Publish by status (date range)
-SELECT status, COUNT(*)
-FROM publish_jobs
-WHERE schedule_time BETWEEN $1 AND $2
-GROUP BY status;
-
--- Top content creators
-SELECT u.name, COUNT(c.id) AS content_count
-FROM content_assets c
-JOIN users u ON c.created_by = u.id
-WHERE c.created_at >= NOW() - INTERVAL '30 days'
-GROUP BY u.id, u.name
-ORDER BY content_count DESC
-LIMIT 10;
+-- Publish jobs by status (range)
+SELECT status, COUNT(*) FROM publish_jobs
+WHERE schedule_time BETWEEN $1 AND $2 GROUP BY status;
 ```
 
 ---
 
-## 10. Implementation Tasks
+## 11. Implementation Tasks
 
-- [ ] `schema.prisma` theo spec trên
-- [ ] Migration init + seed roles + admin
+- [ ] `schema.prisma` theo spec trên (thêm `content_page_assignments`, `auto_post_slots`)
+- [ ] Migration init + seed admin
 - [ ] `PrismaService` global module
 - [ ] Repository per aggregate
-- [ ] Unit test status transition logic
-- [ ] Document timezone: **UTC in DB**, UI convert local
+- [ ] Unit test: status transition + cron picker query (unique 1 lần/page, order updated_at)
+- [ ] Document timezone: **UTC in DB**, UI convert `Asia/Ho_Chi_Minh`

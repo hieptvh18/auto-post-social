@@ -9,9 +9,8 @@ const { Title, Text } = Typography;
 
 const DEMO_ACCOUNTS: { email: string; role: UserRole }[] = [
   { email: PREVIEW_EMAILS.ADMIN, role: 'ADMIN' },
+  { email: PREVIEW_EMAILS.EDITOR, role: 'EDITOR' },
   { email: PREVIEW_EMAILS.CONTENT, role: 'CONTENT' },
-  { email: PREVIEW_EMAILS.REVIEWER, role: 'REVIEWER' },
-  { email: PREVIEW_EMAILS.PUBLISHER, role: 'PUBLISHER' },
 ];
 
 export default function LoginPage() {

@@ -1,6 +1,6 @@
 # 04 — API Specification
 
-> REST API đầy đủ cho V1 (v2.0) — Base URL: `/api`
+> REST API đầy đủ cho V1 (v3.0 — mô hình Auto-Post) — Base URL: `/api`
 
 **Auth:** `Authorization: Bearer <access_token>`
 
@@ -23,7 +23,7 @@
   "accessToken": "eyJ...",
   "refreshToken": "eyJ...",
   "expiresIn": 900,
-  "user": { "id": "uuid", "name": "User", "email": "...", "role": "PUBLISHER" }
+  "user": { "id": "uuid", "name": "User", "email": "...", "role": "EDITOR" }
 }
 ```
 
@@ -37,7 +37,7 @@
 
 | Method | Path | Mô tả |
 |--------|------|-------|
-| GET | `/users` | List (`?role=REVIEWER&search=`) |
+| GET | `/users` | List (`?role=EDITOR&search=`) |
 | POST | `/users` | Create |
 | PUT | `/users/:id` | Update |
 | DELETE | `/users/:id` | Soft delete (`isActive=false`) |
@@ -52,6 +52,8 @@
   "role": "CONTENT"
 }
 ```
+
+`role`: `ADMIN | EDITOR | CONTENT`
 
 ---
 
@@ -68,7 +70,7 @@
 
 ```json
 {
-  "pageName": "Brand Page A",
+  "pageName": "Luca — Hà Nội",
   "pageId": "123456789",
   "accessToken": "EAAx...",
   "tokenExpireAt": "2026-12-01T00:00:00.000Z"
@@ -83,7 +85,7 @@ Response list: `tokenMasked: "****abcd"` — không trả full token.
 
 ### POST `/media/upload`
 
-**Roles:** CONTENT, ADMIN
+**Roles:** CONTENT, EDITOR, ADMIN
 
 **Content-Type:** `multipart/form-data`
 
@@ -108,104 +110,140 @@ Chi tiết: [06-google-drive.md](./06-google-drive.md)
 
 ---
 
-## 5. Content Assets
+## 5. Content Assets (trang Quản lý Ảnh/Video Edit)
 
 | Method | Path | Roles | Mô tả |
 |--------|------|-------|-------|
-| GET | `/content` | All | List + filter |
-| GET | `/content/:id` | All | Detail + comments |
-| POST | `/content` | CONTENT, ADMIN | Tạo mới |
-| PUT | `/content/:id` | CONTENT, ADMIN | Sửa (DRAFT/REJECTED only) |
-| DELETE | `/content/:id` | CONTENT, ADMIN | Xóa (DRAFT only) |
-| PATCH | `/content/:id/submit` | CONTENT, ADMIN | → WAITING_APPROVAL |
-| POST | `/content/:id/approve` | REVIEWER, ADMIN | → APPROVED |
-| POST | `/content/:id/reject` | REVIEWER, ADMIN | → REJECTED |
+| GET | `/content-assets` | All | List + filter |
+| GET | `/content-assets/:id` | All | Detail (kèm assignments/published) |
+| POST | `/content-assets` | CONTENT, EDITOR, ADMIN | Tạo mới → PENDING_REVIEW |
+| PATCH | `/content-assets/:id` | CONTENT (bài mình), EDITOR, ADMIN | Sửa full-field (kể cả duyệt) |
+| DELETE | `/content-assets/:id` | CONTENT (bài mình), EDITOR, ADMIN | Xóa |
 
-### GET `/content` query
+Không còn endpoint `submit` / `approve` / `reject` riêng — mọi thay đổi đi qua
+**PATCH** duy nhất, service kiểm tra quyền theo field:
+
+- `status`, `isAds` → yêu cầu permission `content:review` (EDITOR/ADMIN)
+- `status: REJECTED` → `rejectComment` bắt buộc (400 nếu thiếu)
+- CONTENT sửa bài REJECTED → status tự quay về PENDING_REVIEW
+- `PUBLISHING`/`PUBLISHED` → chỉ worker set (422 nếu client gửi)
+
+### GET `/content-assets` query
 
 ```
-?page=1&limit=20&search=flash&category=Sale&status=APPROVED&mediaType=video
+?page=1&limit=20&search=khớp&category=Thăm khám&status=APPROVED&mediaType=video
+&createdBy=uuid&updatedFrom=2026-07-01&updatedTo=2026-07-31
 ```
 
-### POST `/content`
+### POST `/content-assets`
 
 ```json
 {
-  "title": "Flash Sale",
+  "title": "5 dấu hiệu thoái hóa khớp gối",
   "description": "Mô tả ngắn",
-  "category": "Sale",
-  "mediaType": "video",
+  "category": "Giáo dục sức khỏe",
+  "caption": "⚠️ 5 dấu hiệu thoái hóa khớp gối bạn không nên bỏ qua!",
+  "hashtags": "#thoáihoákhớp",
+  "mediaType": "image",
   "driveFileId": "1abc...",
   "driveUrl": "https://...",
-  "thumbnailUrl": "https://..."
+  "thumbnailUrl": "https://...",
+  "assignedPageIds": ["uuid-page-1", "uuid-page-2"]
 }
 ```
 
-Response: `status: "DRAFT"`
+Response: `status: "PENDING_REVIEW"`. `caption` bắt buộc (bot dùng khi đăng).
+`assignedPageIds` tạo records trong `content_page_assignments`.
 
-### POST `/content/:id/reject`
+### PATCH `/content-assets/:id` (ví dụ EDITOR duyệt)
+
+```json
+{ "status": "APPROVED", "isAds": true }
+```
+
+### Response detail
 
 ```json
 {
-  "comment": "Caption chưa đúng brand voice"
+  "id": "uuid",
+  "title": "...",
+  "status": "PUBLISHED",
+  "isAds": true,
+  "assignments": [
+    { "pageId": "uuid-1", "pageName": "Luca — Hà Nội", "publishedAt": "2026-07-14T08:01:23Z", "facebookPostId": "fb_post_8821" },
+    { "pageId": "uuid-2", "pageName": "Luca — TP.HCM", "publishedAt": null, "facebookPostId": null }
+  ]
 }
 ```
 
-`comment` bắt buộc — tạo record trong `comments`.
-
-### GET `/content/:id/comments`
-
-List comments theo content.
+UI hiển thị badge `1/2 page` từ `assignments`.
 
 ---
 
-## 6. Publish Jobs
+## 6. Auto-Post Configs (ADMIN, EDITOR)
 
-| Method | Path | Roles |
+| Method | Path | Mô tả |
 |--------|------|-------|
-| GET | `/publish-jobs` | PUBLISHER, ADMIN |
-| GET | `/publish-jobs/calendar` | PUBLISHER, ADMIN |
-| GET | `/publish-jobs/:id` | PUBLISHER, ADMIN |
-| POST | `/publish-jobs` | PUBLISHER, ADMIN |
-| POST | `/publish-jobs/bulk` | PUBLISHER, ADMIN |
-| PATCH | `/publish-jobs/:id/cancel` | PUBLISHER, ADMIN |
-| PATCH | `/publish-jobs/:id/reschedule` | PUBLISHER, ADMIN |
-| POST | `/publish-jobs/:id/retry` | PUBLISHER, ADMIN |
+| GET | `/auto-post-configs` | Config tất cả pages (kèm slots) |
+| PATCH | `/auto-post-configs/:pageId` | Bật/tắt auto-post cho page |
+| POST | `/auto-post-configs/:pageId/slots` | Thêm mốc giờ |
+| PATCH | `/auto-post-slots/:slotId` | Sửa mốc giờ / bật tắt |
+| DELETE | `/auto-post-slots/:slotId` | Xóa mốc giờ |
 
-### POST `/publish-jobs`
+### POST `/auto-post-configs/:pageId/slots`
 
 ```json
 {
-  "contentAssetId": "uuid",
-  "facebookPageId": "uuid",
-  "caption": "Giảm giá 50% hôm nay!",
-  "hashtags": "#sale #flash",
-  "scheduleTime": "2026-07-06T01:00:00.000Z"
+  "time": "08:00",
+  "categories": ["Cơ xương khớp", "Thăm khám"],
+  "mediaType": "video",
+  "postCount": 1
 }
 ```
 
-**Business rules:**
-- Content `status = APPROVED`
-- Page `isActive = true`
-- `scheduleTime >= now - 1 minute` (publish now allowed)
+### GET `/auto-post-configs` response
 
-**Response 201:** `status: "QUEUED"` (sau enqueue)
-
-### GET `/publish-jobs/calendar`
-
+```json
+[
+  {
+    "pageId": "uuid",
+    "pageName": "Luca — Hà Nội",
+    "enabled": true,
+    "slots": [
+      { "id": "uuid", "time": "08:00", "categories": ["Cơ xương khớp", "Thăm khám"], "mediaType": "video", "postCount": 1, "enabled": true }
+    ]
+  }
+]
 ```
-?from=2026-07-01&to=2026-07-07
-```
+
+---
+
+## 7. Publish Jobs (do Bot tạo — client chỉ đọc/retry)
+
+| Method | Path | Roles |
+|--------|------|-------|
+| GET | `/publish-jobs` | EDITOR, ADMIN |
+| GET | `/publish-jobs/timeline?date=2026-07-16&pageId=&status=` | EDITOR, ADMIN |
+| GET | `/publish-jobs/:id` | EDITOR, ADMIN |
+| PATCH | `/publish-jobs/:id/cancel` | ADMIN |
+| POST | `/publish-jobs/:id/retry` | ADMIN |
+
+### GET `/publish-jobs/timeline`
 
 ```json
 {
-  "2026-07-06": [
+  "2026-07-16": [
     {
       "id": "uuid",
-      "scheduleTime": "2026-07-06T01:00:00.000Z",
-      "status": "QUEUED",
-      "title": "Flash Sale",
-      "pageName": "Page A"
+      "scheduleTime": "2026-07-16T08:00:00.000Z",
+      "status": "SUCCESS",
+      "title": "BS. Bảo giải đáp: Đau cổ vai gáy",
+      "pageName": "Luca — Hà Nội",
+      "category": "Thăm khám",
+      "mediaType": "video",
+      "facebookPostId": "fb_post_8830",
+      "driveUrl": "https://drive.google.com/...",
+      "createdBy": "Bot"
     }
   ]
 }
@@ -213,7 +251,7 @@ List comments theo content.
 
 ---
 
-## 7. Dashboard
+## 8. Dashboard
 
 ### GET `/dashboard/stats`
 
@@ -223,32 +261,32 @@ List comments theo content.
 
 ```json
 {
-  "waitingReview": 5,
+  "pendingReview": 5,
   "approved": 12,
-  "scheduled": 8,
   "publishing": 1,
   "successPosts": 140,
   "failedPosts": 3,
-  "postsToday": 15,
-  "postsThisMonth": 320,
-  "activePages": 12,
-  "activeUsers": 8
+  "adsVideos": 8,
+  "activePages": 3,
+  "activeUsers": 4
 }
 ```
 
-### GET `/dashboard/top-creators?days=30`
+### GET `/dashboard/posts-by-page?from=&to=&mediaType=video|image|all`
 
-### GET `/dashboard/top-publishers?days=30`
+```json
+[
+  { "pageId": "uuid", "pageName": "Luca — Hà Nội", "imagePosts": 12, "videoPosts": 20 }
+]
+```
 
-### GET `/dashboard/chart/daily?days=7`
+### GET `/dashboard/chart/daily?from=&to=`
 
 ---
 
-## 8. Queue Monitor
+## 9. Queue Monitor (ADMIN)
 
 ### GET `/queue/jobs`
-
-**Roles:** PUBLISHER, ADMIN
 
 ```json
 {
@@ -262,7 +300,7 @@ List comments theo content.
       "publishJobId": "uuid",
       "status": "delayed",
       "attemptsMade": 0,
-      "scheduleTime": "2026-07-06T01:00:00.000Z"
+      "scheduleTime": "2026-07-16T01:00:00.000Z"
     }
   ]
 }
@@ -274,12 +312,12 @@ Jobs chuyển sang DLQ sau max retries.
 
 ---
 
-## 9. Audit Logs (ADMIN)
+## 10. Audit Logs (ADMIN)
 
 ### GET `/audit-logs`
 
 ```
-?page=1&limit=50&action=CONTENT_APPROVE&userId=uuid&from=&to=
+?page=1&limit=50&action=CONTENT_STATUS_CHANGE&userId=uuid&from=&to=
 ```
 
 ```json
@@ -287,12 +325,12 @@ Jobs chuyển sang DLQ sau max retries.
   "data": [
     {
       "id": "uuid",
-      "user": { "email": "reviewer@company.local" },
-      "action": "CONTENT_APPROVE",
+      "user": { "email": "editor@company.local" },
+      "action": "CONTENT_STATUS_CHANGE",
       "resource": "content_assets:uuid",
-      "beforeValue": { "status": "WAITING_APPROVAL" },
+      "beforeValue": { "status": "PENDING_REVIEW" },
       "afterValue": { "status": "APPROVED" },
-      "createdAt": "2026-07-05T15:00:00.000Z"
+      "createdAt": "2026-07-15T15:00:00.000Z"
     }
   ]
 }
@@ -300,7 +338,7 @@ Jobs chuyển sang DLQ sau max retries.
 
 ---
 
-## 10. Health
+## 11. Health
 
 | Method | Path | Mô tả |
 |--------|------|-------|
@@ -309,12 +347,12 @@ Jobs chuyển sang DLQ sau max retries.
 
 ---
 
-## 11. Error Format
+## 12. Error Format
 
 ```json
 {
   "statusCode": 422,
-  "message": "Cannot edit content in status APPROVED",
+  "message": "Status PUBLISHING can only be set by the publish worker",
   "error": "Unprocessable Entity",
   "correlationId": "uuid"
 }
@@ -322,27 +360,27 @@ Jobs chuyển sang DLQ sau max retries.
 
 ---
 
-## 12. HTTP Status Summary
+## 13. HTTP Status Summary
 
 | Code | Usage |
 |------|-------|
 | 200 | OK |
 | 201 | Created |
 | 204 | No content |
-| 400 | Validation |
+| 400 | Validation (VD: REJECTED thiếu rejectComment) |
 | 401 | Unauthorized |
-| 403 | Forbidden (RBAC) |
+| 403 | Forbidden (RBAC — VD: CONTENT đổi status) |
 | 404 | Not found |
-| 409 | Conflict |
+| 409 | Conflict (VD: assignment trùng content × page) |
 | 422 | Invalid status transition |
 | 500 | Internal |
 
 ---
 
-## 13. Implementation Checklist
+## 14. Implementation Checklist
 
 - [ ] Global `ValidationPipe` (`whitelist: true`)
 - [ ] `CorrelationIdMiddleware`
 - [ ] DTO + Swagger cho mọi endpoint
-- [ ] Permission guard thay vì hardcode role
-- [ ] E2E: content workflow, publish, RBAC 403
+- [ ] Permission guard theo field (PATCH content-assets)
+- [ ] E2E: duyệt qua PATCH, cron picker, RBAC 403, unique content×page 409
