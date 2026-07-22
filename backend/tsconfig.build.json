@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  // Build chỉ lấy src/ để dist/main.js nằm đúng vị trí.
+  // prisma/seed.ts và *.config.ts chạy qua ts-node, không cần compile vào dist.
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "test", "dist", "generated", "**/*spec.ts"]
+}

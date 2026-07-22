@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+
+# Env — chỉ commit .env.example (rule 04)
+.env
+.env.local
+.env.*.local
+
+# Docker
+docker/.env
+
+.DS_Store
+*.log

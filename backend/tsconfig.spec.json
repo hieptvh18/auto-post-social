@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // TypeScript sinh helper __metadata("design:paramtypes", ...) cho mỗi constructor
+    // có decorator. Helper đó chứa nhánh `typeof X === "undefined" ? ... : ...` mà test
+    // không thể chạm tới, làm coverage branch không bao giờ đạt 100%.
+    // Unit test dựng object trực tiếp (new Service(mock)) nên không cần metadata của Nest DI.
+    // Build thật (tsconfig.json) vẫn giữ emitDecoratorMetadata cho DI hoạt động.
+    "emitDecoratorMetadata": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}

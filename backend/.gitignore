@@ -1,0 +1,31 @@
+# Dependencies
+/node_modules
+
+# Build
+/dist
+/build
+
+# Prisma generated client (sinh lại bằng `npm run prisma:generate`)
+/generated
+
+# Env — CHỈ commit .env.example (rule 04)
+.env
+.env.local
+.env.*.local
+
+# Test
+/coverage
+/.nyc_output
+
+# Driver Drive fake ghi file tạm ở đây
+/.tmp-drive
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE / OS
+.idea
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
