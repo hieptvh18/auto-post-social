@@ -12,6 +12,7 @@ type Permission =
   | 'queue:view'
   | 'jobs:retry'
   | 'dashboard:view'
+  | 'settings:manage'
   | 'audit:view';
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
@@ -27,6 +28,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'queue:view',
     'jobs:retry',
     'dashboard:view',
+    'settings:manage',
     'audit:view',
   ],
   EDITOR: [
@@ -52,6 +54,7 @@ export function canAccessRoute(role: UserRole, path: string): boolean {
     '/auto-post': ['ADMIN', 'EDITOR'],
     '/pages': ['ADMIN'],
     '/users': ['ADMIN'],
+    '/settings': ['ADMIN'],
     '/queue': ['ADMIN'],
     '/failed': ['ADMIN'],
     '/audit': ['ADMIN'],

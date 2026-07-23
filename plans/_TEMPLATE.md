@@ -22,8 +22,8 @@
 ## 4. Task
 
 - [ ] ...
-- [ ] Unit test đạt 100% coverage service/domain
-- [ ] `npm run lint && npm run test:cov && npm run build` xanh
+- [ ] Unit test cho logic phức tạp/dễ sai khi cần (MVP không ép 100% — xem rule 02)
+- [ ] `npm run lint && npm run build` xanh (+ `npm run test` cho phần đã viết test)
 - [ ] Cập nhật `.env.example` (nếu thêm biến)
 - [ ] Cập nhật `contexts.md`
 

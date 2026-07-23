@@ -16,14 +16,14 @@ Stack: NestJS · Prisma · PostgreSQL · BullMQ/Redis · React + Ant Design.
 |------|----------|
 | [.claude/rules/00-workflow.md](./.claude/rules/00-workflow.md) | Vòng đời task, định nghĩa Done |
 | [.claude/rules/01-coding-standards.md](./.claude/rules/01-coding-standards.md) | Kiến trúc, naming, error, security |
-| [.claude/rules/02-testing.md](./.claude/rules/02-testing.md) | **Coverage 100% service/domain** |
+| [.claude/rules/02-testing.md](./.claude/rules/02-testing.md) | **MVP: test logic phức tạp khi cần** (auto-post/crypto bắt buộc; không ép 100%) |
 | [.claude/rules/03-context-protocol.md](./.claude/rules/03-context-protocol.md) | Cách ghi contexts.md & quản lý plan |
 | [.claude/rules/04-env-config.md](./.claude/rules/04-env-config.md) | `.env` / `.env.example` cho BE & FE |
 | [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md) | **Đổi schema ⇒ bắt buộc cập nhật [erd.md](./erd.md)** |
 
 ## Sáu điều dễ sai nhất
 
-1. Code xong **phải** viết unit test tới 100% coverage service/domain — không hạ ngưỡng.
+1. MVP ưu tiên tốc độ: viết unit test **khi thực sự cần** (logic phức tạp/dễ sai). Auto-post engine + crypto/token vẫn **bắt buộc** phủ kỹ; CRUD thuần thì không cần.
 2. Xong module **phải** cập nhật `contexts.md` và tick file plan.
 3. **Đụng vào schema/table ⇒ cập nhật `erd.md` (mermaid) ngay trong cùng thay đổi.**
 4. Controller không gọi Prisma; service không gọi Prisma trực tiếp — luôn qua repository.
@@ -34,7 +34,9 @@ Stack: NestJS · Prisma · PostgreSQL · BullMQ/Redis · React + Ant Design.
 
 ```bash
 # backend/
-npm run lint && npm run test:cov && npm run build
+npm run lint && npm run build          # bắt buộc mỗi module
+npm run test                           # chạy test đã viết (MVP: không ép coverage 100%)
+npm run test:cov                       # dùng cho auto-post/crypto — vùng bắt buộc phủ kỹ
 npm run prisma:migrate && npm run seed
 
 # frontend/

@@ -23,7 +23,7 @@ Controller → Service → Repository → PrismaService
 src/modules/<feature>/
 ├── <feature>.module.ts
 ├── <feature>.controller.ts      # thin + @ApiTags/@ApiOperation
-├── <feature>.service.ts         # business logic — nơi cần 100% coverage
+├── <feature>.service.ts         # business logic — test khi logic phức tạp (rule 02)
 ├── <feature>.repository.ts      # Prisma queries
 ├── dto/
 │   ├── create-<x>.dto.ts

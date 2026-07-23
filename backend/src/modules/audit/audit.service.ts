@@ -1,0 +1,33 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { AuditRepository, type CreateAuditLogData } from './audit.repository';
+
+/** Action name dùng trong audit_logs (docs/05 §8). */
+export const AuditAction = {
+  USER_CREATE: 'USER_CREATE',
+  USER_UPDATE: 'USER_UPDATE',
+  USER_DELETE: 'USER_DELETE',
+  SETTINGS_UPDATE: 'SETTINGS_UPDATE',
+} as const;
+
+@Injectable()
+export class AuditService {
+  private readonly logger = new Logger(AuditService.name);
+
+  constructor(private readonly repository: AuditRepository) {}
+
+  /**
+   * Ghi audit log. Lỗi ghi log KHÔNG được làm hỏng nghiệp vụ chính —
+   * nuốt lỗi và log lại để còn dấu vết điều tra.
+   */
+  async log(data: CreateAuditLogData): Promise<void> {
+    try {
+      await this.repository.create(data);
+    } catch (error) {
+      this.logger.error(
+        `Ghi audit log thất bại (${data.action} ${data.resource}): ${
+          (error as Error).message
+        }`,
+      );
+    }
+  }
+}

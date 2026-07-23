@@ -8,6 +8,7 @@ import {
   LogoutOutlined,
   MedicineBoxOutlined,
   QuestionCircleOutlined,
+  SettingOutlined,
   TeamOutlined,
   UnorderedListOutlined,
   WarningOutlined,
@@ -17,7 +18,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { RoleTag } from '../components/common/StatusTag';
 import { canAccessRoute } from '../utils/permissions';
-import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS, ROLE_LABELS } from '../utils/constants';
+import { APP_NAME, APP_TAGLINE, ROLE_LABELS } from '../utils/constants';
 import type { UserRole } from '../types';
 
 const { Header, Sider, Content } = Layout;
@@ -30,6 +31,7 @@ const mainMenuItems = [
   { key: '/auto-post', icon: <FieldTimeOutlined />, label: 'Cài đặt đăng tự động' },
   { key: '/pages', icon: <FacebookOutlined />, label: 'Quản lý FB Pages' },
   { key: '/users', icon: <TeamOutlined />, label: 'Quản lý nhân sự' },
+  { key: '/settings', icon: <SettingOutlined />, label: 'Cài đặt chung' },
   { key: '/guide', icon: <QuestionCircleOutlined />, label: 'Hướng dẫn sử dụng' },
 ];
 
@@ -40,16 +42,19 @@ const monitorMenuItems = [
 ];
 
 export function AdminLayout() {
-  const { user, logout, login, isPreviewMode } = useAuth();
+  const { user, logout, switchPreviewRole, isPreviewMode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
 
+  // AdminLayout luôn render dưới ProtectedRoute nên user đã đăng nhập; guard cho TS.
+  if (!user) return null;
+
   const visibleMain = mainMenuItems.filter((item) =>
-    user ? canAccessRoute(user.role, item.key) : false,
+    canAccessRoute(user.role, item.key),
   );
   const visibleMonitor = monitorMenuItems.filter((item) =>
-    user ? canAccessRoute(user.role, item.key) : false,
+    canAccessRoute(user.role, item.key),
   );
 
   const visibleMenu = [
@@ -124,9 +129,11 @@ export function AdminLayout() {
             borderTop: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <Tag color="orange" style={{ width: '100%', textAlign: 'center' }}>
-            UI Preview — Mock Data
-          </Tag>
+          {isPreviewMode && (
+            <Tag color="orange" style={{ width: '100%', textAlign: 'center' }}>
+              UI Preview — Mock Data
+            </Tag>
+          )}
         </div>
       </Sider>
 
@@ -161,7 +168,7 @@ export function AdminLayout() {
                   value: role,
                   label: ROLE_LABELS[role],
                 }))}
-                onChange={(role: UserRole) => login(PREVIEW_EMAILS[role], role)}
+                onChange={(role: UserRole) => switchPreviewRole(role)}
               />
             )}
             <Dropdown

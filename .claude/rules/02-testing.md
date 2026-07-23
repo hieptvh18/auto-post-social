@@ -1,31 +1,39 @@
 # Rule 02 — Testing
 
-## Cam kết coverage
+## Chủ trương testing ở phase MVP (cập nhật 2026-07-23)
 
-**100% statements + branches + functions + lines** cho tầng service/domain.
-Đây là ngưỡng cứng trong `jest.config.ts`, CI/lệnh `test:cov` fail nếu không đạt.
+**MVP ưu tiên tốc độ.** Không còn bắt buộc 100% coverage cho mọi service. Viết unit
+test **khi thực sự cần** — tức khi logic phức tạp, nhiều nhánh, hoặc sai thì hậu quả
+nặng. CRUD thuần, mapper, delegate mỏng: **không cần** test riêng.
 
-### Phạm vi tính coverage
+### Bắt buộc test (logic phức tạp / dễ sai / hậu quả nặng)
 
-**Tính (bắt buộc 100%):**
-- `src/modules/**/*.service.ts`
-- `src/common/guards/**`, `src/common/decorators/**` (có logic), `src/common/utils/**`
-- `src/modules/auto-post/**` — đặc biệt scheduler + picker
-- `src/infra/**/*.ts` (adapter, crypto) trừ client HTTP thuần
+Những vùng sau **phải** có unit test đúng hành vi, không được bỏ:
 
-**Loại trừ (khai trong `coveragePathIgnorePatterns`):**
-- `*.module.ts`, `*.controller.ts`, `dto/**`, `*.entity.ts`
-- `main.ts`, `prisma/**`, `**/__tests__/**`, `**/*.spec.ts`
-- `src/config/**` (chỉ khai báo)
+- **Auto-post engine** (`src/modules/auto-post/**`) — picker + scheduler + chống
+  double-fire + processor. Đây là ngoại lệ **vẫn nên phủ gần hết**: picker sai ⇒ đăng
+  lặp/thiếu, double-fire ⇒ spam page thật. Xem danh sách case bắt buộc bên dưới.
+- **Crypto / token** (`src/infra/crypto/**`, `crypto.util.ts`) — round-trip, ciphertext
+  hỏng, sai key, mask; và mapper **không lộ token**.
+- **Status transition** — mọi cặp hợp lệ/không hợp lệ, chặn client set PUBLISHING/PUBLISHED.
+- **RBAC field-level** trong service (không phải chỉ guard).
+- **Guard / decorator có logic** (`src/common/guards/**`, `src/common/decorators/**`).
 
-Controller được đảm bảo bằng e2e/smoke test, không bằng coverage.
+### Không cần test (để đi nhanh)
 
-```typescript
-// jest.config.ts
-coverageThreshold: {
-  global: { statements: 100, branches: 100, functions: 100, lines: 100 },
-}
-```
+- CRUD thuần qua repository, mapper/DTO chuyển đổi thẳng.
+- `*.module.ts`, `*.controller.ts` (đảm bảo bằng smoke/e2e khi cần), `dto/**`, `*.entity.ts`.
+- `main.ts`, `prisma/**`, `src/config/**`.
+
+### Ngưỡng coverage
+
+**Không đặt ngưỡng cứng 100% toàn cục nữa** cho phase MVP. Có thể đặt threshold **có
+mục tiêu** cho riêng thư mục `auto-post` và `crypto` nếu muốn (khuyến khích), nhưng
+không chặn build vì các module CRUD chưa test. Không hạ ngưỡng của **vùng bắt buộc**
+để làm xanh CI — nếu vùng bắt buộc chưa test thì task **chưa Done**.
+
+> Sau MVP, khi có thời gian, nâng dần coverage cho các service còn lại — ghi nợ vào
+> `contexts.md` §6 thay vì cố phủ 100% ngay bây giờ.
 
 ## Cách viết test
 
@@ -43,7 +51,8 @@ coverageThreshold: {
 
 ## Bắt buộc phải phủ
 
-Không được đạt 100% bằng cách viết test rỗng. Các nhánh sau phải có test **đúng hành vi**:
+Đây là danh sách các nhánh **phức tạp/dễ sai** vẫn phải có test **đúng hành vi**
+kể cả khi MVP không còn ép 100% coverage. Không viết test rỗng cho có:
 
 | Vùng | Case bắt buộc |
 |------|---------------|
@@ -64,6 +73,6 @@ Không bắt buộc coverage 100% cho component.
 
 ## Khi test đỏ
 
-Báo cáo nguyên văn output. **Không** hạ ngưỡng coverage, không thêm file vào danh
-sách loại trừ, không `it.skip` để làm xanh CI. Nếu ngưỡng thực sự bất hợp lý,
-dừng và hỏi user.
+Báo cáo nguyên văn output. Với **vùng bắt buộc** (auto-post, crypto, transition,
+RBAC): không `it.skip`, không thêm vào loại trừ để né test — sửa cho xanh. Với các
+vùng không bắt buộc thì đơn giản là chưa cần test, không phải "làm xanh bằng mẹo".

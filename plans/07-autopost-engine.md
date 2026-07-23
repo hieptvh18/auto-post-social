@@ -92,7 +92,9 @@ phép chạy end-to-end không cần page thật.
 - [ ] Audit `AUTO_PUBLISH` (actor = Bot, `userId = null`)
 - [ ] Env: `FACEBOOK_DRIVER`, `META_GRAPH_API_VERSION`, `META_APP_ID`, `META_APP_SECRET`,
       `AUTOPOST_ENABLED` (tắt cron khi chạy test/CI) → `.env` + `.env.example`
-- [ ] **Unit test 100%** — phủ đủ danh sách bắt buộc ở `.claude/rules/02-testing.md`:
+- [ ] **Unit test — BẮT BUỘC ở milestone này** (đây chính là logic phức tạp/dễ sai
+      nhất của cả sản phẩm, ngoại lệ so với chủ trương "test khi cần" của MVP —
+      picker sai ⇒ đăng lặp/thiếu, double-fire ⇒ spam page thật):
   - [ ] picker: đúng category · `mediaType=all` và cụ thể · loại assignment đã published ·
         loại content đã có job QUEUED/PUBLISHING · thứ tự `updated_at ASC` · tôn trọng
         `postCount` · không có bài ⇒ trả rỗng và skip có log
@@ -104,6 +106,19 @@ phép chạy end-to-end không cần page thật.
 - [ ] `npm run lint && npm run test:cov && npm run build` xanh
 - [ ] Cập nhật `contexts.md`
 
+## 4b. Nối frontend — TimelinePage
+
+Làm ngay sau khi backend xanh, để quan sát Bot chạy trên UI thật (chính là tiêu chí
+nghiệm thu MVP). Hạ tầng chung đã có ở Plan 03b.
+
+- [ ] `src/api/publishJobs.api.ts`: `GET /publish-jobs/timeline?date=&pageId=&status=`
+- [ ] `src/hooks/useTimeline.ts`: query key theo filter, có thể refetch định kỳ để
+      thấy job chuyển trạng thái
+- [ ] `TimelinePage`: bỏ mock cho trang này khi `VITE_USE_MOCK=false`; hiện job theo
+      giờ/page/trạng thái; badge SUCCESS/FAILED/PUBLISHING
+- [ ] Type response ở `src/types/`, đối chiếu Swagger
+- [ ] `npm run lint && npm run build` (frontend) xanh
+
 ## 5. Điều kiện nghiệm thu (chạy thật, driver fake)
 
 - [ ] 1 page + slot `HH:mm` sát giờ hiện tại, `postCount=2`, category `["Review"]`
@@ -112,6 +127,8 @@ phép chạy end-to-end không cần page thật.
 - [ ] Cả 2 job SUCCESS, assignment có `publishedAt` + `facebookPostId`, content `PUBLISHED`
 - [ ] Chạy lại slot ngày hôm đó: **không** tạo lại job cho 2 bài đã đăng; bài thứ 3 mới được lấy
 - [ ] Restart app giữa chừng ⇒ không đăng trùng
+- [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): mở TimelinePage thấy job xuất hiện
+      và chuyển SUCCESS theo đúng slot
 - [ ] Đổi sang `FACEBOOK_DRIVER=real` với page staging ⇒ bài lên thật
 
 ## 6. Rủi ro

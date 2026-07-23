@@ -27,7 +27,7 @@ import dayjs from 'dayjs';
 import { useState } from 'react';
 import { mockPages } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import type { AutoPostSlot, SlotMediaType } from '../types';
 import { CONTENT_CATEGORIES, SLOT_MEDIA_TYPE_LABELS } from '../utils/constants';
@@ -43,7 +43,7 @@ interface SlotFormValues {
 }
 
 export default function AutoPostSettingsPage() {
-  const { user } = useAuth();
+  const user = useAuthUser();
   const {
     autoPostConfigs,
     setPageAutoPostEnabled,

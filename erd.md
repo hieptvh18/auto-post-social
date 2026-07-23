@@ -4,7 +4,7 @@
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
 **Cập nhật:** 2026-07-22
-**Migration tương ứng:** `20260722145631_init` (đã apply)
+**Migration tương ứng:** `20260722153213_app_settings` (đã apply)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -17,6 +17,7 @@ erDiagram
     users ||--o{ content_assets : "approves (approved_by)"
     users ||--o{ facebook_pages : creates
     users ||--o{ audit_logs : performs
+    users ||--o{ app_settings : "last updated by"
     content_assets ||--o{ content_page_assignments : "assigned to"
     facebook_pages ||--o{ content_page_assignments : receives
     content_assets ||--o{ publish_jobs : has
@@ -117,6 +118,14 @@ erDiagram
         timestamp updated_at
     }
 
+    app_settings {
+        string key PK
+        jsonb value
+        uuid updated_by FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
     audit_logs {
         uuid id PK
         uuid user_id FK
@@ -159,6 +168,7 @@ erDiagram
 | `publish_jobs` | `status` · `schedule_time` | Queue monitor + timeline |
 | `publish_jobs` | `(content_asset_id, facebook_page_id)` | Kiểm tra job trùng trong picker |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
+| `app_settings` | PK `key` | Số dòng rất nhỏ (1 dòng/nhóm config), tra bằng khoá chính là đủ — không cần index phụ |
 
 ---
 
@@ -176,6 +186,9 @@ erDiagram
 | Mọi timestamp lưu **UTC** | Prisma mặc định; UI convert sang `Asia/Ho_Chi_Minh` |
 | `content_assets.updated_at` = mốc xếp hàng cho Bot (thời điểm duyệt gần nhất) | `@updatedAt` |
 | Xóa page = soft delete (`is_active=false`) | Service — vì `publish_jobs` còn tham chiếu |
+| `app_settings.key` ∈ `google_drive` \| `facebook` \| `system` | Service (DTO enum) — DB để string cho dễ mở rộng |
+| Secret trong `app_settings.value` luôn là ciphertext AES-256-GCM | `CryptoService`; API trả bản mask, không trả JSON gốc |
+| Không có bản ghi `app_settings` ⇒ đọc fallback từ `.env` | `SettingsService.getDriveConfig()` (ADR-014) |
 
 **Cascade:** `content_page_assignments` xóa theo `content_assets`;
 `auto_post_slots` xóa theo `facebook_pages`. `publish_jobs` **không** cascade (giữ lịch sử).
@@ -186,4 +199,5 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-07-22 | `20260722153213_app_settings` | Thêm bảng `app_settings` (key/value JSONB) cho cấu hình động sửa từ UI "Cài đặt chung" — bắt đầu với nhóm `google_drive` (ADR-014). Thêm quan hệ `users ||--o{ app_settings`. |
 | 2026-07-22 | `20260722145631_init` | Khởi tạo 8 bảng theo `docs/03-database-design.md` + bổ sung `slot_runs` chống cron double-fire (ADR-006). Đã verify khớp `\dt` trên Postgres. |

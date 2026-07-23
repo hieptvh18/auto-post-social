@@ -26,19 +26,31 @@ Bot tự đăng đúng số bài, đúng thứ tự, không đăng lặp — qua
 
 ## 2. Milestone & file plan
 
-| M | Feature | Plan | Phụ thuộc |
-|---|---------|------|-----------|
-| M0 | Scaffold backend, Docker, Prisma, env | [plans/01-scaffold.md](./plans/01-scaffold.md) | — |
-| M1 | Auth JWT + RBAC + Users | [plans/02-auth-rbac-users.md](./plans/02-auth-rbac-users.md) | M0 |
-| M2 | Google Drive + upload media | [plans/03-google-drive-upload.md](./plans/03-google-drive-upload.md) | M0 |
-| M3 | Content assets + duyệt + phân bổ page | [plans/04-content-assets.md](./plans/04-content-assets.md) | M1, M2 |
-| M4 | Facebook Pages + mã hóa token | [plans/05-facebook-pages.md](./plans/05-facebook-pages.md) | M1 |
-| M5 | Cài đặt đăng bài tự động (slots) | [plans/06-auto-post-slots.md](./plans/06-auto-post-slots.md) | M4 |
-| M6 | Cron picker + BullMQ + publisher | [plans/07-autopost-engine.md](./plans/07-autopost-engine.md) | M3, M5 |
-| M7 | Frontend nối API thật | [plans/08-frontend-integration.md](./plans/08-frontend-integration.md) | M1–M6 |
+Từ M3 trở đi, **mỗi milestone backend tự nối luôn phần frontend tương ứng** (API
+layer + hook + bỏ mock cho đúng trang đó) — không dồn việc nối API về cuối. Mục
+tiêu: xong milestone nào là **test tay được trên UI thật** milestone đó, không
+phải chỉ qua curl/Swagger.
 
-Thứ tự bắt buộc: M0 → M1 → (M2 ∥ M4) → M3 → M5 → **M6** → M7.
-M6 là tim của sản phẩm — mọi milestone trước tồn tại để phục vụ nó.
+| M | Feature | Plan | Phụ thuộc | FE nối kèm |
+|---|---------|------|-----------|-----------|
+| M0 | Scaffold backend, Docker, Prisma, env | [plans/01-scaffold.md](./plans/01-scaffold.md) | — | — |
+| M1 | Auth JWT + RBAC + Users | [plans/02-auth-rbac-users.md](./plans/02-auth-rbac-users.md) | M0 | — |
+| M2 | Google Drive + upload media | [plans/DONE/03-google-drive-upload.md](./plans/DONE/03-google-drive-upload.md) | M0 | SettingsPage (còn nợ, xem contexts §6) |
+| M2.5 | FE core: api client + AuthContext + Login | [plans/03b-frontend-core.md](./plans/03b-frontend-core.md) | M1 | LoginPage, route guard |
+| M3 | Content assets + duyệt + phân bổ page | [plans/04-content-assets.md](./plans/04-content-assets.md) | M1, M2, M2.5 | ContentManagementPage |
+| M4 | Facebook Pages + mã hóa token | [plans/05-facebook-pages.md](./plans/05-facebook-pages.md) | M1, M2.5 | PageManagementPage |
+| M5 | Cài đặt đăng bài tự động (slots) | [plans/06-auto-post-slots.md](./plans/06-auto-post-slots.md) | M4 | AutoPostSettingsPage |
+| M6 | Cron picker + BullMQ + publisher | [plans/07-autopost-engine.md](./plans/07-autopost-engine.md) | M3, M5 | TimelinePage |
+| M7 | Dọn dẹp FE còn lại + nghiệm thu MVP end-to-end | [plans/08-frontend-integration.md](./plans/08-frontend-integration.md) | M1–M6 | UserManagementPage, phần còn sót |
+
+Thứ tự bắt buộc: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7.
+M2.5 chỉ cần chờ M1 (auth) — có thể làm song song với M2/M4 vì không đụng route
+nghiệp vụ. M3 và M4 độc lập nhau, có thể làm song song (khác người/khác phiên);
+M6 là tim của sản phẩm, phải chờ cả M3 lẫn M5 xong.
+
+Quy tắc cho mỗi milestone M3–M6: **không tick "Done" cho tới khi đã test được
+bằng tay trên UI thật** (không phải mock, không chỉ Swagger) theo điều kiện nghiệm
+thu trong file plan tương ứng.
 
 ---
 
@@ -73,5 +85,5 @@ Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa 
 - [ ] Tạo page + slot → tới giờ Bot tạo job và đăng
 - [ ] Content → `PUBLISHED`, assignment có `facebook_post_id`
 - [ ] Đăng lại lần 2 cùng page: **không** xảy ra
-- [ ] Coverage service/domain 100%, lint + build xanh
+- [ ] Logic phức tạp có test (auto-post engine + crypto bắt buộc); lint + build xanh
 - [ ] `contexts.md` phản ánh đúng hiện trạng

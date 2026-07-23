@@ -57,11 +57,25 @@ Assignment **đã có `publishedAt` thì cấm xóa** ⇒ 409. Trùng (content, 
 - [ ] Scope list cho CONTENT: chỉ bài của mình
 - [ ] Audit `CONTENT_STATUS_CHANGE`, `CONTENT_ADS_MARK`
 - [ ] DTO + Swagger đầy đủ
-- [ ] Unit test 100%, bắt buộc phủ các case ở `.claude/rules/02-testing.md`
-      (transition hợp lệ/không, reject thiếu lý do, RBAC field-level, assignment 409,
-      CONTENT sửa bài REJECTED → PENDING_REVIEW)
-- [ ] `npm run lint && npm run test:cov && npm run build` xanh
+- [ ] Unit test **cho logic phức tạp/dễ sai** (không bắt buộc 100%): `transitionStatus()`
+      (ma trận hợp lệ/không, reject thiếu lý do, client set PUBLISHED ⇒ 422), RBAC
+      field-level, `diffAssignments` (409 khi trùng / xóa bài đã published), CONTENT
+      sửa bài REJECTED → PENDING_REVIEW. CRUD thuần/mapper không cần test riêng.
+- [ ] `npm run lint && npm run build` xanh (chạy `npm run test` cho phần đã viết test)
 - [ ] Cập nhật `contexts.md`
+
+## 4b. Nối frontend — ContentManagementPage
+
+Làm ngay sau khi backend xanh, để test tay trên UI thật (yêu cầu MVP: BE + API
+song song). Hạ tầng dùng chung đã có ở Plan 03b (`api/client.ts`, `AuthContext`).
+
+- [ ] `src/api/contentAssets.api.ts`: list (đẩy filter lên query param), detail,
+      create (upload multipart kèm progress → `POST /content-assets`), `PATCH`, `DELETE`
+- [ ] `src/hooks/useContentAssets.ts`: query key + mutation, mọi mutation `invalidateQueries`
+- [ ] `ContentManagementPage`: bỏ mock cho **trang này**, đọc từ hook thật khi
+      `VITE_USE_MOCK=false`; drawer edit gọi `PATCH`; hiện lỗi 403/409/422 bằng `message`/`Alert`
+- [ ] Type response đặt ở `src/types/`, đối chiếu Swagger
+- [ ] `npm run lint && npm run build` (frontend) xanh
 
 ## 5. Điều kiện nghiệm thu
 
@@ -71,6 +85,8 @@ Assignment **đã có `publishedAt` thì cấm xóa** ⇒ 409. Trùng (content, 
 - [ ] EDITOR gửi `{status:'REJECTED'}` không kèm lý do ⇒ 400
 - [ ] Bất kỳ ai gửi `{status:'PUBLISHED'}` ⇒ 422
 - [ ] Gán trùng page ⇒ 409
+- [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): CONTENT tạo bài + upload → thấy trong
+      danh sách; EDITOR duyệt → trạng thái đổi; lỗi 403/409 hiển thị đúng
 
 ## 6. Rủi ro
 

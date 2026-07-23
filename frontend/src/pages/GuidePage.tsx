@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import { Card, Col, Collapse, Row, Space, Steps, Tag, Timeline, Typography } from 'antd';
 import { PageHeader } from '../components/common/PageHeader';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuthUser } from '../contexts/AuthContext';
 import { ROLE_LABELS } from '../utils/constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -95,7 +95,7 @@ const EDITOR_STEPS = [
 ];
 
 export default function GuidePage() {
-  const { user } = useAuth();
+  const user = useAuthUser();
 
   return (
     <div>

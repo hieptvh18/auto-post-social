@@ -58,6 +58,7 @@ model User {
   contentApproved ContentAsset[] @relation("ContentApprover")
   auditLogs       AuditLog[]
   facebookPages   FacebookPage[]
+  appSettings     AppSetting[]
 
   @@map("users")
 }
@@ -194,6 +195,21 @@ model PublishJob {
   @@index([scheduleTime])
   @@index([contentAssetId, facebookPageId])
   @@map("publish_jobs")
+}
+
+/// Cấu hình động sửa được từ UI "Cài đặt chung" (ADR-014).
+/// 1 dòng = 1 nhóm config, `value` là JSONB nên thêm nhóm mới không cần migration.
+/// Secret bên trong `value` đã mã hoá AES-256-GCM — KHÔNG bao giờ trả thô ra API.
+model AppSetting {
+  key         String   @id // 'google_drive' | 'facebook' | 'system'
+  value       Json
+  updatedById String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+
+  @@map("app_settings")
 }
 
 model AuditLog {

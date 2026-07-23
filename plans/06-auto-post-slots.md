@@ -47,11 +47,24 @@ MVP: slot lặp lại **mỗi ngày**.
 - [ ] Bật `autopostEnabled` khi page chưa có slot nào ⇒ trả cảnh báo (không chặn)
 - [ ] Audit `AUTOPOST_CONFIG_UPDATE`
 - [ ] Env `MAX_POST_PER_SLOT` → `.env` + `.env.example`
-- [ ] Unit test 100%: time sai định dạng, categories rỗng, postCount ngoài khoảng,
-      trùng time ⇒ 409, page không tồn tại ⇒ 404, `findDueSlots` lọc đúng
-      (slot disabled / page inactive / autopost off đều bị loại)
-- [ ] `npm run lint && npm run test:cov && npm run build` xanh
+- [ ] Unit test **cho logic lọc/validate quan trọng** (không bắt buộc 100%):
+      `findDueSlots` lọc đúng (slot disabled / page inactive / autopost off đều bị
+      loại) — đây là đầu vào của cron nên phải chắc; validate time/categories/postCount;
+      trùng time ⇒ 409. CRUD thuần không cần test riêng.
+- [ ] `npm run lint && npm run build` xanh (chạy `npm run test` cho `findDueSlots` + validate)
 - [ ] Cập nhật `contexts.md`
+
+## 4b. Nối frontend — AutoPostSettingsPage
+
+Làm ngay sau khi backend xanh, test tay trên UI thật. Hạ tầng chung đã có ở Plan 03b.
+
+- [ ] `src/api/autoPost.api.ts`: list configs kèm slots, patch config (bật/tắt),
+      CRUD slot
+- [ ] `src/hooks/useAutoPostConfigs.ts`: query key + mutation, `invalidateQueries`
+- [ ] `AutoPostSettingsPage`: bỏ mock cho trang này khi `VITE_USE_MOCK=false`; form
+      thêm/sửa slot (time picker, category, mediaType, postCount); hiện lỗi 409 trùng time
+- [ ] Type response ở `src/types/`, đối chiếu Swagger
+- [ ] `npm run lint && npm run build` (frontend) xanh
 
 ## 5. Điều kiện nghiệm thu
 
@@ -59,6 +72,8 @@ MVP: slot lặp lại **mỗi ngày**.
 - [ ] Thêm slot trùng 08:00 cùng page ⇒ 409
 - [ ] `time = '25:00'` ⇒ 400
 - [ ] CONTENT gọi bất kỳ endpoint nào ở đây ⇒ 403
+- [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): tạo page + 3 slot qua UI → hiện đúng,
+      sắp theo giờ; thêm slot trùng giờ báo lỗi
 
 ## 6. Rủi ro
 

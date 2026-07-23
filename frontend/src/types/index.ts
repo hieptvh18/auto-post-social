@@ -131,5 +131,50 @@ export interface PagePostStats {
 export interface AuthUser {
   id: string;
   email: string;
+  name?: string;
   role: UserRole;
+}
+
+/** Response `POST /auth/login`. */
+export interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: AuthUser;
+}
+
+/** Response `POST /media/upload` (backend `UploadResult`). */
+export interface MediaUploadResult {
+  fileId: string;
+  driveUrl: string | null;
+  thumbnailUrl: string | null;
+  mimeType: string;
+  size: number;
+  mediaType: MediaType;
+}
+
+/** Response `GET/PUT /settings/google-drive` (backend `DriveSettingsResponse`). */
+export interface DriveSettingsResponse {
+  driver: 'real' | 'fake';
+  folderId: string | null;
+  maxUploadMb: number;
+  hasServiceAccount: boolean;
+  serviceAccountEmail: string | null;
+  usingEnvFallback: boolean;
+  updatedAt: string | null;
+}
+
+/** Body `PUT /settings/google-drive`. */
+export interface UpdateDriveSettingsBody {
+  driver: 'real' | 'fake';
+  folderId?: string | null;
+  serviceAccountJson?: string | null;
+  maxUploadMb: number;
+}
+
+/** Response `POST /settings/google-drive/test` (backend `DriveConnectionResult`). */
+export interface DriveConnectionResult {
+  ok: boolean;
+  driver: 'real' | 'fake';
+  message: string;
 }

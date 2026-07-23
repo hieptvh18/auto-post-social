@@ -1,35 +1,34 @@
 import { LockOutlined, MedicineBoxOutlined, UserOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, Select, Typography, message } from 'antd';
+import { Button, Card, Form, Input, Typography, message } from 'antd';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ApiError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-import type { UserRole } from '../types';
-import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS, ROLE_LABELS } from '../utils/constants';
+import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS } from '../utils/constants';
 
 const { Title, Text } = Typography;
 
-const DEMO_ACCOUNTS: { email: string; role: UserRole }[] = [
-  { email: PREVIEW_EMAILS.ADMIN, role: 'ADMIN' },
-  { email: PREVIEW_EMAILS.EDITOR, role: 'EDITOR' },
-  { email: PREVIEW_EMAILS.CONTENT, role: 'CONTENT' },
-];
-
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, isPreviewMode } = useAuth();
   const navigate = useNavigate();
   const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
 
-  const onFinish = (values: { email: string; password: string; role: UserRole }) => {
-    login(values.email, values.role);
-    message.success(`Đăng nhập thành công — ${ROLE_LABELS[values.role]}`);
-    navigate('/dashboard');
-  };
-
-  const fillDemo = (account: (typeof DEMO_ACCOUNTS)[0]) => {
-    form.setFieldsValue({
-      email: account.email,
-      password: 'demo123',
-      role: account.role,
-    });
+  const onFinish = async (values: { email: string; password: string }) => {
+    setLoading(true);
+    try {
+      await login(values.email, values.password);
+      void message.success('Đăng nhập thành công');
+      navigate('/dashboard');
+    } catch (err) {
+      const text =
+        err instanceof ApiError
+          ? err.message
+          : 'Không kết nối được máy chủ — kiểm tra backend đang chạy';
+      void message.error(text);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -59,14 +58,19 @@ export default function LoginPage() {
           form={form}
           layout="vertical"
           onFinish={onFinish}
-          initialValues={{ role: 'ADMIN', password: 'demo123', email: PREVIEW_EMAILS.ADMIN }}
+          initialValues={
+            isPreviewMode ? { email: PREVIEW_EMAILS.ADMIN, password: 'demo123' } : undefined
+          }
         >
           <Form.Item
             name="email"
             label="Email"
-            rules={[{ required: true, message: 'Nhập email' }]}
+            rules={[
+              { required: true, message: 'Nhập email' },
+              { type: 'email', message: 'Email không hợp lệ' },
+            ]}
           >
-            <Input prefix={<UserOutlined />} placeholder={PREVIEW_EMAILS.ADMIN} />
+            <Input prefix={<UserOutlined />} placeholder="admin@example.com" autoComplete="email" />
           </Form.Item>
 
           <Form.Item
@@ -74,35 +78,25 @@ export default function LoginPage() {
             label="Mật khẩu"
             rules={[{ required: true, message: 'Nhập mật khẩu' }]}
           >
-            <Input.Password prefix={<LockOutlined />} placeholder="••••••••" />
-          </Form.Item>
-
-          <Form.Item name="role" label="Role (demo)" rules={[{ required: true }]}>
-            <Select
-              options={Object.entries(ROLE_LABELS).map(([value, label]) => ({
-                value,
-                label,
-              }))}
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="••••••••"
+              autoComplete="current-password"
             />
           </Form.Item>
 
-          <Button type="primary" htmlType="submit" block size="large">
+          <Button type="primary" htmlType="submit" block size="large" loading={loading}>
             Đăng nhập
           </Button>
         </Form>
 
-        <div style={{ marginTop: 24 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            Chọn nhanh tài khoản demo:
-          </Text>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-            {DEMO_ACCOUNTS.map((acc) => (
-              <Button key={acc.role} size="small" onClick={() => fillDemo(acc)}>
-                {ROLE_LABELS[acc.role]}
-              </Button>
-            ))}
+        {isPreviewMode && (
+          <div style={{ marginTop: 24 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Chế độ preview (mock) — nhập bất kỳ email/mật khẩu nào để vào.
+            </Text>
           </div>
-        </div>
+        )}
       </Card>
     </div>
   );

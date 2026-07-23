@@ -50,11 +50,22 @@ plaintext, chỉ publisher gọi.
 - [ ] `getDecryptedToken(pageId)` — page inactive ⇒ ném lỗi
 - [ ] Audit `PAGE_CREATE`, `PAGE_UPDATE`, `PAGE_TOKEN_UPDATE` (không ghi giá trị token)
 - [ ] Thêm env `TOKEN_ENCRYPTION_KEY` vào `.env` + `.env.example` (kèm cách sinh key)
-- [ ] Unit test 100%: crypto round-trip, ciphertext hỏng ⇒ lỗi, sai key ⇒ lỗi,
-      mask đúng, service (trùng pageId, not found, soft delete, mapper không lộ token,
-      getDecryptedToken với page inactive)
-- [ ] `npm run lint && npm run test:cov && npm run build` xanh
+- [ ] Unit test **bắt buộc cho phần crypto** (dễ sai, ảnh hưởng bảo mật): round-trip,
+      ciphertext hỏng ⇒ lỗi, sai key ⇒ lỗi, mask đúng, mapper **không lộ token**,
+      `getDecryptedToken` với page inactive. CRUD thuần không cần 100%.
+- [ ] `npm run lint && npm run build` xanh (chạy `npm run test` cho phần crypto/mapper)
 - [ ] Cập nhật `contexts.md`
+
+## 4b. Nối frontend — PageManagementPage
+
+Làm ngay sau khi backend xanh, test tay trên UI thật. Hạ tầng chung đã có ở Plan 03b.
+
+- [ ] `src/api/pages.api.ts`: list (token đã mask), create/update/delete
+- [ ] `src/hooks/usePages.ts`: query key + mutation, `invalidateQueries` sau mutation
+- [ ] `PageManagementPage`: bỏ mock cho trang này khi `VITE_USE_MOCK=false`; form
+      nhập token; hiện token dạng mask trong bảng; EDITOR/CONTENT không thấy nút sửa (403)
+- [ ] Type response ở `src/types/`, đối chiếu Swagger
+- [ ] `npm run lint && npm run build` (frontend) xanh
 
 ## 5. Điều kiện nghiệm thu
 
@@ -62,6 +73,8 @@ plaintext, chỉ publisher gọi.
 - [ ] `GET /pages` trả token dạng mask, mọi role đọc được
 - [ ] EDITOR gọi `POST /pages` ⇒ 403
 - [ ] `grep` log không thấy token plaintext
+- [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): ADMIN tạo page → thấy trong bảng
+      với token mask; EDITOR không thao tác được (403)
 
 ## 6. Rủi ro
 

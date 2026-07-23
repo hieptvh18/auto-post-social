@@ -6,14 +6,14 @@ import { useState } from 'react';
 import { useMockData } from '../contexts/MockDataContext';
 import { PageHeader } from '../components/common/PageHeader';
 import { StatusTag } from '../components/common/StatusTag';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuthUser } from '../contexts/AuthContext';
 import type { PublishJob } from '../types';
 import { can } from '../utils/permissions';
 
 const { Text, Paragraph } = Typography;
 
 export default function FailedJobsPage() {
-  const { user } = useAuth();
+  const user = useAuthUser();
   const { publishJobs } = useMockData();
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [errorJob, setErrorJob] = useState<PublishJob | null>(null);

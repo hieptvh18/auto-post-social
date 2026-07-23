@@ -31,7 +31,7 @@ import { useMemo, useState } from 'react';
 import { getPageName, getUserDisplayName, mockPages, mockUsers } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
 import { ContentStatusTag } from '../components/common/StatusTag';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import type { ContentAsset, ContentStatus, MediaType } from '../types';
 import {
@@ -54,7 +54,7 @@ const STATUS_OPTIONS = (Object.keys(CONTENT_STATUS_LABELS) as ContentStatus[]).m
 );
 
 export default function ContentManagementPage() {
-  const { user } = useAuth();
+  const user = useAuthUser();
   const { content, addContent, updateContent, deleteContent } = useMockData();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();

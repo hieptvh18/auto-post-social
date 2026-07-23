@@ -10,12 +10,14 @@ import GuidePage from './pages/GuidePage';
 import LoginPage from './pages/LoginPage';
 import PageManagementPage from './pages/PageManagementPage';
 import QueueMonitorPage from './pages/QueueMonitorPage';
+import SettingsPage from './pages/SettingsPage';
 import TimelinePage from './pages/TimelinePage';
 import UserManagementPage from './pages/UserManagementPage';
 import { ProtectedRoute, RoleRoute } from './routes/ProtectedRoute';
 
 function LoginRedirect() {
-  const { isAuthenticated, isPreviewMode } = useAuth();
+  const { isAuthenticated, isPreviewMode, loading } = useAuth();
+  if (loading) return null;
   if (isPreviewMode || isAuthenticated) return <Navigate to="/dashboard" replace />;
   return <LoginPage />;
 }
@@ -44,6 +46,9 @@ export function AppRoutes() {
           </Route>
           <Route element={<RoleRoute path="/users" />}>
             <Route path="users" element={<UserManagementPage />} />
+          </Route>
+          <Route element={<RoleRoute path="/settings" />}>
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
 
           <Route element={<RoleRoute path="/queue" />}>

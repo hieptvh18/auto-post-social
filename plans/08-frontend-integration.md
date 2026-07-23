@@ -1,70 +1,54 @@
-# Plan 08 — Frontend nối API thật
+# Plan 08 — Dọn dẹp FE còn lại + nghiệm thu MVP end-to-end
 
 **Milestone:** M7
 **Trạng thái:** ⬜
-**Phụ thuộc:** Plan 02–07
+**Phụ thuộc:** Plan 03b–07 (mỗi milestone đã tự nối FE trang của nó)
 **Spec:** `docs/04-api-spec.md`, `docs/05-rbac.md` §7
 
 ---
 
 ## 1. Mục tiêu
 
-Thay mock data bằng API thật cho các màn hình thuộc luồng MVP, giữ mock sau cờ
-`VITE_USE_MOCK` để demo/offline vẫn chạy.
+Tới milestone này, phần lớn frontend đã được nối API thật **rải theo từng milestone**
+(Login ở M2.5, Content ở M3, Pages ở M4, AutoPost ở M5, Timeline ở M6). Plan này chỉ
+lo **phần còn sót** và **chạy nghiệm thu MVP end-to-end** một lượt.
 
 ## 2. Ngoài phạm vi
 
 Queue Monitor, Failed Jobs, Audit Logs, Dashboard nâng cao — giữ nguyên mock ở MVP.
-Không đại tu UI hiện có.
+Không đại tu UI hiện có. Không viết lại `api/client.ts`/`AuthContext` (đã xong ở M2.5).
 
-## 3. Thiết kế
+## 3. Việc còn lại
 
-```text
-frontend/src/
-├── config/env.ts                  # đọc import.meta.env, export object đã type
-├── api/client.ts                  # fetch wrapper: baseURL, gắn Bearer, refresh khi 401, map lỗi
-├── api/<feature>.api.ts           # auth, users, pages, media, contentAssets, autoPost, publishJobs
-├── hooks/use<Feature>.ts          # React Query: query key, mutation + invalidate
-└── contexts/AuthContext.tsx       # lưu token (localStorage), user hiện tại, logout
-```
-
-Cờ `VITE_USE_MOCK=true` ⇒ api layer trả dữ liệu từ `MockDataContext`; `false` ⇒ gọi
-backend. Component **không** biết đang ở chế độ nào.
-
-Màn hình nối thật (đúng thứ tự): Login → PageManagement → AutoPostSettings →
-ContentManagement (bao gồm upload) → Timeline.
+- `UserManagementPage` — nối `GET/POST/PATCH/DELETE /users` (chưa milestone nào nhận).
+- `SettingsPage` — nối 3 endpoint Drive (`GET/PUT /settings/google-drive`,
+  `POST .../test`) đã sẵn từ M2 nhưng FE còn chạy state mock cục bộ (contexts §6 mục 3).
+- Rà lại các trang đã nối: đảm bảo `VITE_USE_MOCK=true` vẫn chạy đủ bằng mock.
 
 ## 4. Task
 
-- [ ] `frontend/.env` + `.env.example`: `VITE_API_BASE_URL`, `VITE_USE_MOCK`
-- [ ] `src/config/env.ts` — nơi duy nhất chạm `import.meta.env`
-- [ ] `api/client.ts`: gắn token, tự refresh khi 401, hết hạn ⇒ logout + về `/login`
-- [ ] `AuthContext` dùng API thật, lưu/khôi phục token, chặn route theo role (`docs/05` §7)
-- [ ] Vite dev proxy `/api` → backend (tránh CORS khi dev)
-- [ ] `useAuth`, `usePages`, `useAutoPostConfigs`, `useContentAssets`, `useTimeline`
-- [ ] `ContentManagementPage`: upload multipart (kèm progress) → `POST /content-assets`;
-      drawer edit gọi `PATCH`; filter đẩy lên query param của server
-- [ ] Hiển thị lỗi backend đúng ngữ cảnh (403/409/422) bằng `message`/`Alert`
-- [ ] Mọi mutation `invalidateQueries` đúng key
-- [ ] Test Vitest cho `utils/permissions` và `api/client` (gắn token, xử lý 401)
+- [ ] `src/api/users.api.ts` + `useUsers` hook → `UserManagementPage` bỏ mock
+- [ ] `src/api/settings.api.ts` + hook → `SettingsPage` bỏ state mock cục bộ, dùng API thật
+- [ ] Kiểm tra chéo: mọi mutation ở mọi trang đã `invalidateQueries` đúng key
+- [ ] `VITE_USE_MOCK=true` toàn app vẫn chạy được không cần backend (demo/offline)
 - [ ] `npm run lint && npm run build` (frontend) xanh
-- [ ] Cập nhật `contexts.md`
 
-## 5. Điều kiện nghiệm thu
+## 5. Điều kiện nghiệm thu (chạy end-to-end, driver fake)
 
-- [ ] `VITE_USE_MOCK=false` + backend chạy: login admin seed vào được hệ thống
+- [ ] `VITE_USE_MOCK=false` + backend chạy: login admin seed
 - [ ] Tạo page → tạo slot → upload video → duyệt → tới giờ thấy bài trong Timeline
-- [ ] Đăng nhập bằng user CONTENT: menu Timeline/Auto-Post/Pages/Users **không hiện**,
-      gõ thẳng URL ⇒ bị chặn
+      (toàn bộ qua UI thật, không curl)
+- [ ] Đăng lại lần 2 cùng page: **không** xảy ra
+- [ ] Đăng nhập bằng CONTENT: menu Timeline/Auto-Post/Pages/Users không hiện, gõ
+      thẳng URL bị chặn
 - [ ] `VITE_USE_MOCK=true` ⇒ app vẫn chạy đầy đủ không cần backend
 
 ## 6. Rủi ro
 
 | Rủi ro | Cách xử lý |
 |--------|-----------|
-| Type FE lệch response BE | Sinh/đối chiếu type từ Swagger; đặt tại `src/types/` dùng chung |
-| Refresh token gây vòng lặp 401 | Chỉ retry **một** lần, thất bại thì logout ngay |
-| Upload video lớn timeout | Progress bar + timeout riêng cho endpoint upload |
+| Type FE lệch response BE | Đối chiếu type từ Swagger; đặt tại `src/types/` dùng chung |
+| Trang nối rải rác ⇒ mock/thật lệch nhau | Rà một lượt cuối: bật/tắt `VITE_USE_MOCK` chạy thử cả hai chế độ |
 
 ---
 
