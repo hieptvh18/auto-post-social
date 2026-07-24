@@ -20,9 +20,12 @@ export enum NodeEnv {
   production = 'production',
 }
 
-export enum DriverMode {
-  real = 'real',
-  fake = 'fake',
+/** Chế độ xác thực Google Drive. */
+export enum DriveAuthMode {
+  /** Service account JSON — chỉ ghi được vào Shared Drive (Google Workspace). */
+  service_account = 'service_account',
+  /** OAuth2 theo tài khoản user — dùng được với Gmail cá nhân (15GB). */
+  oauth2 = 'oauth2',
 }
 
 /** '1'/'true'/'yes' -> true. Env luôn là string nên phải ép thủ công. */
@@ -49,7 +52,7 @@ export class EnvVars {
   @IsInt()
   @Min(1)
   @Max(65535)
-  PORT = 3100;
+  PORT = 3001;
 
   @IsString()
   @IsNotEmpty()
@@ -95,8 +98,15 @@ export class EnvVars {
   })
   TOKEN_ENCRYPTION_KEY!: string;
 
-  @IsEnum(DriverMode)
-  DRIVE_DRIVER: DriverMode = DriverMode.fake;
+  /** Gốc URL backend — dựng redirect_uri cho OAuth Drive. */
+  @IsString()
+  @IsNotEmpty()
+  APP_BASE_URL = 'http://localhost:3001';
+
+  /** Gốc URL frontend — redirect browser về sau OAuth callback. */
+  @IsString()
+  @IsNotEmpty()
+  WEB_BASE_URL = 'http://localhost:5178';
 
   @IsOptional()
   @IsString()
@@ -110,9 +120,6 @@ export class EnvVars {
   @IsInt()
   @Min(1)
   MAX_UPLOAD_MB = 200;
-
-  @IsEnum(DriverMode)
-  FACEBOOK_DRIVER: DriverMode = DriverMode.fake;
 
   @IsOptional()
   @IsString()
@@ -162,24 +169,6 @@ export function validateEnv(raw: Record<string, unknown>): EnvVars {
 
   if (errors.length > 0) {
     throw new Error(`Cấu hình env không hợp lệ:\n${formatErrors(errors)}`);
-  }
-
-  // Driver real đòi thêm cấu hình — kiểm tra chéo, class-validator không diễn tả được.
-  if (
-    instance.DRIVE_DRIVER === DriverMode.real &&
-    !instance.GOOGLE_DRIVE_FOLDER_ID
-  ) {
-    throw new Error(
-      'Cấu hình env không hợp lệ:\n  - GOOGLE_DRIVE_FOLDER_ID: bắt buộc khi DRIVE_DRIVER=real',
-    );
-  }
-  if (
-    instance.DRIVE_DRIVER === DriverMode.real &&
-    !instance.GOOGLE_SERVICE_ACCOUNT_JSON
-  ) {
-    throw new Error(
-      'Cấu hình env không hợp lệ:\n  - GOOGLE_SERVICE_ACCOUNT_JSON: bắt buộc khi DRIVE_DRIVER=real',
-    );
   }
 
   return instance;

@@ -14,8 +14,8 @@ Controller → Service → Repository → PrismaService
 - Service **không** import `PrismaClient` trực tiếp — chỉ qua repository.
 - Repository là nơi duy nhất viết Prisma query. Trả về entity/plain object,
   không trả Prisma type ra ngoài nếu tránh được.
-- External API (Drive, Meta) luôn nằm sau interface trong `infra/`, có driver thật
-  và driver fake (ADR-003).
+- External API (Drive, Meta) luôn nằm sau interface trong `infra/`. Không còn
+  driver fake — luôn gọi API thật (bỏ ADR-003, xem `contexts.md` 2026-07-24).
 
 ### Cấu trúc module
 

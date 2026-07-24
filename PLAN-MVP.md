@@ -68,7 +68,7 @@ Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa 
 
 | Rủi ro | Xử lý |
 |--------|-------|
-| Không có credential Drive/Meta khi dev | Driver `fake` bật bằng env (ADR-003) |
+| Cần credential Drive/Meta thật kể cả khi dev | Không còn driver `fake` (bỏ ADR-003 ⇒ ADR-017) — dev/test dùng credential thật hoặc mock adapter trong unit test |
 | Cron chạy 2 lần khi restart | Bảng `slot_runs` UNIQUE(slot_id, run_date, run_time) (ADR-006) |
 | Video lớn gây OOM | Chỉ stream, không ghi file xuống disk |
 | Picker logic sai ⇒ đăng lặp/thiếu | Test bắt buộc theo `.claude/rules/02-testing.md` §Bắt buộc phải phủ |
@@ -80,7 +80,7 @@ Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa 
 
 - [ ] `docker compose up` + `npm run start:dev` chạy được toàn bộ stack local
 - [ ] Login bằng admin seed
-- [ ] Upload video → thấy file trên Drive (hoặc fake driver) → content `PENDING_REVIEW`
+- [ ] Upload video → thấy file trên Drive thật → content `PENDING_REVIEW`
 - [ ] EDITOR duyệt → `APPROVED`
 - [ ] Tạo page + slot → tới giờ Bot tạo job và đăng
 - [ ] Content → `PUBLISHED`, assignment có `facebook_post_id`

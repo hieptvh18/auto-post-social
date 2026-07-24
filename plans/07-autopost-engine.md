@@ -34,7 +34,8 @@ SlotRunGuardService        : claim(slotId, runDate, runTime) → boolean
 ContentPickerService       : pickForSlot(slot) → ContentAsset[]   ← hàm quan trọng nhất
 PublishJobsService         : createQueuedJob(content, page) + enqueue BullMQ
 PublishFacebookProcessor   : @Processor('publish-facebook')
-FacebookPublisher          : publishImage / publishVideo (interface + fake driver)
+FacebookPublisher          : publishImage / publishVideo (interface, chỉ driver thật —
+                             ADR-017 bỏ driver fake; unit test mock qua interface)
 ClockService               : now() — inject để test không phụ thuộc giờ thật
 ```
 
@@ -74,8 +75,10 @@ Lý do `PUBLISHED`/`PUBLISHING` vẫn hợp lệ: bài đã đăng ở page A v�
          content quay lại APPROVED nếu chưa page nào đăng thành công
 ```
 
-`FacebookPublisher` có driver `fake` (env `FACEBOOK_DRIVER`) trả `postId` giả — cho
-phép chạy end-to-end không cần page thật.
+`FacebookPublisher` chỉ có driver thật (ADR-017 — bỏ driver fake). Unit test không
+gọi Graph API thật: mock trực tiếp interface `FacebookPublisher` theo rule 02
+(giống cách `MediaService`/`DriveStorageFactory` test hiện tại). Chạy thử end-to-end
+thật cần 1 page Facebook staging.
 
 ## 4. Task
 
@@ -85,12 +88,12 @@ phép chạy end-to-end không cần page thật.
 - [ ] `PublishJobsService.createQueuedJob` + enqueue, lưu `bullJobId`
 - [ ] Đăng ký `BullModule.registerQueue('publish-facebook')`, retry 3 + backoff exponential
 - [ ] `FacebookPublisher` interface + `GraphApiPublisher` (ảnh: `/{pageId}/photos`,
-      video: `/{pageId}/videos`, timeout 120s, chỉ retry 5xx/network) + `FakePublisher`
+      video: `/{pageId}/videos`, timeout 120s, chỉ retry 5xx/network)
 - [ ] `PublishFacebookProcessor` theo §3.3, idempotent
 - [ ] Cập nhật assignment + recompute content status trong **một transaction**
 - [ ] `GET /publish-jobs` + `GET /publish-jobs/timeline?date=&pageId=&status=`
 - [ ] Audit `AUTO_PUBLISH` (actor = Bot, `userId = null`)
-- [ ] Env: `FACEBOOK_DRIVER`, `META_GRAPH_API_VERSION`, `META_APP_ID`, `META_APP_SECRET`,
+- [ ] Env: `META_GRAPH_API_VERSION`, `META_APP_ID`, `META_APP_SECRET`,
       `AUTOPOST_ENABLED` (tắt cron khi chạy test/CI) → `.env` + `.env.example`
 - [ ] **Unit test — BẮT BUỘC ở milestone này** (đây chính là logic phức tạp/dễ sai
       nhất của cả sản phẩm, ngoại lệ so với chủ trương "test khi cần" của MVP —
@@ -119,7 +122,7 @@ nghiệm thu MVP). Hạ tầng chung đã có ở Plan 03b.
 - [ ] Type response ở `src/types/`, đối chiếu Swagger
 - [ ] `npm run lint && npm run build` (frontend) xanh
 
-## 5. Điều kiện nghiệm thu (chạy thật, driver fake)
+## 5. Điều kiện nghiệm thu (chạy thật)
 
 - [ ] 1 page + slot `HH:mm` sát giờ hiện tại, `postCount=2`, category `["Review"]`
 - [ ] 3 video APPROVED category `Review`, gán vào page đó
@@ -129,7 +132,7 @@ nghiệm thu MVP). Hạ tầng chung đã có ở Plan 03b.
 - [ ] Restart app giữa chừng ⇒ không đăng trùng
 - [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): mở TimelinePage thấy job xuất hiện
       và chuyển SUCCESS theo đúng slot
-- [ ] Đổi sang `FACEBOOK_DRIVER=real` với page staging ⇒ bài lên thật
+- [ ] Chạy với page Facebook staging thật ⇒ bài lên thật
 
 ## 6. Rủi ro
 

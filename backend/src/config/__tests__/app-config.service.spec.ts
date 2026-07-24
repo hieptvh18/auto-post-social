@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AppConfigService } from '../app-config.service';
-import { DriverMode, NodeEnv, type EnvVars } from '../env.validation';
+import { NodeEnv, type EnvVars } from '../env.validation';
 
 const buildConfig = (overrides: Partial<EnvVars> = {}): AppConfigService => {
   const values: Record<string, unknown> = {
@@ -16,11 +16,9 @@ const buildConfig = (overrides: Partial<EnvVars> = {}): AppConfigService => {
     JWT_ACCESS_EXPIRES: '15m',
     JWT_REFRESH_EXPIRES: '7d',
     TOKEN_ENCRYPTION_KEY: '0'.repeat(64),
-    DRIVE_DRIVER: DriverMode.fake,
     GOOGLE_SERVICE_ACCOUNT_JSON: undefined,
     GOOGLE_DRIVE_FOLDER_ID: undefined,
     MAX_UPLOAD_MB: 200,
-    FACEBOOK_DRIVER: DriverMode.fake,
     META_APP_ID: undefined,
     META_APP_SECRET: undefined,
     META_GRAPH_API_VERSION: 'v21.0',
@@ -75,13 +73,11 @@ describe('AppConfigService', () => {
 
   it('gom cấu hình drive thành object', () => {
     const config = buildConfig({
-      DRIVE_DRIVER: DriverMode.real,
       GOOGLE_DRIVE_FOLDER_ID: 'folder-1',
       GOOGLE_SERVICE_ACCOUNT_JSON: '/sa.json',
     });
 
     expect(config.drive).toEqual({
-      driver: DriverMode.real,
       serviceAccountJson: '/sa.json',
       folderId: 'folder-1',
       maxUploadMb: 200,
@@ -90,13 +86,11 @@ describe('AppConfigService', () => {
 
   it('gom cấu hình facebook thành object', () => {
     const config = buildConfig({
-      FACEBOOK_DRIVER: DriverMode.real,
       META_APP_ID: 'app-1',
       META_APP_SECRET: 'secret-1',
     });
 
     expect(config.facebook).toEqual({
-      driver: DriverMode.real,
       appId: 'app-1',
       appSecret: 'secret-1',
       graphVersion: 'v21.0',

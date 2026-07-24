@@ -1,9 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DriverMode } from '../../config/env.validation';
+import { DriveAuthMode } from '../../config/env.validation';
 import { SettingsService } from '../../modules/settings/settings.service';
 import type { ResolvedDriveConfig } from '../../modules/settings/settings.types';
 import type { DriveStorage } from './drive-storage.interface';
-import { FakeDriveStorage } from './fake-drive.storage';
 import { createDriveClient, GoogleDriveStorage } from './google-drive.storage';
 
 /**
@@ -32,20 +31,29 @@ export class DriveStorageFactory {
   }
 
   private build(config: ResolvedDriveConfig): DriveStorage {
-    if (config.driver === DriverMode.fake) {
-      return new FakeDriveStorage();
+    if (config.authMode === DriveAuthMode.oauth2) {
+      if (config.oauth === null) {
+        throw new BadRequestException(
+          'Chưa kết nối Google (OAuth). Vào "Cài đặt chung" bấm "Kết nối Google".',
+        );
+      }
+      // folderId null ⇒ upload vào My Drive gốc của user.
+      return new GoogleDriveStorage(
+        createDriveClient({ mode: 'oauth2', ...config.oauth }),
+        config.folderId ?? 'root',
+      );
     }
 
     if (config.serviceAccountJson === null || config.folderId === null) {
       throw new BadRequestException(
-        'Chưa cấu hình Google Drive. Vào "Cài đặt chung" để nhập Service Account và Folder ID.',
+        'Chưa cấu hình Google Drive. Vào "Cài đặt chung" để nhập Service Account và Folder ID (Shared Drive).',
       );
     }
 
     return new GoogleDriveStorage(
       createDriveClient({
+        mode: 'service_account',
         serviceAccountJson: config.serviceAccountJson,
-        folderId: config.folderId,
       }),
       config.folderId,
     );

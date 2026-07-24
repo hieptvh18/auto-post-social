@@ -153,28 +153,37 @@ export interface MediaUploadResult {
   mediaType: MediaType;
 }
 
+export type DriveAuthMode = 'service_account' | 'oauth2';
+
 /** Response `GET/PUT /settings/google-drive` (backend `DriveSettingsResponse`). */
 export interface DriveSettingsResponse {
-  driver: 'real' | 'fake';
+  authMode: DriveAuthMode;
   folderId: string | null;
   maxUploadMb: number;
+  // service_account
   hasServiceAccount: boolean;
   serviceAccountEmail: string | null;
+  // oauth2
+  hasOauthClient: boolean;
+  oauthConnected: boolean;
+  oauthAccountEmail: string | null;
   usingEnvFallback: boolean;
   updatedAt: string | null;
 }
 
 /** Body `PUT /settings/google-drive`. */
 export interface UpdateDriveSettingsBody {
-  driver: 'real' | 'fake';
+  authMode: DriveAuthMode;
   folderId?: string | null;
   serviceAccountJson?: string | null;
+  oauthClientId?: string | null;
+  oauthClientSecret?: string | null;
   maxUploadMb: number;
 }
 
 /** Response `POST /settings/google-drive/test` (backend `DriveConnectionResult`). */
 export interface DriveConnectionResult {
   ok: boolean;
-  driver: 'real' | 'fake';
+  authMode: DriveAuthMode;
   message: string;
 }

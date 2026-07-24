@@ -5,10 +5,10 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react()],
   server: {
-    // Dev: chuyển /api → backend NestJS (port 3100) để tránh CORS.
+    // Dev: chuyển /api → backend NestJS (port 3001) để tránh CORS.
     proxy: {
       '/api': {
-        target: 'http://localhost:3100',
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },

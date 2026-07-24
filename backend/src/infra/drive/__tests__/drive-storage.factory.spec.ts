@@ -1,9 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { DriverMode } from '../../../config/env.validation';
+import { DriveAuthMode } from '../../../config/env.validation';
 import type { SettingsService } from '../../../modules/settings/settings.service';
 import type { ResolvedDriveConfig } from '../../../modules/settings/settings.types';
 import { DriveStorageFactory } from '../drive-storage.factory';
-import { FakeDriveStorage } from '../fake-drive.storage';
 import { GoogleDriveStorage } from '../google-drive.storage';
 
 const SA_JSON = JSON.stringify({
@@ -15,9 +14,10 @@ const SA_JSON = JSON.stringify({
 const config = (
   overrides: Partial<ResolvedDriveConfig> = {},
 ): ResolvedDriveConfig => ({
-  driver: DriverMode.fake,
-  folderId: null,
-  serviceAccountJson: null,
+  authMode: DriveAuthMode.service_account,
+  folderId: 'folder-1',
+  serviceAccountJson: SA_JSON,
+  oauth: null,
   maxUploadMb: 200,
   version: 0,
   ...overrides,
@@ -35,35 +35,50 @@ describe('DriveStorageFactory', () => {
   });
 
   describe('get', () => {
-    it('trả FakeDriveStorage khi driver = fake', async () => {
+    it('trả GoogleDriveStorage khi đủ cấu hình service account', async () => {
       settingsService.getDriveConfig.mockResolvedValue(config());
 
-      expect(await factory.get()).toBeInstanceOf(FakeDriveStorage);
+      expect(await factory.get()).toBeInstanceOf(GoogleDriveStorage);
     });
 
-    it('trả GoogleDriveStorage khi driver = real và đủ cấu hình', async () => {
+    it('ném BadRequest khi thiếu service account', async () => {
+      settingsService.getDriveConfig.mockResolvedValue(
+        config({ serviceAccountJson: null }),
+      );
+
+      await expect(factory.get()).rejects.toThrow(BadRequestException);
+    });
+
+    it('ném BadRequest khi thiếu folderId', async () => {
+      settingsService.getDriveConfig.mockResolvedValue(
+        config({ folderId: null }),
+      );
+
+      await expect(factory.get()).rejects.toThrow(BadRequestException);
+    });
+
+    it('trả GoogleDriveStorage khi authMode = oauth2 và đã kết nối', async () => {
       settingsService.getDriveConfig.mockResolvedValue(
         config({
-          driver: DriverMode.real,
-          folderId: 'folder-1',
-          serviceAccountJson: SA_JSON,
+          authMode: DriveAuthMode.oauth2,
+          folderId: null,
+          oauth: {
+            clientId: 'cid',
+            clientSecret: 'csecret',
+            refreshToken: 'rtoken',
+          },
         }),
       );
 
       expect(await factory.get()).toBeInstanceOf(GoogleDriveStorage);
     });
 
-    it('ném BadRequest khi driver = real mà thiếu service account', async () => {
+    it('ném BadRequest khi authMode = oauth2 mà chưa kết nối (oauth null)', async () => {
       settingsService.getDriveConfig.mockResolvedValue(
-        config({ driver: DriverMode.real, folderId: 'folder-1' }),
-      );
-
-      await expect(factory.get()).rejects.toThrow(BadRequestException);
-    });
-
-    it('ném BadRequest khi driver = real mà thiếu folderId', async () => {
-      settingsService.getDriveConfig.mockResolvedValue(
-        config({ driver: DriverMode.real, serviceAccountJson: SA_JSON }),
+        config({
+          authMode: DriveAuthMode.oauth2,
+          oauth: null,
+        }),
       );
 
       await expect(factory.get()).rejects.toThrow(BadRequestException);

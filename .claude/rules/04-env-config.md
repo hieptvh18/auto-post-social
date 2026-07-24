@@ -33,8 +33,9 @@ tool-auto-fb/
   `this.config.get<DriveConfig>('drive')`. **Không** gọi `process.env` trong
   service/controller.
 - Biến bắt buộc: xem `docs/00-overview.md` §8. Bổ sung cho MVP:
-  `GOOGLE_DRIVE_FOLDER_ID`, `TOKEN_ENCRYPTION_KEY` (32 byte hex),
-  `DRIVE_DRIVER` / `FACEBOOK_DRIVER` (`real` | `fake`, theo ADR-003).
+  `GOOGLE_DRIVE_FOLDER_ID`, `TOKEN_ENCRYPTION_KEY` (32 byte hex).
+  Không còn driver `fake` — Drive/Facebook luôn gọi API thật (bỏ ADR-003,
+  xem quyết định 2026-07-24 trong `contexts.md`).
 
 ## Frontend — cách dùng
 

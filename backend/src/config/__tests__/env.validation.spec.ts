@@ -1,4 +1,4 @@
-import { DriverMode, NodeEnv, validateEnv } from '../env.validation';
+import { NodeEnv, validateEnv } from '../env.validation';
 
 /** Env tối thiểu hợp lệ — mỗi test chỉ đổi phần cần kiểm. */
 const validEnv = (): Record<string, unknown> => ({
@@ -14,9 +14,7 @@ const validEnv = (): Record<string, unknown> => ({
   JWT_ACCESS_EXPIRES: '15m',
   JWT_REFRESH_EXPIRES: '7d',
   TOKEN_ENCRYPTION_KEY: '0'.repeat(64),
-  DRIVE_DRIVER: 'fake',
   MAX_UPLOAD_MB: '200',
-  FACEBOOK_DRIVER: 'fake',
   META_GRAPH_API_VERSION: 'v21.0',
   AUTOPOST_ENABLED: 'true',
   MAX_POST_PER_SLOT: '20',
@@ -32,7 +30,6 @@ describe('validateEnv', () => {
       expect(result.REDIS_PORT).toBe(56379);
       expect(result.MAX_UPLOAD_MB).toBe(200);
       expect(result.AUTOPOST_ENABLED).toBe(true);
-      expect(result.DRIVE_DRIVER).toBe(DriverMode.fake);
     });
 
     it('áp dụng giá trị mặc định khi biến không bắt buộc bị thiếu', () => {
@@ -66,15 +63,13 @@ describe('validateEnv', () => {
       expect(result.AUTOPOST_ENABLED).toBe(expected);
     });
 
-    it('chấp nhận DRIVE_DRIVER=real khi có đủ folderId và service account', () => {
+    it('chấp nhận GOOGLE_DRIVE_FOLDER_ID và GOOGLE_SERVICE_ACCOUNT_JSON tuỳ chọn', () => {
       const result = validateEnv({
         ...validEnv(),
-        DRIVE_DRIVER: 'real',
         GOOGLE_DRIVE_FOLDER_ID: 'folder-123',
         GOOGLE_SERVICE_ACCOUNT_JSON: '/path/sa.json',
       });
 
-      expect(result.DRIVE_DRIVER).toBe(DriverMode.real);
       expect(result.GOOGLE_DRIVE_FOLDER_ID).toBe('folder-123');
     });
   });
@@ -119,26 +114,6 @@ describe('validateEnv', () => {
       expect(() =>
         validateEnv({ ...validEnv(), AUTOPOST_ENABLED: 'maybe' }),
       ).toThrow(/AUTOPOST_ENABLED/);
-    });
-
-    it('ném lỗi khi DRIVE_DRIVER=real nhưng thiếu GOOGLE_DRIVE_FOLDER_ID', () => {
-      expect(() =>
-        validateEnv({
-          ...validEnv(),
-          DRIVE_DRIVER: 'real',
-          GOOGLE_SERVICE_ACCOUNT_JSON: '/path/sa.json',
-        }),
-      ).toThrow(/GOOGLE_DRIVE_FOLDER_ID/);
-    });
-
-    it('ném lỗi khi DRIVE_DRIVER=real nhưng thiếu GOOGLE_SERVICE_ACCOUNT_JSON', () => {
-      expect(() =>
-        validateEnv({
-          ...validEnv(),
-          DRIVE_DRIVER: 'real',
-          GOOGLE_DRIVE_FOLDER_ID: 'folder-123',
-        }),
-      ).toThrow(/GOOGLE_SERVICE_ACCOUNT_JSON/);
     });
   });
 });

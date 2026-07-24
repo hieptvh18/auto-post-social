@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AppSetting } from '../../../generated/prisma/client';
 import { AppConfigService } from '../../config/app-config.service';
-import { DriverMode } from '../../config/env.validation';
+import { DriveAuthMode } from '../../config/env.validation';
 import { CryptoService } from '../../infra/crypto/crypto.service';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import type { UpdateDriveSettingsDto } from './dto/update-drive-settings.dto';
@@ -39,11 +39,13 @@ export class SettingsService {
     const env = this.config.drive;
 
     if (record === null) {
+      // .env chỉ hỗ trợ service_account (bootstrap), chưa có oauth.
       return {
-        driver: env.driver,
+        authMode: DriveAuthMode.service_account,
         folderId: env.folderId ?? null,
-        serviceAccountJson: env.serviceAccountJson ?? null,
         maxUploadMb: env.maxUploadMb,
+        serviceAccountJson: env.serviceAccountJson ?? null,
+        oauth: null,
         version: this.driveVersion,
       };
     }
@@ -51,13 +53,14 @@ export class SettingsService {
     const value = this.parseDriveValue(record);
 
     return {
-      driver: value.driver,
+      authMode: value.authMode,
       folderId: value.folderId,
+      maxUploadMb: value.maxUploadMb,
       serviceAccountJson:
         value.serviceAccountJsonEnc === null
           ? null
           : this.crypto.decrypt(value.serviceAccountJsonEnc),
-      maxUploadMb: value.maxUploadMb,
+      oauth: this.resolveOauth(value),
       version: this.driveVersion,
     };
   }
@@ -72,13 +75,16 @@ export class SettingsService {
         env.serviceAccountJson !== undefined && env.serviceAccountJson !== '';
 
       return {
-        driver: env.driver,
+        authMode: DriveAuthMode.service_account,
         folderId: env.folderId ?? null,
         maxUploadMb: env.maxUploadMb,
         hasServiceAccount,
         serviceAccountEmail: hasServiceAccount
           ? this.extractClientEmail(env.serviceAccountJson as string)
           : null,
+        hasOauthClient: false,
+        oauthConnected: false,
+        oauthAccountEmail: null,
         usingEnvFallback: true,
         updatedAt: null,
       };
@@ -88,12 +94,16 @@ export class SettingsService {
     const enc = value.serviceAccountJsonEnc;
 
     return {
-      driver: value.driver,
+      authMode: value.authMode,
       folderId: value.folderId,
       maxUploadMb: value.maxUploadMb,
       hasServiceAccount: enc !== null,
       serviceAccountEmail:
         enc === null ? null : this.extractClientEmail(this.crypto.decrypt(enc)),
+      hasOauthClient:
+        value.oauthClientId !== null && value.oauthClientSecretEnc !== null,
+      oauthConnected: value.oauthRefreshTokenEnc !== null,
+      oauthAccountEmail: value.oauthAccountEmail,
       usingEnvFallback: false,
       updatedAt: record.updatedAt,
     };
@@ -106,8 +116,7 @@ export class SettingsService {
     const existing = await this.repository.findByKey(SettingKey.GOOGLE_DRIVE);
     const current = existing === null ? null : this.parseDriveValue(existing);
 
-    // Không gửi serviceAccountJson = giữ nguyên cái đã lưu. UI không đổ secret cũ
-    // xuống client nên không thể gửi lại nguyên văn.
+    // Không gửi secret = giữ nguyên cái đã lưu (UI không đổ secret cũ xuống client).
     let serviceAccountJsonEnc: string | null =
       current?.serviceAccountJsonEnc ?? null;
     if (dto.serviceAccountJson !== undefined) {
@@ -122,27 +131,103 @@ export class SettingsService {
     const folderId =
       dto.folderId === undefined ? (current?.folderId ?? null) : dto.folderId;
 
-    // Driver real mà thiếu cấu hình ⇒ chặn ngay, đừng để lỗi lúc upload.
-    if (dto.driver === DriverMode.real) {
-      if (folderId === null || folderId === '') {
-        throw new BadRequestException(
-          'Cần nhập Folder ID khi dùng driver "real"',
-        );
-      }
-      if (serviceAccountJsonEnc === null) {
-        throw new BadRequestException(
-          'Cần nhập Service Account JSON khi dùng driver "real"',
-        );
-      }
+    // OAuth client id/secret: giữ nguyên nếu không gửi.
+    const oauthClientId =
+      dto.oauthClientId === undefined
+        ? (current?.oauthClientId ?? null)
+        : dto.oauthClientId;
+
+    let oauthClientSecretEnc: string | null =
+      current?.oauthClientSecretEnc ?? null;
+    if (dto.oauthClientSecret !== undefined) {
+      oauthClientSecretEnc =
+        dto.oauthClientSecret === null
+          ? null
+          : this.crypto.encrypt(dto.oauthClientSecret);
     }
 
-    const value: DriveSettingsValue = {
-      driver: dto.driver,
+    // Đổi client id hoặc secret ⇒ refresh token cũ hết hiệu lực, buộc kết nối lại.
+    const clientChanged =
+      oauthClientId !== (current?.oauthClientId ?? null) ||
+      (dto.oauthClientSecret !== undefined && dto.oauthClientSecret !== null);
+    let oauthRefreshTokenEnc: string | null =
+      current?.oauthRefreshTokenEnc ?? null;
+    let oauthAccountEmail: string | null = current?.oauthAccountEmail ?? null;
+    if (clientChanged) {
+      oauthRefreshTokenEnc = null;
+      oauthAccountEmail = null;
+    }
+
+    this.assertModeConfigured(dto.authMode, {
       folderId,
       serviceAccountJsonEnc,
+      oauthClientId,
+      oauthClientSecretEnc,
+    });
+
+    const value: DriveSettingsValue = {
+      authMode: dto.authMode,
+      folderId,
+      serviceAccountJsonEnc,
+      oauthClientId,
+      oauthClientSecretEnc,
+      oauthRefreshTokenEnc,
+      oauthAccountEmail,
       maxUploadMb: dto.maxUploadMb,
     };
 
+    await this.persist(value, actorId, current);
+    return this.getDriveSettings();
+  }
+
+  /** Lấy client OAuth đã giải mã cho DriveOAuthService (build URL / đổi code). */
+  async getOauthClientCredentials(): Promise<{
+    clientId: string;
+    clientSecret: string;
+  }> {
+    const record = await this.repository.findByKey(SettingKey.GOOGLE_DRIVE);
+    const value = record === null ? null : this.parseDriveValue(record);
+    if (
+      value === null ||
+      value.oauthClientId === null ||
+      value.oauthClientSecretEnc === null
+    ) {
+      throw new BadRequestException(
+        'Chưa nhập OAuth Client ID/Secret. Lưu cấu hình OAuth trước khi kết nối Google.',
+      );
+    }
+    return {
+      clientId: value.oauthClientId,
+      clientSecret: this.crypto.decrypt(value.oauthClientSecretEnc),
+    };
+  }
+
+  /** Lưu refresh token + email tài khoản sau khi OAuth callback thành công. */
+  async saveOauthTokens(
+    refreshToken: string,
+    accountEmail: string | null,
+    actorId: string,
+  ): Promise<void> {
+    const record = await this.repository.findByKey(SettingKey.GOOGLE_DRIVE);
+    if (record === null) {
+      throw new BadRequestException(
+        'Chưa có cấu hình Drive để lưu OAuth token.',
+      );
+    }
+    const current = this.parseDriveValue(record);
+    const value: DriveSettingsValue = {
+      ...current,
+      oauthRefreshTokenEnc: this.crypto.encrypt(refreshToken),
+      oauthAccountEmail: accountEmail,
+    };
+    await this.persist(value, actorId, current);
+  }
+
+  private async persist(
+    value: DriveSettingsValue,
+    actorId: string,
+    current: DriveSettingsValue | null,
+  ): Promise<void> {
     await this.repository.upsert(
       SettingKey.GOOGLE_DRIVE,
       { ...value },
@@ -154,23 +239,71 @@ export class SettingsService {
       userId: actorId,
       action: AuditAction.SETTINGS_UPDATE,
       resource: `app_settings/${SettingKey.GOOGLE_DRIVE}`,
-      // Chỉ ghi field không nhạy cảm — cấm đưa service account vào audit log.
+      // Chỉ ghi field không nhạy cảm — cấm đưa secret/token vào audit log.
       beforeValue:
         current === null
           ? undefined
           : {
-              driver: current.driver,
+              authMode: current.authMode,
               folderId: current.folderId,
               maxUploadMb: current.maxUploadMb,
             },
       afterValue: {
-        driver: value.driver,
+        authMode: value.authMode,
         folderId: value.folderId,
         maxUploadMb: value.maxUploadMb,
       },
     });
+  }
 
-    return this.getDriveSettings();
+  /** Cấu hình phải đủ theo mode — chặn ngay, đừng để lỗi lúc upload. */
+  private assertModeConfigured(
+    authMode: DriveAuthMode,
+    v: {
+      folderId: string | null;
+      serviceAccountJsonEnc: string | null;
+      oauthClientId: string | null;
+      oauthClientSecretEnc: string | null;
+    },
+  ): void {
+    if (authMode === DriveAuthMode.service_account) {
+      if (v.folderId === null || v.folderId === '') {
+        throw new BadRequestException(
+          'Cần nhập Folder ID (Shared Drive) khi dùng service account',
+        );
+      }
+      if (v.serviceAccountJsonEnc === null) {
+        throw new BadRequestException(
+          'Cần nhập Service Account JSON khi dùng service account',
+        );
+      }
+      return;
+    }
+
+    // oauth2: cần client id/secret để có thể "Kết nối Google" (refresh token lấy sau).
+    if (v.oauthClientId === null || v.oauthClientSecretEnc === null) {
+      throw new BadRequestException(
+        'Cần nhập OAuth Client ID và Client Secret khi dùng chế độ OAuth2',
+      );
+    }
+  }
+
+  /** Dựng object oauth đã giải mã, chỉ khi đủ cả 3 mảnh. */
+  private resolveOauth(
+    value: DriveSettingsValue,
+  ): ResolvedDriveConfig['oauth'] {
+    if (
+      value.oauthClientId === null ||
+      value.oauthClientSecretEnc === null ||
+      value.oauthRefreshTokenEnc === null
+    ) {
+      return null;
+    }
+    return {
+      clientId: value.oauthClientId,
+      clientSecret: this.crypto.decrypt(value.oauthClientSecretEnc),
+      refreshToken: this.crypto.decrypt(value.oauthRefreshTokenEnc),
+    };
   }
 
   private parseDriveValue(record: AppSetting): DriveSettingsValue {
@@ -184,9 +317,13 @@ export class SettingsService {
 
     const env = this.config.drive;
     return {
-      driver: raw.driver ?? env.driver,
+      authMode: raw.authMode ?? DriveAuthMode.service_account,
       folderId: raw.folderId ?? null,
       serviceAccountJsonEnc: raw.serviceAccountJsonEnc ?? null,
+      oauthClientId: raw.oauthClientId ?? null,
+      oauthClientSecretEnc: raw.oauthClientSecretEnc ?? null,
+      oauthRefreshTokenEnc: raw.oauthRefreshTokenEnc ?? null,
+      oauthAccountEmail: raw.oauthAccountEmail ?? null,
       maxUploadMb: raw.maxUploadMb ?? env.maxUploadMb,
     };
   }

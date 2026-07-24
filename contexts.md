@@ -4,8 +4,8 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-07-23
-**Session gần nhất:** M2.5 — FE core auth: dựng `api/client.ts` (Bearer + refresh 1 lần + map lỗi), `AuthContext` nối API thật (flag `VITE_USE_MOCK`), `LoginPage` login thật, route guard theo role, Vite proxy. 15 test Vitest xanh, lint/build xanh. **Chưa smoke test backend thật** (backend chưa lên). Phần Drive upload **hoãn** theo yêu cầu user.
+**Cập nhật lần cuối:** 2026-07-24
+**Session gần nhất:** Xác nhận bằng test thật (script tạm gọi Google API với credential trong DB) rằng lỗi "Service account không có dung lượng lưu trữ riêng" là phản hồi thật từ Google (`storageQuotaExceeded`), không phải bug trong code — `supportsAllDrives`, parse JSON, gọi API đều đúng. Sau đó theo yêu cầu user: **bỏ hẳn driver `fake`** cho Google Drive + Facebook khỏi toàn hệ thống (ADR-017, thay ADR-003) — Drive/Facebook giờ luôn dùng cấu hình thật. Trước đó: Plan 03c — Drive **2 chế độ xác thực** (switch ở UI "Cài đặt chung"): `service_account` (SA JSON + Shared Drive, thêm `supportsAllDrives`) và `oauth2` (tài khoản Google, Gmail free) với **OAuth flow trong app**. **Chưa smoke test OAuth thật.**
 
 ---
 
@@ -51,7 +51,7 @@ failed-jobs UI, reconciliation cron, Nginx/production compose.
 |---|-----------|-------|
 | ADR-001 | Backend NestJS + Prisma, module theo feature | Theo docs/02 |
 | ADR-002 | MVP chạy worker **cùng process** với API (`BullModule` + `@Processor`), tách process sau | Giảm hạ tầng; ranh giới module vẫn giữ nguyên nên tách sau chỉ là đổi bootstrap |
-| ADR-003 | Google Drive & Meta Graph bọc sau interface + có driver `fake` bật bằng env | Chạy/test local không cần credential thật |
+| ADR-003 | ~~Google Drive & Meta Graph bọc sau interface + có driver `fake` bật bằng env~~ **Bỏ 2026-07-24** — xem ADR-017 | Chạy/test local không cần credential thật |
 | ADR-004 | ~~Coverage 100% bắt buộc cho service/domain~~ **Đổi 2026-07-23:** MVP ưu tiên tốc độ ⇒ chỉ test logic phức tạp/dễ sai khi cần; auto-post engine + crypto/token vẫn **bắt buộc** phủ kỹ, CRUD thuần không cần | User yêu cầu đi nhanh phase MVP; xem `.claude/rules/02-testing.md` §Chủ trương |
 | ADR-005 | FE gọi API thật, giữ mock sau cờ `VITE_USE_MOCK` | Chốt với user |
 | ADR-006 | Chống cron double-fire bằng bảng `slot_runs` UNIQUE(slot_id, run_date, run_time) thay vì Redis SETNX | Bền vững qua restart Redis, dễ test |
@@ -63,7 +63,9 @@ failed-jobs UI, reconciliation cron, Nginx/production compose.
 | ADR-012 | Guard đăng ký **global** (`APP_GUARD`): mặc định mọi route cần auth, route công khai phải `@Public()` | Quên gắn guard ⇒ route lộ ra ngoài. Đảo mặc định lại thì quên `@Public()` chỉ gây 401, an toàn hơn nhiều |
 | ADR-013 | Không dùng passport/JwtStrategy; `JwtAuthGuard` gọi thẳng `JwtService.verifyAsync` rồi **đọc lại user từ DB mỗi request** | Cần user bị khóa mất hiệu lực ngay, không chờ token hết hạn. Đã phải query DB thì strategy chỉ là lớp trung gian thừa |
 | ADR-014 | Cấu hình Google Drive (driver, folder, service account) lưu **động trong bảng `app_settings`** (JSONB, secret mã hoá AES-256-GCM), sửa qua UI **"Cài đặt chung"** (`/settings`, chỉ ADMIN). `.env` chỉ còn là **fallback bootstrap** khi DB chưa có bản ghi | Yêu cầu user 2026-07-23: không muốn hardcode key/folder trong `.env`, cần đổi được từ UI không restart |
+| ADR-016 | Drive `real` có **2 authMode**: `service_account` (chỉ ghi Shared Drive/Workspace) và `oauth2` (tài khoản Google, dùng được Gmail free). OAuth lấy refresh token bằng **flow trong app** (callback public bảo vệ bằng `state`). Chọn switch ở UI, lưu trong `app_settings` (secret mã hoá) | Service account **không có quota** ⇒ không upload được My Drive của Gmail cá nhân; Shared Drive cần trả phí. OAuth2 cho phép dev/user free vẫn chạy thật. Xem plan 03c |
 | ADR-015 | **BE + API song song:** từ M3, mỗi milestone backend tự nối luôn FE trang tương ứng (bỏ mock cho trang đó) thay vì dồn nối API về cuối. Thêm milestone M2.5 dựng `api/client.ts` + `AuthContext` một lần dùng chung. M7 chỉ còn dọn phần sót + nghiệm thu end-to-end | Yêu cầu user 2026-07-23: xong milestone nào phải test tay được trên UI thật ngay, không chỉ curl/Swagger |
+| ADR-017 | **Bỏ hẳn driver `fake`** cho Google Drive và Facebook (thay ADR-003). Xoá `DriverMode`, `FakeDriveStorage`, `DRIVE_DRIVER`/`FACEBOOK_DRIVER`. Drive luôn dùng `GoogleDriveStorage` (service_account hoặc oauth2); Facebook publisher (chưa code, plan 07) sẽ chỉ có driver thật khi làm | Yêu cầu user 2026-07-24: chỉ dùng cấu hình thật, không cần chế độ giả lập nữa. Unit test vẫn mock adapter qua interface (rule 02), không cần class fake riêng |
 
 ---
 
@@ -156,6 +158,29 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Còn nợ:** (1) smoke test login/refresh/role guard với backend thật — xem §6.
   (2) Drive upload + SettingsPage nối thật: **hoãn theo yêu cầu user**, để làm sau.
 
+### Drive 2 authMode (Plan 03c) — 🟡 2026-07-24
+
+- **Phạm vi:** cho ADMIN switch chế độ xác thực Drive ở "Cài đặt chung":
+  `service_account` (SA JSON + Shared Drive, thêm `supportsAllDrives`) và `oauth2`
+  (tài khoản Google, Gmail free). OAuth flow trong app: `GET /settings/google-drive/oauth/url`
+  (ADMIN) + `GET .../oauth/callback` (**@Public**, `state` single-use TTL 10') → lưu
+  refresh token mã hoá + email. FE SettingsPage: UI 2 mode + nút "Kết nối Google" +
+  xử lý `?drive_oauth=success|error`. `POST /media/upload` không đổi — chạy theo config đang lưu.
+- **File chính:** `backend/src/modules/settings/{settings.service,drive-oauth.service,
+  drive-oauth.controller,settings.controller,settings.types}.ts`,
+  `backend/src/infra/drive/{google-drive.storage,drive-storage.factory}.ts`,
+  `frontend/src/pages/SettingsPage.tsx`, `frontend/src/api/settings.api.ts`
+- **Quyết định:** ADR-016. Config lưu JSONB (không migration). Đổi client id/secret ⇒
+  tự xoá refresh token cũ. `mapDriveError` nhận diện lỗi quota qua message (service
+  account không ghi được My Drive).
+- **Test:** BE 65 test (settings + drive storage/factory oauth) xanh; FE 16 test xanh. lint/build cả hai xanh.
+- **Còn nợ:** smoke test OAuth thật (cần OAuth Client của user + đăng ký redirect URI). Chưa `git mv` plan sang DONE.
+- **Cập nhật 2026-07-24 (sau):** theo yêu cầu user, **bỏ hẳn driver `fake` khỏi hệ
+  thống** (không chỉ ẩn UI) — xem ADR-017. Xoá `DriverMode`, `FakeDriveStorage`,
+  `DRIVE_DRIVER`/`FACEBOOK_DRIVER` khỏi env/config/settings/DTO/FE types.
+  `assertModeConfigured` giờ luôn validate (không còn early-return khi driver≠real).
+  263 test BE xanh, 16 test FE xanh, lint/build cả hai xanh.
+
 ---
 
 ## 6. Việc đang dở / nợ kỹ thuật
@@ -165,9 +190,9 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | 1 | **Pino logger + redact secret** ⚠️ TRỄ HẠN | Đã cài `nestjs-pino`, `pino-http`, `pino-pretty` nhưng **vẫn chưa wire** vào `app.module.ts`. Hiện dùng Nest Logger mặc định. Dự định làm ở M1 nhưng chưa làm — mà `POST /auth/login` và `POST /users` đã nhận password rồi. **Rủi ro hiện tại:** chưa có redact tự động; đang an toàn vì không có chỗ nào log body, nhưng phải làm **đầu M2**. Redact bắt buộc: `password`, `token`, `accessToken`, `accessTokenEnc`, `authorization`, `GOOGLE_SERVICE_ACCOUNT_JSON`. |
 | 2 | E2E test setup | `test/jest-e2e.json` còn nguyên mặc định, chưa có e2e nào. M1 đã kiểm §5 **bằng tay qua curl** (đạt hết), nhưng chưa tự động hóa. Nên làm cùng M2. |
 | 3 | `SettingsPage` (FE) chưa nối API thật | Đang chạy bằng state mock cục bộ trong component, không qua `MockDataContext`/react-query như các trang khác vì chưa tới M7. BE đã có đủ 3 endpoint (`GET/PUT /settings/google-drive`, `POST .../test`) sẵn sàng để nối. |
-| 4 | Driver Drive `real` chưa test với credential Google thật | `GoogleDriveStorage` chỉ test bằng mock `googleapis` (unit test). Cần 1 lần chạy tay với service account thật trước khi go-live driver real. |
+| 4 | `GoogleDriveStorage` chưa test với credential Google thật ở CI | Chỉ test bằng mock `googleapis` (unit test). Đã xác nhận thủ công 1 lần với service account thật (2026-07-24) rằng service account không có storage quota trên My Drive cá nhân — đúng như `mapDriveError` đã cảnh báo; cần Shared Drive hoặc OAuth2. |
 | 5 | **M2.5 chưa smoke test với backend thật** | Code + 15 test Vitest xanh nhưng chưa chạy end-to-end với API. Cần: `docker compose up` + `cd backend && npm run start:dev`, rồi `cd frontend` (đảm bảo `.env` có `VITE_USE_MOCK=false`) `npm run dev` → login admin seed, kiểm token lưu localStorage, đổi role CONTENT bị chặn `/users`, `/pages`, `/settings`. |
-| 6 | **Drive upload FE hoãn** | `POST /media/upload` + `SettingsPage` (3 endpoint Drive) đã có BE sẵn nhưng FE **hoãn nối theo yêu cầu user** (ưu tiên login trước). Khi làm: tạo `api/media.api.ts` + `api/settings.api.ts`, bỏ mock cho ContentManagementPage (phần upload) và SettingsPage. Thay cho debt #3. |
+| 6 | **Drive FE đã nối xong (upload + settings + 2 authMode)** | ✅ `api/media.api.ts` + ContentManagementPage upload thật. ✅ `api/settings.api.ts` + SettingsPage 2 chế độ (service_account/oauth2) + "Kết nối Google". **Còn lại:** smoke test OAuth thật (cần OAuth Client ID/Secret của user + đăng ký redirect URI `http://localhost:3100/api/settings/google-drive/oauth/callback` ở Google Cloud Console). Service_account chỉ chạy được với Shared Drive (Workspace). |
 
 ---
 

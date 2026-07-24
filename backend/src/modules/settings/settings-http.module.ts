@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MediaModule } from '../media/media.module';
+import { DriveOAuthController } from './drive-oauth.controller';
 import { SettingsController } from './settings.controller';
 import { SettingsModule } from './settings.module';
 
@@ -9,6 +10,6 @@ import { SettingsModule } from './settings.module';
  */
 @Module({
   imports: [SettingsModule, MediaModule],
-  controllers: [SettingsController],
+  controllers: [SettingsController, DriveOAuthController],
 })
 export class SettingsHttpModule {}

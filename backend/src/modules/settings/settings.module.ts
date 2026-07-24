@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CryptoModule } from '../../infra/crypto/crypto.module';
 import { PrismaModule } from '../../infra/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
+import { DriveOAuthService } from './drive-oauth.service';
 import { SettingsRepository } from './settings.repository';
 import { SettingsService } from './settings.service';
 
@@ -12,7 +13,7 @@ import { SettingsService } from './settings.service';
  */
 @Module({
   imports: [PrismaModule, CryptoModule, AuditModule],
-  providers: [SettingsRepository, SettingsService],
-  exports: [SettingsService],
+  providers: [SettingsRepository, SettingsService, DriveOAuthService],
+  exports: [SettingsService, DriveOAuthService],
 })
 export class SettingsModule {}

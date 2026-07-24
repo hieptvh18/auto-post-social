@@ -22,14 +22,31 @@ const INPUT = {
 describe('createDriveClient', () => {
   it('dựng được client từ service account JSON hợp lệ', () => {
     expect(
-      createDriveClient({ serviceAccountJson: SA_JSON, folderId: FOLDER }),
+      createDriveClient({
+        mode: 'service_account',
+        serviceAccountJson: SA_JSON,
+      }),
     ).toBeDefined();
   });
 
   it('ném lỗi khi service account JSON không parse được', () => {
     expect(() =>
-      createDriveClient({ serviceAccountJson: 'not-json', folderId: FOLDER }),
+      createDriveClient({
+        mode: 'service_account',
+        serviceAccountJson: 'not-json',
+      }),
     ).toThrow(InternalServerErrorException);
+  });
+
+  it('dựng được client OAuth2 từ clientId/secret/refreshToken', () => {
+    expect(
+      createDriveClient({
+        mode: 'oauth2',
+        clientId: 'cid',
+        clientSecret: 'csecret',
+        refreshToken: 'rtoken',
+      }),
+    ).toBeDefined();
   });
 });
 
@@ -63,6 +80,7 @@ describe('GoogleDriveStorage', () => {
       expect(files.create).toHaveBeenCalledWith(
         expect.objectContaining({
           requestBody: { name: 'clip.mp4', parents: [FOLDER] },
+          supportsAllDrives: true,
         }),
       );
       expect(result).toEqual({
@@ -102,6 +120,17 @@ describe('GoogleDriveStorage', () => {
       files.create.mockRejectedValue({ code: 403, message: 'forbidden' });
 
       await expect(storage.upload(INPUT)).rejects.toThrow(/share folder/i);
+    });
+
+    it('403 accessNotConfigured => message báo chưa bật Drive API', async () => {
+      files.create.mockRejectedValue({
+        code: 403,
+        errors: [{ reason: 'accessNotConfigured' }],
+      });
+
+      await expect(storage.upload(INPUT)).rejects.toThrow(
+        /chưa được bật|Drive API/i,
+      );
     });
 
     it('lỗi 404 => message hướng dẫn kiểm tra Folder ID', async () => {
@@ -151,7 +180,7 @@ describe('GoogleDriveStorage', () => {
       const result = await storage.createReadStream('drive-1');
 
       expect(files.get).toHaveBeenCalledWith(
-        { fileId: 'drive-1', alt: 'media' },
+        { fileId: 'drive-1', alt: 'media', supportsAllDrives: true },
         { responseType: 'stream' },
       );
       expect(result).toBe(stream);
@@ -172,7 +201,10 @@ describe('GoogleDriveStorage', () => {
 
       await storage.delete('drive-1');
 
-      expect(files.delete).toHaveBeenCalledWith({ fileId: 'drive-1' });
+      expect(files.delete).toHaveBeenCalledWith({
+        fileId: 'drive-1',
+        supportsAllDrives: true,
+      });
     });
 
     it('lỗi Drive => domain error', async () => {

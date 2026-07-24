@@ -15,10 +15,7 @@ export interface DriveFile {
   thumbnailLink: string | null;
 }
 
-/**
- * Cổng ra Google Drive. Có driver `real` và `fake` (ADR-003) để chạy local
- * không cần credential thật.
- */
+/** Cổng ra Google Drive thật (service account hoặc OAuth2). */
 export interface DriveStorage {
   upload(file: UploadFileInput): Promise<DriveFile>;
   createReadStream(fileId: string): Promise<Readable>;

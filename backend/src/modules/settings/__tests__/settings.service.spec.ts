@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { AppSetting } from '../../../../generated/prisma/client';
 import type { AppConfigService } from '../../../config/app-config.service';
-import { DriverMode } from '../../../config/env.validation';
+import { DriveAuthMode } from '../../../config/env.validation';
 import type { CryptoService } from '../../../infra/crypto/crypto.service';
 import { AuditAction, type AuditService } from '../../audit/audit.service';
 import type { UpdateDriveSettingsDto } from '../dto/update-drive-settings.dto';
@@ -15,7 +15,6 @@ const SA_JSON = JSON.stringify({ client_email: 'sa@project.iam' });
 const makeRecord = (value: Partial<DriveSettingsValue> = {}): AppSetting => ({
   key: SettingKey.GOOGLE_DRIVE,
   value: {
-    driver: DriverMode.real,
     folderId: 'folder-db',
     serviceAccountJsonEnc: 'enc:tag:cipher',
     maxUploadMb: 500,
@@ -37,7 +36,6 @@ describe('SettingsService', () => {
     repository = { findByKey: jest.fn(), upsert: jest.fn() };
     config = {
       drive: {
-        driver: DriverMode.fake,
         serviceAccountJson: undefined,
         folderId: undefined,
         maxUploadMb: 200,
@@ -64,9 +62,10 @@ describe('SettingsService', () => {
       const result = await service.getDriveConfig();
 
       expect(result).toEqual({
-        driver: DriverMode.fake,
+        authMode: DriveAuthMode.service_account,
         folderId: null,
         serviceAccountJson: null,
+        oauth: null,
         maxUploadMb: 200,
         version: 0,
       });
@@ -76,7 +75,6 @@ describe('SettingsService', () => {
       repository.findByKey.mockResolvedValue(null);
       config = {
         drive: {
-          driver: DriverMode.real,
           serviceAccountJson: SA_JSON,
           folderId: 'folder-env',
           maxUploadMb: 100,
@@ -102,9 +100,10 @@ describe('SettingsService', () => {
 
       expect(crypto.decrypt).toHaveBeenCalledWith('enc:tag:cipher');
       expect(result).toEqual({
-        driver: DriverMode.real,
+        authMode: DriveAuthMode.service_account,
         folderId: 'folder-db',
         serviceAccountJson: SA_JSON,
+        oauth: null,
         maxUploadMb: 500,
         version: 0,
       });
@@ -129,7 +128,6 @@ describe('SettingsService', () => {
 
       const result = await service.getDriveConfig();
 
-      expect(result.driver).toBe(DriverMode.fake);
       expect(result.maxUploadMb).toBe(200);
       expect(result.serviceAccountJson).toBeNull();
     });
@@ -161,11 +159,14 @@ describe('SettingsService', () => {
       const result = await service.getDriveSettings();
 
       expect(result).toEqual({
-        driver: DriverMode.fake,
+        authMode: DriveAuthMode.service_account,
         folderId: null,
         maxUploadMb: 200,
         hasServiceAccount: false,
         serviceAccountEmail: null,
+        hasOauthClient: false,
+        oauthConnected: false,
+        oauthAccountEmail: null,
         usingEnvFallback: true,
         updatedAt: null,
       });
@@ -177,7 +178,6 @@ describe('SettingsService', () => {
         repository as unknown as SettingsRepository,
         {
           drive: {
-            driver: DriverMode.real,
             serviceAccountJson: SA_JSON,
             folderId: 'folder-env',
             maxUploadMb: 200,
@@ -199,7 +199,6 @@ describe('SettingsService', () => {
         repository as unknown as SettingsRepository,
         {
           drive: {
-            driver: DriverMode.real,
             serviceAccountJson: '/secrets/sa.json',
             folderId: 'f',
             maxUploadMb: 200,
@@ -222,11 +221,14 @@ describe('SettingsService', () => {
 
       expect(JSON.stringify(result)).not.toContain('cipher');
       expect(result).toEqual({
-        driver: DriverMode.real,
+        authMode: DriveAuthMode.service_account,
         folderId: 'folder-db',
         maxUploadMb: 500,
         hasServiceAccount: true,
         serviceAccountEmail: 'sa@project.iam',
+        hasOauthClient: false,
+        oauthConnected: false,
+        oauthAccountEmail: null,
         usingEnvFallback: false,
         updatedAt: new Date('2026-01-02'),
       });
@@ -273,7 +275,7 @@ describe('SettingsService', () => {
 
   describe('updateDriveSettings', () => {
     const dto = (overrides: Partial<UpdateDriveSettingsDto> = {}) => ({
-      driver: DriverMode.fake,
+      authMode: DriveAuthMode.service_account,
       maxUploadMb: 300,
       ...overrides,
     });
@@ -292,9 +294,13 @@ describe('SettingsService', () => {
       expect(repository.upsert).toHaveBeenCalledWith(
         SettingKey.GOOGLE_DRIVE,
         {
-          driver: DriverMode.fake,
+          authMode: DriveAuthMode.service_account,
           folderId: 'f1',
           serviceAccountJsonEnc: 'enc:tag:cipher',
+          oauthClientId: null,
+          oauthClientSecretEnc: null,
+          oauthRefreshTokenEnc: null,
+          oauthAccountEmail: null,
           maxUploadMb: 300,
         },
         ACTOR,
@@ -316,7 +322,16 @@ describe('SettingsService', () => {
       );
     });
 
-    it('xoá secret khi gửi serviceAccountJson = null', async () => {
+    it('ném BadRequest khi xoá secret mà vẫn giữ authMode=service_account', async () => {
+      repository.findByKey.mockResolvedValueOnce(makeRecord());
+
+      await expect(
+        service.updateDriveSettings(dto({ serviceAccountJson: null }), ACTOR),
+      ).rejects.toThrow(/Service Account/);
+      expect(repository.upsert).not.toHaveBeenCalled();
+    });
+
+    it('xoá secret được khi đồng thời chuyển sang authMode=oauth2', async () => {
       repository.findByKey.mockResolvedValueOnce(makeRecord());
       repository.upsert.mockResolvedValue(makeRecord());
       repository.findByKey.mockResolvedValueOnce(
@@ -324,7 +339,12 @@ describe('SettingsService', () => {
       );
 
       await service.updateDriveSettings(
-        dto({ serviceAccountJson: null }),
+        dto({
+          serviceAccountJson: null,
+          authMode: DriveAuthMode.oauth2,
+          oauthClientId: 'cid',
+          oauthClientSecret: 'csecret',
+        }),
         ACTOR,
       );
 
@@ -361,24 +381,23 @@ describe('SettingsService', () => {
       expect(repository.upsert).not.toHaveBeenCalled();
     });
 
-    it('ném BadRequest khi driver=real mà thiếu folderId', async () => {
+    it('ném BadRequest khi thiếu folderId', async () => {
       repository.findByKey.mockResolvedValue(null);
 
       await expect(
         service.updateDriveSettings(
-          dto({ driver: DriverMode.real, serviceAccountJson: SA_JSON }),
+          dto({ serviceAccountJson: SA_JSON }),
           ACTOR,
         ),
       ).rejects.toThrow(/Folder ID/);
     });
 
-    it('ném BadRequest khi driver=real mà folderId rỗng', async () => {
+    it('ném BadRequest khi folderId rỗng', async () => {
       repository.findByKey.mockResolvedValue(null);
 
       await expect(
         service.updateDriveSettings(
           dto({
-            driver: DriverMode.real,
             folderId: '',
             serviceAccountJson: SA_JSON,
           }),
@@ -387,36 +406,31 @@ describe('SettingsService', () => {
       ).rejects.toThrow(/Folder ID/);
     });
 
-    it('ném BadRequest khi driver=real mà chưa có service account', async () => {
+    it('ném BadRequest khi chưa có service account', async () => {
       repository.findByKey.mockResolvedValue(null);
 
       await expect(
-        service.updateDriveSettings(
-          dto({ driver: DriverMode.real, folderId: 'f1' }),
-          ACTOR,
-        ),
+        service.updateDriveSettings(dto({ folderId: 'f1' }), ACTOR),
       ).rejects.toThrow(/Service Account/);
     });
 
-    it('lưu thành công khi driver=real đủ folderId và service account', async () => {
+    it('lưu thành công khi đủ folderId và service account', async () => {
       repository.findByKey.mockResolvedValueOnce(null);
       repository.upsert.mockResolvedValue(makeRecord());
       repository.findByKey.mockResolvedValueOnce(makeRecord());
 
       const result = await service.updateDriveSettings(
         dto({
-          driver: DriverMode.real,
           folderId: 'folder-1',
           serviceAccountJson: SA_JSON,
         }),
         ACTOR,
       );
 
-      expect(result.driver).toBe(DriverMode.real);
+      expect(result.folderId).toBe('folder-db');
       expect(repository.upsert).toHaveBeenCalledWith(
         SettingKey.GOOGLE_DRIVE,
         expect.objectContaining({
-          driver: DriverMode.real,
           folderId: 'folder-1',
         }),
         ACTOR,
@@ -428,7 +442,10 @@ describe('SettingsService', () => {
       repository.upsert.mockResolvedValue(makeRecord());
 
       const before = await service.getDriveConfig();
-      await service.updateDriveSettings(dto(), ACTOR);
+      await service.updateDriveSettings(
+        dto({ folderId: 'f1', serviceAccountJson: SA_JSON }),
+        ACTOR,
+      );
       const after = await service.getDriveConfig();
 
       expect(after.version).toBe(before.version + 1);
@@ -446,7 +463,7 @@ describe('SettingsService', () => {
       expect(logged.action).toBe(AuditAction.SETTINGS_UPDATE);
       expect(JSON.stringify(logged)).not.toContain('cipher');
       expect(logged.beforeValue).toEqual({
-        driver: DriverMode.real,
+        authMode: DriveAuthMode.service_account,
         folderId: 'folder-db',
         maxUploadMb: 500,
       });
@@ -456,10 +473,137 @@ describe('SettingsService', () => {
       repository.findByKey.mockResolvedValue(null);
       repository.upsert.mockResolvedValue(makeRecord());
 
-      await service.updateDriveSettings(dto(), ACTOR);
+      await service.updateDriveSettings(
+        dto({ folderId: 'f1', serviceAccountJson: SA_JSON }),
+        ACTOR,
+      );
 
       const calls = auditService.log.mock.calls as [Record<string, unknown>][];
       expect(calls[0][0].beforeValue).toBeUndefined();
+    });
+
+    it('authMode=oauth2 nhưng thiếu client ⇒ BadRequest', async () => {
+      repository.findByKey.mockResolvedValue(null);
+
+      await expect(
+        service.updateDriveSettings(
+          dto({ authMode: DriveAuthMode.oauth2 }),
+          ACTOR,
+        ),
+      ).rejects.toThrow(/OAuth Client/);
+    });
+
+    it('mã hoá oauthClientSecret và lưu clientId', async () => {
+      repository.findByKey.mockResolvedValueOnce(null);
+      repository.upsert.mockResolvedValue(makeRecord());
+      repository.findByKey.mockResolvedValueOnce(makeRecord());
+      crypto.encrypt.mockReturnValue('enc:tag:secret');
+
+      await service.updateDriveSettings(
+        dto({
+          authMode: DriveAuthMode.oauth2,
+          oauthClientId: 'cid',
+          oauthClientSecret: 'csecret',
+        }),
+        ACTOR,
+      );
+
+      expect(crypto.encrypt).toHaveBeenCalledWith('csecret');
+      expect(repository.upsert).toHaveBeenCalledWith(
+        SettingKey.GOOGLE_DRIVE,
+        expect.objectContaining({
+          authMode: DriveAuthMode.oauth2,
+          oauthClientId: 'cid',
+          oauthClientSecretEnc: 'enc:tag:secret',
+        }),
+        ACTOR,
+      );
+    });
+
+    it('đổi clientId ⇒ xoá refresh token cũ (buộc kết nối lại)', async () => {
+      const connected = makeRecord({
+        authMode: DriveAuthMode.oauth2,
+        oauthClientId: 'old-cid',
+        oauthClientSecretEnc: 'enc:tag:oldsecret',
+        oauthRefreshTokenEnc: 'enc:tag:refresh',
+        oauthAccountEmail: 'me@gmail.com',
+      });
+      repository.findByKey.mockResolvedValueOnce(connected);
+      repository.upsert.mockResolvedValue(connected);
+      repository.findByKey.mockResolvedValueOnce(connected);
+
+      await service.updateDriveSettings(
+        dto({
+          authMode: DriveAuthMode.oauth2,
+          oauthClientId: 'new-cid',
+        }),
+        ACTOR,
+      );
+
+      expect(repository.upsert).toHaveBeenCalledWith(
+        SettingKey.GOOGLE_DRIVE,
+        expect.objectContaining({
+          oauthClientId: 'new-cid',
+          oauthRefreshTokenEnc: null,
+          oauthAccountEmail: null,
+        }),
+        ACTOR,
+      );
+    });
+  });
+
+  describe('OAuth token flow', () => {
+    it('getOauthClientCredentials ném BadRequest khi chưa cấu hình', async () => {
+      repository.findByKey.mockResolvedValue(null);
+
+      await expect(service.getOauthClientCredentials()).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('getOauthClientCredentials giải mã client secret', async () => {
+      repository.findByKey.mockResolvedValue(
+        makeRecord({
+          oauthClientId: 'cid',
+          oauthClientSecretEnc: 'enc:tag:secret',
+        }),
+      );
+      crypto.decrypt.mockReturnValue('plain-secret');
+
+      const result = await service.getOauthClientCredentials();
+
+      expect(result).toEqual({ clientId: 'cid', clientSecret: 'plain-secret' });
+    });
+
+    it('saveOauthTokens mã hoá refresh token và lưu email', async () => {
+      const record = makeRecord({
+        authMode: DriveAuthMode.oauth2,
+        oauthClientId: 'cid',
+        oauthClientSecretEnc: 'enc:tag:secret',
+      });
+      repository.findByKey.mockResolvedValue(record);
+      repository.upsert.mockResolvedValue(record);
+      crypto.encrypt.mockReturnValue('enc:tag:refresh');
+
+      await service.saveOauthTokens('refresh-123', 'me@gmail.com', ACTOR);
+
+      expect(crypto.encrypt).toHaveBeenCalledWith('refresh-123');
+      expect(repository.upsert).toHaveBeenCalledWith(
+        SettingKey.GOOGLE_DRIVE,
+        expect.objectContaining({
+          oauthRefreshTokenEnc: 'enc:tag:refresh',
+          oauthAccountEmail: 'me@gmail.com',
+        }),
+        ACTOR,
+      );
+    });
+
+    it('saveOauthTokens ném BadRequest khi chưa có bản ghi cấu hình', async () => {
+      repository.findByKey.mockResolvedValue(null);
+
+      await expect(
+        service.saveOauthTokens('refresh-123', null, ACTOR),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

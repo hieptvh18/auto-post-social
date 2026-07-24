@@ -28,7 +28,10 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useMemo, useState } from 'react';
+import { ApiError } from '../api/client';
+import { mediaApi } from '../api/media.api';
 import { getPageName, getUserDisplayName, mockPages, mockUsers } from '../api/mock/data';
+import { env } from '../config/env';
 import { PageHeader } from '../components/common/PageHeader';
 import { ContentStatusTag } from '../components/common/StatusTag';
 import { useAuthUser } from '../contexts/AuthContext';
@@ -64,6 +67,7 @@ export default function ContentManagementPage() {
   const [editing, setEditing] = useState<ContentAsset | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [creating, setCreating] = useState(false);
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
 
@@ -143,7 +147,7 @@ export default function ContentManagementPage() {
     message.success(`Đã cập nhật ${editing.code} (mock)`);
   };
 
-  const handleCreate = (values: {
+  const handleCreate = async (values: {
     title: string;
     description: string;
     category: string;
@@ -159,7 +163,32 @@ export default function ContentManagementPage() {
 
     const now = new Date();
     const contentCode = `CNT-${String(content.length + 1).padStart(3, '0')}`;
-    const fileId = `drive_${now.getTime()}`;
+
+    // Drive upload thật khi tắt mock (POST /media/upload, M2 backend đã có).
+    // Metadata content vẫn giữ ở MockDataContext cho tới khi M3 có API content-assets.
+    let mediaType: MediaType = detectMediaType(pickedFile);
+    let driveFileId = `drive_${now.getTime()}`;
+    let driveUrl: string | undefined = `https://drive.google.com/file/d/${driveFileId}`;
+    let thumbnailUrl: string | undefined = `https://picsum.photos/seed/${contentCode}/200/120`;
+
+    if (!env.useMock) {
+      const rawFile = (pickedFile.originFileObj ?? pickedFile) as unknown as File;
+      setCreating(true);
+      try {
+        const uploaded = await mediaApi.upload(rawFile);
+        mediaType = uploaded.mediaType;
+        driveFileId = uploaded.fileId;
+        driveUrl = uploaded.driveUrl ?? undefined;
+        thumbnailUrl = uploaded.thumbnailUrl ?? undefined;
+      } catch (err) {
+        const msg =
+          err instanceof ApiError ? err.message : 'Upload file lên Google Drive thất bại';
+        message.error(msg);
+        return;
+      } finally {
+        setCreating(false);
+      }
+    }
 
     addContent({
       id: String(now.getTime()),
@@ -169,10 +198,10 @@ export default function ContentManagementPage() {
       category: values.category,
       caption: values.caption,
       hashtags: values.hashtags,
-      mediaType: detectMediaType(pickedFile),
-      driveFileId: fileId,
-      driveUrl: `https://drive.google.com/file/d/${fileId}`,
-      thumbnailUrl: `https://picsum.photos/seed/${contentCode}/200/120`,
+      mediaType,
+      driveFileId,
+      driveUrl,
+      thumbnailUrl,
       status: 'PENDING_REVIEW',
       isAds: false,
       assignedPageIds: values.assignedPageIds ?? [],
@@ -501,16 +530,17 @@ export default function ContentManagementPage() {
         }}
         onOk={() => createForm.submit()}
         okText="Upload"
+        confirmLoading={creating}
         width={560}
       >
         <Form form={createForm} layout="vertical" onFinish={handleCreate}>
           <Form.Item
             label="File ảnh/video"
             required
-            tooltip="Mock upload — file chỉ dùng để demo trên UI"
+            tooltip="Ảnh: JPG/PNG/WebP · Video: MP4/MOV — upload thẳng lên Google Drive"
           >
             <Upload
-              accept="image/*,video/*"
+              accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
               fileList={fileList}
               maxCount={1}
               beforeUpload={() => false}

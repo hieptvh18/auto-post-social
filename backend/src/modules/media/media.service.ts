@@ -25,7 +25,7 @@ export interface UploadResult {
 
 export interface DriveConnectionResult {
   ok: boolean;
-  driver: string;
+  authMode: string;
   message: string;
 }
 
@@ -81,8 +81,8 @@ export class MediaService {
 
     return {
       ok: true,
-      driver: config.driver,
-      message: `Kết nối thành công (driver: ${config.driver})`,
+      authMode: config.authMode,
+      message: `Kết nối thành công (authMode: ${config.authMode})`,
     };
   }
 

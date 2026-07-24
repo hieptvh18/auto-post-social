@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvVars } from './env.validation';
-import { DriverMode, NodeEnv } from './env.validation';
+import { NodeEnv } from './env.validation';
 
 /**
  * Lối vào DUY NHẤT để đọc cấu hình. Service/controller không gọi process.env (rule 04).
@@ -61,14 +61,20 @@ export class AppConfigService {
     return this.get('TOKEN_ENCRYPTION_KEY');
   }
 
+  get appBaseUrl(): string {
+    return this.get('APP_BASE_URL');
+  }
+
+  get webBaseUrl(): string {
+    return this.get('WEB_BASE_URL');
+  }
+
   get drive(): {
-    driver: DriverMode;
     serviceAccountJson?: string;
     folderId?: string;
     maxUploadMb: number;
   } {
     return {
-      driver: this.get('DRIVE_DRIVER'),
       serviceAccountJson: this.get('GOOGLE_SERVICE_ACCOUNT_JSON'),
       folderId: this.get('GOOGLE_DRIVE_FOLDER_ID'),
       maxUploadMb: this.get('MAX_UPLOAD_MB'),
@@ -76,13 +82,11 @@ export class AppConfigService {
   }
 
   get facebook(): {
-    driver: DriverMode;
     appId?: string;
     appSecret?: string;
     graphVersion: string;
   } {
     return {
-      driver: this.get('FACEBOOK_DRIVER'),
       appId: this.get('META_APP_ID'),
       appSecret: this.get('META_APP_SECRET'),
       graphVersion: this.get('META_GRAPH_API_VERSION'),

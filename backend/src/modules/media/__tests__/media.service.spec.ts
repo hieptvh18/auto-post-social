@@ -1,6 +1,6 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common';
 import { MediaType } from '../../../../generated/prisma/client';
-import { DriverMode } from '../../../config/env.validation';
+import { DriveAuthMode } from '../../../config/env.validation';
 import type { DriveStorageFactory } from '../../../infra/drive/drive-storage.factory';
 import type {
   DriveFile,
@@ -13,9 +13,10 @@ import { MediaService } from '../media.service';
 const driveConfig = (
   overrides: Partial<ResolvedDriveConfig> = {},
 ): ResolvedDriveConfig => ({
-  driver: DriverMode.fake,
+  authMode: DriveAuthMode.service_account,
   folderId: null,
   serviceAccountJson: null,
+  oauth: null,
   maxUploadMb: 10,
   version: 0,
   ...overrides,
@@ -156,7 +157,7 @@ describe('MediaService', () => {
       );
       expect(storage.delete).toHaveBeenCalledWith('drive-1');
       expect(result.ok).toBe(true);
-      expect(result.driver).toBe(DriverMode.fake);
+      expect(result.authMode).toBe(DriveAuthMode.service_account);
       expect(result.message).toContain('thành công');
     });
 

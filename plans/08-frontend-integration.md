@@ -33,7 +33,7 @@ Không đại tu UI hiện có. Không viết lại `api/client.ts`/`AuthContext
 - [ ] `VITE_USE_MOCK=true` toàn app vẫn chạy được không cần backend (demo/offline)
 - [ ] `npm run lint && npm run build` (frontend) xanh
 
-## 5. Điều kiện nghiệm thu (chạy end-to-end, driver fake)
+## 5. Điều kiện nghiệm thu (chạy end-to-end)
 
 - [ ] `VITE_USE_MOCK=false` + backend chạy: login admin seed
 - [ ] Tạo page → tạo slot → upload video → duyệt → tới giờ thấy bài trong Timeline

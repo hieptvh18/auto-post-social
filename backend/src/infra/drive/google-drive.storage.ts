@@ -11,13 +11,33 @@ import { mapDriveError } from './drive.errors';
 const DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive'];
 const FILE_FIELDS = 'id, name, mimeType, size, thumbnailLink, webViewLink';
 
-export interface GoogleDriveOptions {
+/** Xác thực bằng service account JSON (chỉ ghi được vào Shared Drive). */
+export interface ServiceAccountAuth {
+  mode: 'service_account';
   serviceAccountJson: string;
-  folderId: string;
 }
 
+/** Xác thực OAuth2 theo tài khoản user (Gmail free dùng được). */
+export interface OAuth2Auth {
+  mode: 'oauth2';
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+export type DriveAuthOptions = ServiceAccountAuth | OAuth2Auth;
+
 /** Tách ra để test inject được client giả mà không phải mock cả googleapis. */
-export function createDriveClient(options: GoogleDriveOptions): drive_v3.Drive {
+export function createDriveClient(options: DriveAuthOptions): drive_v3.Drive {
+  if (options.mode === 'oauth2') {
+    const oauth = new google.auth.OAuth2(
+      options.clientId,
+      options.clientSecret,
+    );
+    oauth.setCredentials({ refresh_token: options.refreshToken });
+    return google.drive({ version: 'v3', auth: oauth });
+  }
+
   let credentials: unknown;
   try {
     credentials = JSON.parse(options.serviceAccountJson);
@@ -48,6 +68,8 @@ export class GoogleDriveStorage implements DriveStorage {
         requestBody: { name: file.filename, parents: [this.folderId] },
         media: { mimeType: file.mimeType, body: Readable.from(file.buffer) },
         fields: FILE_FIELDS,
+        // Cho phép ghi vào Shared Drive (service account chỉ ghi được ở đây).
+        supportsAllDrives: true,
       });
 
       const data = res.data;
@@ -79,7 +101,7 @@ export class GoogleDriveStorage implements DriveStorage {
   async createReadStream(fileId: string): Promise<Readable> {
     try {
       const res = await this.drive.files.get(
-        { fileId, alt: 'media' },
+        { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'stream' },
       );
       return res.data;
@@ -90,7 +112,7 @@ export class GoogleDriveStorage implements DriveStorage {
 
   async delete(fileId: string): Promise<void> {
     try {
-      await this.drive.files.delete({ fileId });
+      await this.drive.files.delete({ fileId, supportsAllDrives: true });
     } catch (error) {
       mapDriveError(error, `xoá file ${fileId}`);
     }

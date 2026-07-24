@@ -7,6 +7,7 @@ import {
   MediaService,
   type DriveConnectionResult,
 } from '../media/media.service';
+import { DriveOAuthService } from './drive-oauth.service';
 import { UpdateDriveSettingsDto } from './dto/update-drive-settings.dto';
 import { SettingsService } from './settings.service';
 import type { DriveSettingsResponse } from './settings.types';
@@ -19,6 +20,7 @@ export class SettingsController {
   constructor(
     private readonly settingsService: SettingsService,
     private readonly mediaService: MediaService,
+    private readonly driveOAuthService: DriveOAuthService,
   ) {}
 
   @Get('google-drive')
@@ -44,5 +46,15 @@ export class SettingsController {
   })
   testDrive(): Promise<DriveConnectionResult> {
     return this.mediaService.testConnection();
+  }
+
+  @Get('google-drive/oauth/url')
+  @ApiOperation({
+    summary: 'Lấy URL consent Google để kết nối Drive bằng OAuth2 (ADMIN)',
+  })
+  async oauthUrl(
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<{ url: string }> {
+    return { url: await this.driveOAuthService.buildAuthUrl(actor.id) };
   }
 }

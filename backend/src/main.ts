@@ -42,9 +42,7 @@ async function bootstrap(): Promise<void> {
   logger.log(
     `Swagger tại http://localhost:${config.port}/${config.apiPrefix}/docs`,
   );
-  logger.log(
-    `Driver: drive=${config.drive.driver}, facebook=${config.facebook.driver}, autopost=${config.autoPost.enabled}`,
-  );
+  logger.log(`Autopost: enabled=${config.autoPost.enabled}`);
 }
 
 void bootstrap();
