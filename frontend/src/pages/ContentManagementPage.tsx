@@ -36,7 +36,13 @@ import { PageHeader } from '../components/common/PageHeader';
 import { ContentStatusTag } from '../components/common/StatusTag';
 import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
-import type { ContentAsset, ContentStatus, MediaType } from '../types';
+import {
+  useContentAssets,
+  useCreateContentAsset,
+  useDeleteContentAsset,
+  useUpdateContentAsset,
+} from '../hooks/useContentAssets';
+import type { ContentAsset, ContentAssetResponse, ContentStatus, MediaType } from '../types';
 import {
   CONTENT_CATEGORIES,
   CONTENT_STATUS_LABELS,
@@ -56,7 +62,12 @@ const STATUS_OPTIONS = (Object.keys(CONTENT_STATUS_LABELS) as ContentStatus[]).m
   (s) => ({ value: s, label: CONTENT_STATUS_LABELS[s] }),
 );
 
+/** Chọn implementation theo cờ mock (rule 01 FE + ADR-005) — giữ MockDataContext nguyên vẹn. */
 export default function ContentManagementPage() {
+  return env.useMock ? <MockContentManagementPage /> : <RealContentManagementPage />;
+}
+
+function MockContentManagementPage() {
   const user = useAuthUser();
   const { content, addContent, updateContent, deleteContent } = useMockData();
   const [search, setSearch] = useState('');
@@ -589,6 +600,395 @@ export default function ContentManagementPage() {
               options={activePages.map((p) => ({ value: p.id, label: p.pageName }))}
               maxTagCount="responsive"
             />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  );
+}
+
+/**
+ * Giai đoạn 1 (plan 04): CRUD cơ bản qua API thật — không có duyệt/isAds/phân bổ
+ * page (giai đoạn 2). `status` chỉ hiển thị (luôn `PENDING_REVIEW` lúc tạo).
+ */
+function RealContentManagementPage() {
+  const user = useAuthUser();
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | undefined>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [editing, setEditing] = useState<ContentAssetResponse | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [editForm] = Form.useForm();
+  const [createForm] = Form.useForm();
+
+  const { data, isLoading } = useContentAssets({
+    search: search || undefined,
+    category: categoryFilter,
+    mediaType: mediaTypeFilter,
+    page,
+    limit: pageSize,
+  });
+  const createMutation = useCreateContentAsset();
+  const updateMutation = useUpdateContentAsset();
+  const deleteMutation = useDeleteContentAsset();
+
+  const openEdit = (record: ContentAssetResponse) => {
+    setEditing(record);
+    editForm.setFieldsValue({
+      title: record.title,
+      description: record.description ?? '',
+      category: record.category,
+      caption: record.caption,
+      hashtags: record.hashtags ?? '',
+    });
+  };
+
+  const handleEditSubmit = async (values: {
+    title: string;
+    description?: string;
+    category: string;
+    caption: string;
+    hashtags?: string;
+  }) => {
+    if (!editing) return;
+    try {
+      await updateMutation.mutateAsync({ id: editing.id, body: values });
+      message.success(`Đã cập nhật "${editing.title}"`);
+      setEditing(null);
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : 'Cập nhật thất bại');
+    }
+  };
+
+  const handleDelete = async (record: ContentAssetResponse) => {
+    try {
+      await deleteMutation.mutateAsync(record.id);
+      message.success(`Đã xoá "${record.title}"`);
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : 'Xoá thất bại');
+    }
+  };
+
+  const handleCreate = async (values: {
+    title: string;
+    description?: string;
+    category: string;
+    caption: string;
+    hashtags?: string;
+  }) => {
+    const pickedFile = fileList[0];
+    if (!pickedFile) {
+      message.error('Vui lòng chọn file ảnh hoặc video');
+      return;
+    }
+    const rawFile = (pickedFile.originFileObj ?? pickedFile) as unknown as File;
+
+    setUploading(true);
+    try {
+      const uploaded = await mediaApi.upload(rawFile);
+      await createMutation.mutateAsync({
+        title: values.title,
+        description: values.description,
+        category: values.category,
+        caption: values.caption,
+        hashtags: values.hashtags,
+        mediaType: uploaded.mediaType,
+        driveFileId: uploaded.fileId,
+        driveUrl: uploaded.driveUrl ?? undefined,
+        thumbnailUrl: uploaded.thumbnailUrl ?? undefined,
+        mimeType: uploaded.mimeType,
+        fileSize: uploaded.size,
+      });
+      message.success('Đã upload — trạng thái Chờ duyệt');
+      setCreateOpen(false);
+      setFileList([]);
+      createForm.resetFields();
+    } catch (err) {
+      message.error(
+        err instanceof ApiError ? err.message : 'Upload file lên Google Drive thất bại',
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const columns: ColumnsType<ContentAssetResponse> = [
+    {
+      title: 'No',
+      width: 60,
+      align: 'center',
+      render: (_, __, index) => (page - 1) * pageSize + index + 1,
+    },
+    {
+      title: 'Ngày upload',
+      dataIndex: 'createdAt',
+      width: 125,
+      render: (v) => dayjs(v as string).format('DD/MM/YYYY'),
+    },
+    {
+      title: 'Tiêu đề',
+      dataIndex: 'title',
+      ellipsis: true,
+      render: (v, record) => (
+        <Space direction="vertical" size={0}>
+          <Text strong ellipsis>
+            {v}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.id.slice(0, 8)}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      width: 140,
+      render: (_, record) => <ContentStatusTag status={record.status} />,
+    },
+    {
+      title: 'Dạng',
+      dataIndex: 'category',
+      width: 165,
+      render: (v, record) => (
+        <Space direction="vertical" size={2}>
+          <Tag>{v}</Tag>
+          <Tag color={record.mediaType === 'video' ? 'purple' : 'blue'}>
+            {MEDIA_TYPE_LABELS[record.mediaType]}
+          </Tag>
+        </Space>
+      ),
+    },
+    {
+      title: 'Link',
+      dataIndex: 'driveUrl',
+      width: 80,
+      align: 'center',
+      render: (v: string | null) =>
+        v ? (
+          <a href={v} target="_blank" rel="noreferrer">
+            <LinkOutlined /> Mở
+          </a>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
+      title: 'Ngày cập nhật',
+      dataIndex: 'updatedAt',
+      width: 150,
+      render: (v) => dayjs(v as string).format('DD/MM/YYYY HH:mm'),
+    },
+    {
+      title: '',
+      width: 100,
+      render: (_, record) => (
+        <Space>
+          {can(user.role, 'content:edit') && (
+            <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
+          )}
+          {can(user.role, 'content:delete') && (
+            <Popconfirm
+              title={`Xoá "${record.title}"?`}
+              description="Thao tác không thể hoàn tác — file trên Drive cũng bị xoá."
+              okText="Xoá"
+              okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
+              onConfirm={() => handleDelete(record)}
+            >
+              <Button type="text" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <PageHeader
+        title="Quản lý Ảnh/Video Edit"
+        description="Upload lên Google Drive và quản lý metadata — duyệt bài và phân bổ page sẽ mở ở bản tiếp theo"
+        extra={
+          can(user.role, 'content:create') && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+              Upload Ảnh/Video
+            </Button>
+          )
+        }
+      />
+
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Select
+          placeholder="Dạng (danh mục)"
+          allowClear
+          style={{ width: 180 }}
+          options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+          onChange={(v) => {
+            setCategoryFilter(v);
+            setPage(1);
+          }}
+        />
+        <Select
+          placeholder="Loại media"
+          allowClear
+          style={{ width: 150 }}
+          options={[
+            { value: 'image', label: 'Ảnh' },
+            { value: 'video', label: 'Video' },
+          ]}
+          onChange={(v) => {
+            setMediaTypeFilter(v);
+            setPage(1);
+          }}
+        />
+        <Input.Search
+          placeholder="Tìm theo tiêu đề..."
+          allowClear
+          style={{ width: 240 }}
+          onSearch={(v) => {
+            setSearch(v);
+            setPage(1);
+          }}
+        />
+      </Space>
+
+      <Table
+        rowKey="id"
+        columns={columns}
+        dataSource={data?.data ?? []}
+        loading={isLoading}
+        pagination={{
+          current: page,
+          pageSize,
+          total: data?.meta.total ?? 0,
+          showTotal: (t) => `${t} items`,
+          onChange: (p, ps) => {
+            setPage(p);
+            setPageSize(ps);
+          },
+        }}
+        scroll={{ x: 1100 }}
+      />
+
+      <Drawer
+        title={editing ? `Chỉnh sửa — ${editing.title}` : ''}
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        width={520}
+        extra={
+          <Button
+            type="primary"
+            loading={updateMutation.isPending}
+            onClick={() => editForm.submit()}
+          >
+            Lưu
+          </Button>
+        }
+      >
+        {editing && (
+          <Form form={editForm} layout="vertical" onFinish={handleEditSubmit}>
+            {editing.thumbnailUrl && (
+              <Image
+                src={editing.thumbnailUrl}
+                alt={editing.title}
+                style={{ borderRadius: 8, marginBottom: 16 }}
+              />
+            )}
+            <Space style={{ marginBottom: 16 }} wrap>
+              <ContentStatusTag status={editing.status} />
+              <Tag color={editing.mediaType === 'video' ? 'purple' : 'blue'}>
+                {MEDIA_TYPE_LABELS[editing.mediaType]}
+              </Tag>
+              {editing.driveUrl && (
+                <a href={editing.driveUrl} target="_blank" rel="noreferrer">
+                  <LinkOutlined /> File trên Drive
+                </a>
+              )}
+            </Space>
+
+            <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="description" label="Mô tả ngắn">
+              <Input.TextArea rows={2} />
+            </Form.Item>
+            <Form.Item name="category" label="Dạng (danh mục)" rules={[{ required: true }]}>
+              <Select options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))} />
+            </Form.Item>
+            <Form.Item
+              name="caption"
+              label="Caption đăng bài"
+              tooltip="Bot dùng caption này khi tự động đăng lên Facebook"
+              rules={[{ required: true, message: 'Nhập caption để bot đăng bài' }]}
+            >
+              <Input.TextArea rows={3} />
+            </Form.Item>
+            <Form.Item name="hashtags" label="Hashtags">
+              <Input placeholder="#cơxươngkhớp #phucancxk" />
+            </Form.Item>
+          </Form>
+        )}
+      </Drawer>
+
+      <Modal
+        title="Upload Ảnh/Video"
+        open={createOpen}
+        onCancel={() => {
+          setCreateOpen(false);
+          setFileList([]);
+          createForm.resetFields();
+        }}
+        onOk={() => createForm.submit()}
+        okText="Upload"
+        confirmLoading={uploading || createMutation.isPending}
+        width={560}
+      >
+        <Form form={createForm} layout="vertical" onFinish={handleCreate}>
+          <Form.Item
+            label="File ảnh/video"
+            required
+            tooltip="Ảnh: JPG/PNG/WebP · Video: MP4/MOV — upload thẳng lên Google Drive"
+          >
+            <Upload
+              accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
+              fileList={fileList}
+              maxCount={1}
+              beforeUpload={() => false}
+              onChange={({ fileList: next }) => setFileList(next)}
+            >
+              <Button icon={<UploadOutlined />}>Chọn ảnh hoặc video</Button>
+            </Upload>
+          </Form.Item>
+
+          <Form.Item name="category" label="Dạng (danh mục)" rules={[{ required: true }]}>
+            <Select
+              placeholder="Chọn dạng bài"
+              options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+            />
+          </Form.Item>
+
+          <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
+            <Input placeholder="Ví dụ: 5 dấu hiệu thoái hóa khớp gối" />
+          </Form.Item>
+
+          <Form.Item name="description" label="Mô tả ngắn">
+            <Input.TextArea rows={2} placeholder="Mô tả ngắn giúp người duyệt hiểu nội dung" />
+          </Form.Item>
+
+          <Form.Item
+            name="caption"
+            label="Caption đăng bài"
+            rules={[{ required: true, message: 'Nhập caption để bot đăng bài' }]}
+          >
+            <Input.TextArea rows={3} placeholder="Nội dung caption hiển thị trên Facebook..." />
+          </Form.Item>
+
+          <Form.Item name="hashtags" label="Hashtags">
+            <Input placeholder="#cơxươngkhớp #phucancxk" />
           </Form.Item>
         </Form>
       </Modal>

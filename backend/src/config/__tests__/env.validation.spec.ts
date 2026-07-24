@@ -40,7 +40,7 @@ describe('validateEnv', () => {
 
       const result = validateEnv(env);
 
-      expect(result.PORT).toBe(3100);
+      expect(result.PORT).toBe(3001);
       expect(result.API_PREFIX).toBe('api');
       expect(result.MAX_POST_PER_SLOT).toBe(20);
     });

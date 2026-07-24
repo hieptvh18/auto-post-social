@@ -5,7 +5,29 @@
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
 **Cập nhật lần cuối:** 2026-07-24
-**Session gần nhất:** Xác nhận bằng test thật (script tạm gọi Google API với credential trong DB) rằng lỗi "Service account không có dung lượng lưu trữ riêng" là phản hồi thật từ Google (`storageQuotaExceeded`), không phải bug trong code — `supportsAllDrives`, parse JSON, gọi API đều đúng. Sau đó theo yêu cầu user: **bỏ hẳn driver `fake`** cho Google Drive + Facebook khỏi toàn hệ thống (ADR-017, thay ADR-003) — Drive/Facebook giờ luôn dùng cấu hình thật. Trước đó: Plan 03c — Drive **2 chế độ xác thực** (switch ở UI "Cài đặt chung"): `service_account` (SA JSON + Shared Drive, thêm `supportsAllDrives`) và `oauth2` (tài khoản Google, Gmail free) với **OAuth flow trong app**. **Chưa smoke test OAuth thật.**
+**Session gần nhất:** Làm **M4 Facebook Pages + token crypto** (plan 05): module
+backend `facebook-pages` (repository/service/controller/dto/mapper) — tái dùng
+`CryptoService` sẵn có từ M2 thay vì tạo `crypto.util.ts` riêng, thêm
+`common/utils/token-mask.util.ts` (`maskToken`). `GET /pages` mọi role đọc được
+(token luôn mask), `POST/PUT/DELETE` chỉ ADMIN (`pages:manage`), DELETE = soft
+delete. Audit `PAGE_CREATE`/`PAGE_UPDATE`/`PAGE_TOKEN_UPDATE` không ghi giá trị
+token. Nối FE `PageManagementPage` theo đúng pattern Real/Mock split của plan 04
+(`api/pages.api.ts`, `hooks/usePages.ts`). BE 286 test xanh (12 test mới), lint/
+build 2 phía xanh. **Đã smoke test qua curl với backend thật** (login → tạo/sửa/xoá
+page → mask đúng → trùng pageId ⇒ 409 → EDITOR đọc được nhưng POST ⇒ 403 → grep log
+không lộ token) nhưng **chưa smoke test UI thật qua trình duyệt** — xem §6.
+Trước đó: smoke test OAuth2 Drive thật thành công (connect tài khoản Gmail qua UI)
+sau khi đổi cổng backend dev từ 3100 → 3001 (khớp OAuth Client đã đăng ký ở Google
+Console) — cập nhật `PORT`/`APP_BASE_URL` ở `.env`/`.env.example`/`env.validation.ts`
+default + proxy Vite. Sau đó làm **M3 Content Assets giai đoạn 1** (CRUD cơ bản,
+hoãn duyệt/isAds/phân bổ page sang giai đoạn 2, chốt với user 2026-07-24): module
+backend `content-assets` (repository/service/controller/DTO, RBAC ownership
+CONTENT-chỉ-bài-mình, xoá kèm file Drive) + nối FE `ContentManagementPage` (tách
+`RealContentManagementPage` dùng API thật khỏi `MockContentManagementPage` giữ
+nguyên mock, chọn theo `VITE_USE_MOCK`). Lint/build/test 2 phía xanh (BE 274 test,
+FE 16 test) nhưng **chưa smoke test UI thật** — xem §6. Cũng sửa lại plan 03 (DONE)
+cho khớp thực tế (bỏ driver `fake`, thêm OAuth2 — theo ADR-016/017 đã áp dụng nhưng
+tài liệu cũ chưa cập nhật).
 
 ---
 
@@ -17,8 +39,8 @@
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
 | `plans/` | ✅ Hoàn thiện | 8 file plan feature + `_TEMPLATE.md` |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
-| `frontend/` | 🟡 UI mock + auth thật | 10 page mock; **auth/login đã nối API thật** (M2.5): `api/client.ts`, `AuthContext`, route guard, cờ `VITE_USE_MOCK`. Các trang nghiệp vụ vẫn mock. |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** xong. Còn content, pages, auto-post |
+| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` giai đoạn 1 đã nối API thật** (upload+CRUD, chưa duyệt/phân bổ page). **`PageManagementPage` đã nối API thật** (CRUD + token mask). Các trang còn lại vẫn mock. |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets giai đoạn 1 (CRUD)** + **facebook-pages (CRUD + token crypto)** xong. Còn duyệt/phân bổ page (content giai đoạn 2), auto-post |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -79,8 +101,8 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M1 — Auth + RBAC + Users | ✅ | 2026-07-22 |
 | M2 — Google Drive + Media upload | ✅ | 2026-07-23 |
 | M2.5 — FE core (api client + AuthContext + Login) | 🟡 | code+test xong 2026-07-23, chờ smoke test BE thật |
-| M3 — Content Assets + assignments (+ nối FE ContentPage) | ⬜ | |
-| M4 — Facebook Pages + token crypto (+ nối FE PagePage) | ⬜ | |
+| M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) code xong 2026-07-24, chờ smoke test UI thật; giai đoạn 2 (duyệt/isAds/phân bổ page) chưa làm |
+| M4 — Facebook Pages + token crypto (+ nối FE PagePage) | 🟡 | code+test xong 2026-07-24, chờ smoke test UI thật |
 | M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | ⬜ | |
 | M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | ⬜ | |
 | M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | ⬜ | |
@@ -181,6 +203,56 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   `assertModeConfigured` giờ luôn validate (không còn early-return khi driver≠real).
   263 test BE xanh, 16 test FE xanh, lint/build cả hai xanh.
 
+### Content Assets giai đoạn 1 (Plan 04) — 🟡 2026-07-24
+
+- **Phạm vi:** CRUD cơ bản cho `content_assets` — tạo content từ file đã upload
+  Drive (`POST /content-assets`), list có filter (mediaType/category/search/
+  createdBy) + phân trang (`GET /content-assets`), chi tiết, sửa field mô tả
+  (`PATCH`), xoá kèm xoá file trên Drive (`DELETE`). **Chưa có** duyệt (status luôn
+  `PENDING_REVIEW`), `isAds`, phân bổ page — dời sang giai đoạn 2 (chốt với user).
+  RBAC: CONTENT chỉ thao tác bài của chính mình (403 nếu không), EDITOR/ADMIN mọi bài.
+- **File chính:** `backend/src/modules/content-assets/` (repository/service/
+  controller/dto/mapper), `frontend/src/api/contentAssets.api.ts`,
+  `frontend/src/hooks/useContentAssets.ts`, `frontend/src/pages/ContentManagementPage.tsx`
+  (tách `RealContentManagementPage` API thật vs `MockContentManagementPage` giữ
+  nguyên mock, chọn theo `env.useMock`).
+- **Quyết định:** chia 2 giai đoạn theo yêu cầu user 2026-07-24 để đi nhanh — xem
+  plan 04 §1. Xoá file Drive khi xoá content (không mồ côi file trên Drive).
+- **Test:** BE 11 test mới (RBAC ownership: CONTENT sửa/xoá/xem bài người khác ⇒
+  403, scope list theo actor, audit log) — tổng 274 test BE xanh. FE lint/build
+  xanh, 16 test Vitest hiện có vẫn xanh (chưa thêm test cho page mới — CRUD thuần
+  UI, theo rule 02 không bắt buộc).
+- **Còn nợ:** **chưa smoke test tay trên UI thật** — xem §6 mục 7. Giai đoạn 2
+  (duyệt/isAds/phân bổ page) chưa làm.
+
+### Facebook Pages + token crypto (Plan 05) — 🟡 2026-07-24
+
+- **Phạm vi:** CRUD `facebook_pages` — `GET /pages` (mọi role, token mask),
+  `POST/PUT/DELETE /pages` (ADMIN, `pages:manage`). DELETE = soft delete
+  (`isActive=false`, vì `publish_jobs` tham chiếu tới page). `pageId` không sửa
+  được sau khi tạo. `getDecryptedToken(id)` — lối vào duy nhất lấy token plaintext,
+  chặn page inactive — export sẵn cho publisher (plan 07) dùng sau này.
+- **File chính:** `backend/src/modules/facebook-pages/` (repository/service/
+  controller/dto/mapper), `backend/src/common/utils/token-mask.util.ts`,
+  `frontend/src/api/pages.api.ts`, `frontend/src/hooks/usePages.ts`,
+  `frontend/src/pages/PageManagementPage.tsx` (tách `RealPageManagementPage`/
+  `MockPageManagementPage` theo `env.useMock`, cùng pattern plan 04).
+- **Quyết định:** không tạo `crypto.util.ts` riêng theo plan gốc — tái dùng
+  `infra/crypto/crypto.service.ts` (đã có AES-256-GCM từ M2) để tránh trùng lặp,
+  chỉ thêm `maskToken` làm util riêng. Mask token tính bằng cách decrypt tại thời
+  điểm response (không lưu cột mask riêng trong DB); nếu decrypt lỗi (đổi
+  `TOKEN_ENCRYPTION_KEY`) thì trả mask "chưa xác định" thay vì crash cả danh sách
+  — đúng rủi ro đã ghi ở plan 05 §6.
+- **Test:** BE 286 test (12 test mới `FacebookPagesService`: mask đúng, không lộ
+  token trong response/audit log, `getDecryptedToken` chặn page inactive, list vẫn
+  chạy khi token cũ không giải mã được, conflict 409 khi trùng `pageId`) — lint +
+  build xanh. FE lint + build xanh. Smoke test qua curl với backend thật: tạo/sửa/
+  xoá page, mask đúng, EDITOR đọc được nhưng bị 403 khi tạo, log không lộ token.
+- **Còn nợ:** **chưa smoke test UI thật qua trình duyệt** — chỉ mới test API qua
+  curl. Cần mở `VITE_USE_MOCK=false`, đăng nhập ADMIN, thao tác CRUD trên `/pages`
+  thật trước khi coi milestone Done theo rule 00 (`git mv` sang `plans/DONE/` khi
+  đó). Xem §6 mục 8.
+
 ---
 
 ## 6. Việc đang dở / nợ kỹ thuật
@@ -192,7 +264,9 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | 3 | `SettingsPage` (FE) chưa nối API thật | Đang chạy bằng state mock cục bộ trong component, không qua `MockDataContext`/react-query như các trang khác vì chưa tới M7. BE đã có đủ 3 endpoint (`GET/PUT /settings/google-drive`, `POST .../test`) sẵn sàng để nối. |
 | 4 | `GoogleDriveStorage` chưa test với credential Google thật ở CI | Chỉ test bằng mock `googleapis` (unit test). Đã xác nhận thủ công 1 lần với service account thật (2026-07-24) rằng service account không có storage quota trên My Drive cá nhân — đúng như `mapDriveError` đã cảnh báo; cần Shared Drive hoặc OAuth2. |
 | 5 | **M2.5 chưa smoke test với backend thật** | Code + 15 test Vitest xanh nhưng chưa chạy end-to-end với API. Cần: `docker compose up` + `cd backend && npm run start:dev`, rồi `cd frontend` (đảm bảo `.env` có `VITE_USE_MOCK=false`) `npm run dev` → login admin seed, kiểm token lưu localStorage, đổi role CONTENT bị chặn `/users`, `/pages`, `/settings`. |
-| 6 | **Drive FE đã nối xong (upload + settings + 2 authMode)** | ✅ `api/media.api.ts` + ContentManagementPage upload thật. ✅ `api/settings.api.ts` + SettingsPage 2 chế độ (service_account/oauth2) + "Kết nối Google". **Còn lại:** smoke test OAuth thật (cần OAuth Client ID/Secret của user + đăng ký redirect URI `http://localhost:3100/api/settings/google-drive/oauth/callback` ở Google Cloud Console). Service_account chỉ chạy được với Shared Drive (Workspace). |
+| 6 | ~~Drive FE đã nối xong~~ ✅ ĐÃ XONG 2026-07-24 | `api/media.api.ts` + `api/settings.api.ts` + SettingsPage 2 chế độ. **OAuth2 đã smoke test thật thành công** (connect tài khoản Gmail qua UI, redirect URI `http://localhost:3001/api/settings/google-drive/oauth/callback` — cổng đổi 3100→3001 để khớp OAuth Client đã đăng ký). Service_account chỉ chạy được với Shared Drive (Workspace), chưa test lại với authMode này sau đổi cổng (không ảnh hưởng vì không phụ thuộc redirect URI). |
+| 7 | **Content Assets giai đoạn 1 chưa smoke test UI thật** | Code BE+FE xong (274 test BE, lint/build 2 phía xanh) nhưng **chưa test tay** — process backend dev hiện tại (`node dist/main`) là build cũ từ trước khi thêm module `content-assets`, cần `npm run start:dev` lại (hoặc restart) để nạp route mới. Sau khi restart: test trên `/content` — upload ảnh/video thật, sửa, xoá (kiểm file trên Drive cũng bị xoá), CONTENT không thấy/sửa được bài người khác. |
+| 8 | **Facebook Pages chưa smoke test UI thật** | Code BE+FE xong (286 test BE, lint/build 2 phía xanh), đã smoke test API qua curl (tạo/sửa/xoá page, mask đúng, 409 trùng pageId, EDITOR bị 403) nhưng **chưa test tay trên UI thật**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/pages` — thêm/sửa/xoá page qua form, kiểm token hiện dạng mask trong bảng, đăng nhập EDITOR kiểm không thấy nút sửa/xoá. |
 
 ---
 

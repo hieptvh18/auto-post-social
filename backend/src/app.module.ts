@@ -8,6 +8,8 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { ContentAssetsModule } from './modules/content-assets/content-assets.module';
+import { FacebookPagesModule } from './modules/facebook-pages/facebook-pages.module';
 import { HealthModule } from './modules/health/health.module';
 import { MediaModule } from './modules/media/media.module';
 import { SettingsHttpModule } from './modules/settings/settings-http.module';
@@ -23,6 +25,8 @@ import { UsersModule } from './modules/users/users.module';
     UsersModule,
     MediaModule,
     SettingsHttpModule,
+    ContentAssetsModule,
+    FacebookPagesModule,
     HealthModule,
   ],
   providers: [

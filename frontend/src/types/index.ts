@@ -36,6 +36,37 @@ export interface FacebookPage {
   createdAt: string;
 }
 
+/** Response `GET /pages` (backend `FacebookPageResponse`) — token luôn ở dạng mask. */
+export interface FacebookPageResponse {
+  id: string;
+  pageName: string;
+  pageId: string;
+  accessTokenMasked: string;
+  tokenExpireAt: string | null;
+  isActive: boolean;
+  autopostEnabled: boolean;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Body `POST /pages`. */
+export interface CreateFacebookPageBody {
+  pageName: string;
+  pageId: string;
+  accessToken: string;
+  tokenExpireAt?: string;
+}
+
+/** Body `PUT /pages/:id` — `accessToken` chỉ gửi khi đổi token. */
+export interface UpdateFacebookPageBody {
+  pageName?: string;
+  accessToken?: string;
+  tokenExpireAt?: string;
+  autopostEnabled?: boolean;
+  isActive?: boolean;
+}
+
 export interface ContentAsset {
   id: string;
   code: string;
@@ -186,4 +217,69 @@ export interface DriveConnectionResult {
   ok: boolean;
   authMode: DriveAuthMode;
   message: string;
+}
+
+/**
+ * Response `/content-assets` (backend `ContentAssetResponse`) — giai đoạn 1: chưa
+ * có `assignedPageIds`/`publishedPageIds` (chờ giai đoạn 2, xem plan 04).
+ */
+export interface ContentAssetResponse {
+  id: string;
+  title: string;
+  description: string | null;
+  caption: string;
+  hashtags: string | null;
+  category: string;
+  mediaType: MediaType;
+  driveFileId: string;
+  driveUrl: string | null;
+  thumbnailUrl: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+  status: ContentStatus;
+  isAds: boolean;
+  rejectComment: string | null;
+  createdById: string;
+  approvedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedContentAssets {
+  data: ContentAssetResponse[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
+/** Query `GET /content-assets`. */
+export interface QueryContentAssetsParams {
+  mediaType?: MediaType;
+  category?: string;
+  search?: string;
+  createdBy?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** Body `POST /content-assets` — dùng metadata trả về từ `mediaApi.upload`. */
+export interface CreateContentAssetBody {
+  title: string;
+  description?: string;
+  category: string;
+  caption: string;
+  hashtags?: string;
+  mediaType: MediaType;
+  driveFileId: string;
+  driveUrl?: string;
+  thumbnailUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
+}
+
+/** Body `PATCH /content-assets/:id` — giai đoạn 1 chỉ field mô tả thường. */
+export interface UpdateContentAssetBody {
+  title?: string;
+  description?: string;
+  category?: string;
+  caption?: string;
+  hashtags?: string;
 }

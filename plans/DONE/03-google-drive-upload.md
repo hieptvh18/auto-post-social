@@ -33,12 +33,24 @@ Cấu trúc key/value để thêm nhóm sau (facebook, system) không cần migr
 ```jsonc
 // key = 'google_drive'
 {
-  "driver": "real",            // real | fake
+  "authMode": "service_account",   // service_account | oauth2
   "folderId": "1abc...",
-  "serviceAccountJsonEnc": "iv:authTag:ciphertext",  // AES-256-GCM
+  "serviceAccountJsonEnc": "iv:authTag:ciphertext",   // AES-256-GCM, mode=service_account
+  "oauthClientIdEnc": "iv:authTag:ciphertext",        // mode=oauth2
+  "oauthClientSecretEnc": "iv:authTag:ciphertext",    // mode=oauth2
+  "oauthRefreshTokenEnc": "iv:authTag:ciphertext",    // mode=oauth2, lấy qua flow "Kết nối Google"
+  "oauthAccountEmail": "user@gmail.com",              // mode=oauth2, chỉ để hiển thị
   "maxUploadMb": 200
 }
 ```
+
+**Cập nhật 2026-07-24 (ADR-016, ADR-017):** không còn driver `fake` — Drive luôn gọi
+API thật. Có **2 chế độ xác thực** chọn ở UI, không phải driver ảo/thật:
+- `service_account`: SA JSON, chỉ ghi được **Shared Drive** (Google Workspace, có quota).
+- `oauth2`: tài khoản Google cá nhân (Gmail free), lấy refresh token qua **OAuth flow
+  trong app** (`GET /settings/google-drive/oauth/url` + callback public bảo vệ bằng
+  `state` single-use). Xem chi tiết thiết kế ở
+  [plans/03c-drive-auth-modes.md](../03c-drive-auth-modes.md).
 
 Secret (`serviceAccountJsonEnc`) mã hoá bằng `TOKEN_ENCRYPTION_KEY` — cùng cơ chế
 token FB. API **luôn trả bản mask** (chỉ trả `client_email` + `hasServiceAccount`),
@@ -67,10 +79,11 @@ export interface DriveStorage {
 }
 ```
 
-Hai driver (ADR-003), chọn theo `driver` trong config động:
-- `GoogleDriveStorage` — googleapis, service account, upload vào `folderId`,
-  `files.get({ alt: 'media' }, { responseType: 'stream' })` để đọc.
-- `FakeDriveStorage` — ghi thư mục tạm local, trả fileId giả. Dùng khi dev/test.
+Một implementation duy nhất — `GoogleDriveStorage` (googleapis) — dựng client theo
+`authMode` (`service_account` hoặc `oauth2`, ADR-016), upload vào `folderId`,
+`files.get({ alt: 'media' }, { responseType: 'stream' })` để đọc. Không còn driver
+`fake` (ADR-017, thay ADR-003) — unit test mock trực tiếp `googleapis`, không có
+class fake riêng.
 
 ### 3.4 Endpoint
 
@@ -88,9 +101,11 @@ trả `{ fileId, driveUrl, thumbnailUrl, mimeType, size, mediaType }`.
 ### 3.5 Frontend
 
 Menu item mới **"Cài đặt chung"** (`/settings`, icon `SettingOutlined`), chỉ ADMIN.
-Trang dựng bằng `Tabs`; MVP có tab **Google Drive**: form driver (Radio real/fake),
-folder ID, upload/paste service account JSON, max upload MB, nút **Test kết nối**.
-Secret hiển thị dạng "đã cấu hình (client_email)" + nút thay thế, không đổ giá trị cũ.
+Trang dựng bằng `Tabs`; MVP có tab **Google Drive**: chọn `authMode` (`service_account`
+| `oauth2`), folder ID, upload/paste service account JSON (mode SA) hoặc OAuth Client
+ID/Secret + nút "Kết nối Google" (mode OAuth2), max upload MB, nút **Test kết nối**.
+Secret hiển thị dạng "đã cấu hình (client_email)" / "đã kết nối (email)" + nút thay
+thế, không đổ giá trị cũ.
 
 ## 4. Task
 
@@ -105,21 +120,22 @@ Secret hiển thị dạng "đã cấu hình (client_email)" + nút thay thế, 
 
 ### Backend — Drive & media
 - [x] Interface `DriveStorage` + type `DriveFile`
-- [x] `GoogleDriveStorage` (googleapis, service account từ config động)
-- [x] `FakeDriveStorage` (ghi thư mục tạm, đọc lại bằng `createReadStream`)
-- [x] `DriveStorageFactory` — chọn driver theo config động, dựng lại khi version đổi
+- [x] `GoogleDriveStorage` (googleapis, dựng client theo `authMode` từ config động)
+- [x] `DriveStorageFactory` — dựng client theo config động, dựng lại khi version đổi
 - [x] Map lỗi Drive (quota, 403, không tìm thấy folder) → domain error, log response gốc
 - [x] `MediaController.upload` + `MediaService` (validate mime/size, suy ra `mediaType`)
 - [x] Env: giữ `GOOGLE_*` làm fallback, ghi rõ trong `.env.example` là "chỉ bootstrap"
+- [x] **(bổ sung 2026-07-24)** OAuth2 flow: `DriveOAuthService` + `DriveOAuthController`
+      (`GET .../oauth/url`, `GET .../oauth/callback` @Public + `state` single-use TTL 10')
+- [x] **(bổ sung 2026-07-24)** Bỏ hẳn driver `fake` khỏi hệ thống (ADR-017)
 
 ### Test
 - [x] `CryptoService`: round-trip · ciphertext hỏng ⇒ ném lỗi · sai format ⇒ ném lỗi
 - [x] `SettingsService`: có bản ghi DB · không có ⇒ fallback env · mask secret ·
       giữ secret cũ khi PUT không gửi JSON mới · bump version
 - [x] `MediaService`: mime hợp lệ/không · quá size · suy `mediaType` đúng · lỗi Drive → domain error
-- [x] `FakeDriveStorage`: upload → stream round-trip · delete · file không tồn tại
-- [x] `GoogleDriveStorage`: mock googleapis — upload, stream, map lỗi 403/404/quota
-- [x] `DriveStorageFactory`: chọn đúng driver · cache theo version
+- [x] `GoogleDriveStorage`: mock googleapis — upload, stream, map lỗi 403/404/quota, 2 authMode
+- [x] `DriveStorageFactory`: dựng đúng client theo `authMode` · cache theo version
 - [x] `npm run lint && npm run test:cov && npm run build` xanh
 
 ### Frontend
@@ -131,9 +147,11 @@ Secret hiển thị dạng "đã cấu hình (client_email)" + nút thay thế, 
 
 ## 5. Điều kiện nghiệm thu
 
-- [x] Đổi `driver` từ UI (fake ↔ real) có hiệu lực **không cần restart**
-- [x] `driver=fake` → upload mp4 trả fileId, đọc stream lại đúng nội dung
+- [x] Đổi `authMode` từ UI (service_account ↔ oauth2) có hiệu lực **không cần restart**
+- [x] Upload mp4/ảnh thật lên Drive trả `fileId`, `webViewLink`, `thumbnailLink`
 - [x] Upload `.exe` ⇒ 400; upload quá `maxUploadMb` ⇒ 400
+- [x] **(bổ sung)** OAuth2: bấm "Kết nối Google" → consent → callback lưu refresh token
+      mã hoá + email tài khoản, upload dùng ngay không cần restart
 - [x] `GET /settings/google-drive` **không** lộ service account JSON
 - [x] Non-ADMIN gọi `/settings` ⇒ 403
 - [x] DB chưa có bản ghi ⇒ vẫn chạy bằng giá trị `.env`
@@ -151,11 +169,13 @@ Secret hiển thị dạng "đã cấu hình (client_email)" + nút thay thế, 
 
 ## 7. Kết quả (điền khi xong)
 
-- **Ngày xong:** 2026-07-22
+- **Ngày xong:** 2026-07-22 (bổ sung OAuth2 + bỏ driver `fake`: 2026-07-24)
 - **File chính:** `backend/src/modules/settings/`, `backend/src/infra/drive/`,
   `backend/src/modules/media/`, `backend/src/infra/crypto/crypto.service.ts`,
   `frontend/src/pages/SettingsPage.tsx`
 - **Khác thiết kế ban đầu:** config Drive chuyển từ `.env` sang bảng `app_settings`
   (env còn là fallback) → ADR-014. Thêm màn hình "Cài đặt chung" ngoài plan gốc.
+  Sau đó thêm **2 authMode** (service_account/oauth2, ADR-016) và **bỏ hẳn driver
+  `fake`** (ADR-017) — xem [plans/03c-drive-auth-modes.md](../03c-drive-auth-modes.md).
 - **Test:** xem `contexts.md` §5
 - **Còn nợ:** tab Facebook/Hệ thống trong Cài đặt chung chưa làm (chờ M4)

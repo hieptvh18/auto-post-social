@@ -1,7 +1,7 @@
 # Plan 04 — Content Assets + duyệt + phân bổ page
 
 **Milestone:** M3
-**Trạng thái:** ⬜
+**Trạng thái:** 🟡 (giai đoạn 1 code xong, chờ smoke test UI thật — xem `contexts.md` §6)
 **Phụ thuộc:** Plan 02, Plan 03
 **Spec:** `docs/04-api-spec.md` §5, `docs/03-database-design.md` §5, `docs/05-rbac.md` §3
 
@@ -12,6 +12,20 @@
 Trang "Quản lý Ảnh/Video" có backend đầy đủ: tạo content từ file đã upload, lọc/liệt
 kê, sửa full-field, duyệt/không duyệt, tick Đạt ADS, phân bổ vào nhiều page —
 tất cả qua **một** endpoint PATCH với kiểm quyền theo từng field.
+
+**Chia 2 giai đoạn (chốt với user 2026-07-24):**
+
+- **Giai đoạn 1 (làm trước):** CRUD cơ bản — tạo content từ file đã upload Drive,
+  list có filter/phân trang, xem chi tiết, sửa field thường (title/description/
+  category/caption/hashtags), xoá (kèm xoá file trên Drive). **Không** có duyệt
+  (status luôn `PENDING_REVIEW`, không đổi qua API), **không** có `isAds`, **không**
+  có phân bổ page. RBAC: CONTENT chỉ thao tác bài của chính mình; EDITOR/ADMIN thao
+  tác mọi bài. Nối FE `ContentManagementPage` thay cho `MockDataContext` phần CRUD
+  (ẩn tạm UI duyệt/isAds/phân bổ page khi `VITE_USE_MOCK=false`).
+- **Giai đoạn 2 (làm sau, giữ nguyên thiết kế gốc bên dưới):** thêm transition
+  status (duyệt/từ chối), `isAds`, phân bổ page (`assignedPageIds` + diff), RBAC
+  field-level đầy đủ theo `content:review`. Task/case dưới đây **giữ nguyên** làm
+  tài liệu cho giai đoạn 2; đánh dấu rõ task nào thuộc giai đoạn 1 khi tick.
 
 ## 2. Ngoài phạm vi
 
@@ -48,20 +62,37 @@ Assignment **đã có `publishedAt` thì cấm xóa** ⇒ 409. Trùng (content, 
 
 ## 4. Task
 
-- [ ] Repository: list có filter + phân trang, detail kèm assignments, CRUD
-- [ ] `ContentAssetsService.create` — validate `driveFileId`, caption bắt buộc,
-      tạo assignments, audit `CONTENT_UPLOAD`
-- [ ] `ContentAssetsService.update` — kiểm quyền field-level, transition, diff assignments
+### Giai đoạn 1 — CRUD cơ bản (làm trước)
+
+- [x] Repository: list có filter (mediaType, category, search, createdBy) + phân
+      trang, detail, create, update (field thường), delete
+- [x] `ContentAssetsService.create` — validate `driveFileId`/caption bắt buộc,
+      status luôn `PENDING_REVIEW` mặc định (không nhận từ client), audit `CONTENT_UPLOAD`
+- [x] `ContentAssetsService.update` — chỉ field thường (title/description/category/
+      caption/hashtags); CONTENT chỉ sửa bài `createdById === user.id` ⇒ 403 nếu không
+- [x] `ContentAssetsService.remove` — CONTENT chỉ xoá bài mình; xoá kèm file trên Drive
+      (`DriveStorageFactory`); EDITOR/ADMIN xoá mọi bài
+- [x] Scope list cho CONTENT: chỉ bài của mình (EDITOR/ADMIN thấy tất cả)
+- [x] Audit `CONTENT_UPLOAD`, `CONTENT_UPDATE`, `CONTENT_DELETE`
+- [x] DTO + Swagger đầy đủ (create/update/query)
+- [x] Unit test cho RBAC ownership trong service: CONTENT sửa/xoá bài người khác ⇒ 403,
+      CONTENT chỉ thấy bài của mình trong list, EDITOR/ADMIN thấy/sửa mọi bài
+      (`content-assets.service.spec.ts`, 11 test)
+- [x] `npm run lint && npm run build` xanh (`npm run test` 274 test xanh)
+- [ ] Cập nhật `contexts.md`
+
+### Giai đoạn 2 — Duyệt + isAds + phân bổ page (làm sau)
+
+- [ ] `ContentAssetsService.update` mở rộng — kiểm quyền field-level (`status`/`isAds`
+      đòi `content:review`), `transitionStatus`, diff `assignedPageIds`
 - [ ] `transitionStatus()` tách riêng, thuần hàm, dễ test toàn bộ ma trận
-- [ ] `remove()` — CONTENT chỉ xóa bài mình; chặn xóa bài đã có assignment published
-- [ ] Scope list cho CONTENT: chỉ bài của mình
+- [ ] `remove()` — chặn xóa bài đã có assignment `publishedAt != null`
 - [ ] Audit `CONTENT_STATUS_CHANGE`, `CONTENT_ADS_MARK`
-- [ ] DTO + Swagger đầy đủ
 - [ ] Unit test **cho logic phức tạp/dễ sai** (không bắt buộc 100%): `transitionStatus()`
       (ma trận hợp lệ/không, reject thiếu lý do, client set PUBLISHED ⇒ 422), RBAC
       field-level, `diffAssignments` (409 khi trùng / xóa bài đã published), CONTENT
       sửa bài REJECTED → PENDING_REVIEW. CRUD thuần/mapper không cần test riêng.
-- [ ] `npm run lint && npm run build` xanh (chạy `npm run test` cho phần đã viết test)
+- [ ] `npm run lint && npm run build` xanh
 - [ ] Cập nhật `contexts.md`
 
 ## 4b. Nối frontend — ContentManagementPage
@@ -69,12 +100,24 @@ Assignment **đã có `publishedAt` thì cấm xóa** ⇒ 409. Trùng (content, 
 Làm ngay sau khi backend xanh, để test tay trên UI thật (yêu cầu MVP: BE + API
 song song). Hạ tầng dùng chung đã có ở Plan 03b (`api/client.ts`, `AuthContext`).
 
-- [ ] `src/api/contentAssets.api.ts`: list (đẩy filter lên query param), detail,
-      create (upload multipart kèm progress → `POST /content-assets`), `PATCH`, `DELETE`
-- [ ] `src/hooks/useContentAssets.ts`: query key + mutation, mọi mutation `invalidateQueries`
-- [ ] `ContentManagementPage`: bỏ mock cho **trang này**, đọc từ hook thật khi
-      `VITE_USE_MOCK=false`; drawer edit gọi `PATCH`; hiện lỗi 403/409/422 bằng `message`/`Alert`
-- [ ] Type response đặt ở `src/types/`, đối chiếu Swagger
+### Giai đoạn 1
+
+- [x] `src/api/contentAssets.api.ts`: list (đẩy filter lên query param), detail,
+      create (gọi sau khi `mediaApi.upload` xong → `POST /content-assets`), `PATCH`
+      (field thường), `DELETE`
+- [x] `src/hooks/useContentAssets.ts`: query key + mutation, mọi mutation `invalidateQueries`
+- [x] `ContentManagementPage`: tách `RealContentManagementPage` (API thật) vs
+      `MockContentManagementPage` (giữ nguyên `MockDataContext`), chọn theo
+      `env.useMock` (ADR-005); real component **ẩn tạm** UI trạng thái duyệt/
+      `isAds`/phân bổ page (đợi giai đoạn 2); hiện lỗi bằng `message`
+- [x] Type response đặt ở `src/types/`, đối chiếu Swagger
+- [x] `npm run lint && npm run build` (frontend) xanh — **chưa test tay trên UI
+      thật**, backend dev process đang chạy `dist/main` build cũ, cần restart để
+      nạp route mới (`npm run start:dev` lại) rồi test CRUD thật trên `/content`
+
+### Giai đoạn 2
+
+- [ ] Thêm lại UI trạng thái duyệt / `isAds` / phân bổ page, gọi `PATCH` mở rộng
 - [ ] `npm run lint && npm run build` (frontend) xanh
 
 ## 5. Điều kiện nghiệm thu
