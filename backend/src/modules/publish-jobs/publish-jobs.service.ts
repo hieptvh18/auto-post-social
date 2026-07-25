@@ -20,6 +20,7 @@ import {
   PublishJobsRepository,
   type FindJobsFilter,
   type JobWithContext,
+  type PagingParams,
 } from './publish-jobs.repository';
 import {
   PUBLISH_FACEBOOK_QUEUE,
@@ -41,6 +42,13 @@ const RETRYABLE_STATUSES: readonly PublishStatus[] = [
   PublishStatus.CANCELLED,
   PublishStatus.SCHEDULED,
 ];
+
+export interface PaginatedJobs {
+  items: JobWithContext[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
 
 export interface RetryJobResult {
   jobId: string;
@@ -205,6 +213,21 @@ export class PublishJobsService {
 
   findMany(filter: FindJobsFilter): Promise<JobWithContext[]> {
     return this.repository.findMany(filter);
+  }
+
+  /**
+   * Danh sách có phân trang cho màn Monitor / Failed Jobs — nhìn xuyên ngày nên
+   * không được trả mảng trần như `/timeline` (một ngày, luôn ít bản ghi).
+   */
+  async findPaginated(
+    filter: FindJobsFilter,
+    paging: PagingParams,
+  ): Promise<PaginatedJobs> {
+    const [items, total] = await Promise.all([
+      this.repository.findMany(filter, paging),
+      this.repository.countMany(filter),
+    ]);
+    return { items, total, page: paging.page, pageSize: paging.pageSize };
   }
 
   async findEvents(publishJobId: string): Promise<PublishJobEvent[]> {

@@ -85,6 +85,8 @@ describe('PublishJobsService', () => {
       | 'findForExecution'
       | 'requeue'
       | 'hasPublishedAssignment'
+      | 'findMany'
+      | 'countMany'
     >
   >;
   let events: jest.Mocked<Pick<PublishJobEventsService, 'log'>>;
@@ -100,6 +102,8 @@ describe('PublishJobsService', () => {
       findForExecution: jest.fn().mockResolvedValue(makeJob()),
       requeue: jest.fn().mockResolvedValue(makeJob()),
       hasPublishedAssignment: jest.fn().mockResolvedValue(false),
+      findMany: jest.fn().mockResolvedValue([makeJob()]),
+      countMany: jest.fn().mockResolvedValue(1),
     };
     events = { log: jest.fn().mockResolvedValue(undefined) };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
@@ -242,6 +246,45 @@ describe('PublishJobsService', () => {
 
       expect(queue.remove).not.toHaveBeenCalled();
       expect(queue.add).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('findPaginated', () => {
+    const FILTER = { status: PublishStatus.FAILED };
+
+    it('truyền đúng page/pageSize xuống repository và trả kèm tổng số', async () => {
+      repository.countMany.mockResolvedValue(43);
+
+      const result = await service.findPaginated(FILTER, {
+        page: 3,
+        pageSize: 20,
+      });
+
+      expect(repository.findMany).toHaveBeenCalledWith(FILTER, {
+        page: 3,
+        pageSize: 20,
+      });
+      expect(result).toMatchObject({ total: 43, page: 3, pageSize: 20 });
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('đếm theo ĐÚNG filter đang lọc, không phải tổng toàn bảng', async () => {
+      await service.findPaginated(FILTER, { page: 1, pageSize: 20 });
+
+      expect(repository.countMany).toHaveBeenCalledWith(FILTER);
+    });
+
+    it('không có job nào khớp ⇒ items rỗng, total 0', async () => {
+      repository.findMany.mockResolvedValue([]);
+      repository.countMany.mockResolvedValue(0);
+
+      const result = await service.findPaginated(FILTER, {
+        page: 1,
+        pageSize: 20,
+      });
+
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
     });
   });
 

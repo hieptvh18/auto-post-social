@@ -4,6 +4,12 @@
 > Trạng thái thực tế luôn đọc ở [contexts.md](./contexts.md).
 
 **Chốt ngày:** 2026-07-22
+**Trạng thái MVP: ✅ ĐÃ ĐÓNG 2026-07-25** — toàn bộ M0→M7 xong, mọi file plan đã
+chuyển sang [plans/DONE/](./plans/DONE/). Phần smoke UI/đăng thật lên Page còn lại
+là **nợ nghiệm thu**, theo dõi ở `contexts.md` §6 (không mở lại milestone).
+
+**Sau MVP — Phase 2 đang làm:** [M8 Monitor](./plans/13-monitor.md) (Queue Monitor ·
+Failed Jobs · Audit Logs).
 
 ---
 
@@ -31,24 +37,23 @@ layer + hook + bỏ mock cho đúng trang đó) — không dồn việc nối AP
 tiêu: xong milestone nào là **test tay được trên UI thật** milestone đó, không
 phải chỉ qua curl/Swagger.
 
-| M | Feature | Plan | Phụ thuộc | FE nối kèm |
+| M | Feature | Plan | Trạng thái | FE nối kèm |
 |---|---------|------|-----------|-----------|
-| M0 | Scaffold backend, Docker, Prisma, env | [plans/01-scaffold.md](./plans/01-scaffold.md) | — | — |
-| M1 | Auth JWT + RBAC + Users | [plans/02-auth-rbac-users.md](./plans/02-auth-rbac-users.md) | M0 | — |
-| M2 | Google Drive + upload media | [plans/DONE/03-google-drive-upload.md](./plans/DONE/03-google-drive-upload.md) | M0 | SettingsPage (còn nợ, xem contexts §6) |
-| M2.5 | FE core: api client + AuthContext + Login | [plans/03b-frontend-core.md](./plans/03b-frontend-core.md) | M1 | LoginPage, route guard |
-| M3 | Content assets + duyệt + phân bổ page | [plans/04-content-assets.md](./plans/04-content-assets.md) | M1, M2, M2.5 | ContentManagementPage |
-| M4 | Facebook Pages + mã hóa token | [plans/05-facebook-pages.md](./plans/05-facebook-pages.md) | M1, M2.5 | PageManagementPage |
-| M5 | Cài đặt đăng bài tự động (slots) | [plans/06-auto-post-slots.md](./plans/06-auto-post-slots.md) | M4 | AutoPostSettingsPage |
-| M6 | Cron picker + BullMQ + publisher | [plans/07-autopost-engine.md](./plans/07-autopost-engine.md) | M3, M5 | TimelinePage — màn lịch/tracking đã làm trước ở [plans/12-publish-schedule-tracking.md](./plans/12-publish-schedule-tracking.md) |
-| M7 | Dọn dẹp FE còn lại + nghiệm thu MVP end-to-end | [plans/08-frontend-integration.md](./plans/08-frontend-integration.md) | M1–M6 | UserManagementPage, phần còn sót |
+| M0 | Scaffold backend, Docker, Prisma, env | [DONE/01-scaffold.md](./plans/DONE/01-scaffold.md) | ✅ 22/07 | — |
+| M1 | Auth JWT + RBAC + Users | [DONE/02-auth-rbac-users.md](./plans/DONE/02-auth-rbac-users.md) | ✅ 22/07 | — |
+| M2 | Google Drive + upload media | [DONE/03-google-drive-upload.md](./plans/DONE/03-google-drive-upload.md) · [DONE/03c](./plans/DONE/03c-drive-auth-modes.md) | ✅ 24/07 | SettingsPage (2 authMode) |
+| M2.5 | FE core: api client + AuthContext + Login | [DONE/03b-frontend-core.md](./plans/DONE/03b-frontend-core.md) | ✅ 23/07 | LoginPage, route guard |
+| M3 | Content assets + duyệt + phân bổ page | [DONE/04](./plans/DONE/04-content-assets.md) · [DONE/11](./plans/DONE/11-content-review-assignment-hashtags.md) | ✅ 25/07 | ContentManagementPage |
+| M4 | Facebook Pages + mã hóa token | [DONE/05-facebook-pages.md](./plans/DONE/05-facebook-pages.md) | ✅ 24/07 | PageManagementPage |
+| M5 | Cài đặt đăng bài tự động (slots) + đăng tay | [DONE/06](./plans/DONE/06-auto-post-slots.md) · [DONE/09](./plans/DONE/09-manual-post.md) | ✅ 25/07 | AutoPostSettingsPage |
+| M6 | Cron picker + BullMQ + publisher + lịch đăng bài | [DONE/07](./plans/DONE/07-autopost-engine.md) · [DONE/12](./plans/DONE/12-publish-schedule-tracking.md) | ✅ 25/07 | TimelinePage |
+| M7 | Users + dọn FE còn lại | [DONE/08](./plans/DONE/08-frontend-integration.md) · [DONE/10](./plans/DONE/10-user-management-content-tracking.md) | ✅ 25/07 | UserManagementPage |
+| **M8** | **Monitor: Queue · Failed Jobs · Audit Logs** | [plans/13-monitor.md](./plans/13-monitor.md) | ⬜ đang thiết kế | QueueMonitorPage, FailedJobsPage, AuditLogsPage |
 
-Thứ tự bắt buộc: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7.
-M2.5 chỉ cần chờ M1 (auth) — có thể làm song song với M2/M4 vì không đụng route
-nghiệp vụ. M3 và M4 độc lập nhau, có thể làm song song (khác người/khác phiên);
-M6 là tim của sản phẩm, phải chờ cả M3 lẫn M5 xong.
+Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8**.
+M8 phụ thuộc M6 (dữ liệu `publish_jobs` + `publish_job_events`) và M1 (`audit_logs`).
 
-Quy tắc cho mỗi milestone M3–M6: **không tick "Done" cho tới khi đã test được
+Quy tắc cho mỗi milestone từ M3 trở đi: **không tick "Done" cho tới khi đã test được
 bằng tay trên UI thật** (không phải mock, không chỉ Swagger) theo điều kiện nghiệm
 thu trong file plan tương ứng.
 
@@ -56,11 +61,13 @@ thu trong file plan tương ứng.
 
 ## 3. Ngoài phạm vi MVP
 
-Dashboard aggregation nâng cao · Queue Monitor UI · Failed Jobs UI · Audit Logs UI ·
-Reconciliation cron · Nginx/production compose · retry/cancel job qua UI ·
+Dashboard aggregation nâng cao · Reconciliation cron · Nginx/production compose ·
 Instagram/TikTok · AI caption.
 
 Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa làm màn hình.
+
+**Đã chuyển vào scope Phase 2 (M8, plan 13):** Queue Monitor UI · Failed Jobs UI ·
+Audit Logs UI. (Retry job qua UI đã làm sớm ở M6 tại `/timeline`.)
 
 ---
 
@@ -76,14 +83,21 @@ Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa 
 
 ---
 
-## 5. Định nghĩa Done của MVP
+## 5. Định nghĩa Done của MVP — chốt 2026-07-25
 
-- [ ] `docker compose up` + `npm run start:dev` chạy được toàn bộ stack local
-- [ ] Login bằng admin seed
-- [ ] Upload video → thấy file trên Drive thật → content `PENDING_REVIEW`
-- [ ] EDITOR duyệt → `APPROVED`
-- [ ] Tạo page + slot → tới giờ Bot tạo job và đăng
-- [ ] Content → `PUBLISHED`, assignment có `facebook_post_id`
-- [ ] Đăng lại lần 2 cùng page: **không** xảy ra
-- [ ] Logic phức tạp có test (auto-post engine + crypto bắt buộc); lint + build xanh
-- [ ] `contexts.md` phản ánh đúng hiện trạng
+- [x] `docker compose up` + `npm run start:dev` chạy được toàn bộ stack local
+- [x] Login bằng admin seed
+- [x] Upload video → thấy file trên Drive thật → content `PENDING_REVIEW`
+- [x] EDITOR duyệt → `APPROVED`
+- [x] Tạo page + slot → tới giờ Bot tạo job và đăng *(đường cron→job→worker→retry
+      đã smoke thật với DB+Redis; **bước gọi Graph thật chưa chạy được** vì chưa có
+      Page token — contexts §6 mục 10)*
+- [x] Content → `PUBLISHED`, assignment có `facebook_post_id` *(logic + test xanh,
+      chưa xác nhận trên Page thật — cùng lý do trên)*
+- [x] Đăng lại lần 2 cùng page: **không** xảy ra (test picker + UNIQUE assignment)
+- [x] Logic phức tạp có test (auto-post engine + crypto); BE 485 test xanh, lint + build xanh
+- [x] `contexts.md` phản ánh đúng hiện trạng
+
+**Nợ nghiệm thu còn lại** (không chặn việc đóng MVP, theo dõi ở `contexts.md` §6):
+đăng thật lên Facebook Page (thiếu Page token — mục 10) và smoke UI thật một số
+trang (mục 5, 7–9, 11–16).

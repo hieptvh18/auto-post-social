@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { RedisModule } from './infra/redis/redis.module';
+import { AuditHttpModule } from './modules/audit/audit-http.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AutoPostConfigsModule } from './modules/auto-post-configs/auto-post-configs.module';
@@ -18,6 +19,7 @@ import { FacebookPagesModule } from './modules/facebook-pages/facebook-pages.mod
 import { HealthModule } from './modules/health/health.module';
 import { ManualPostModule } from './modules/manual-post/manual-post.module';
 import { MediaModule } from './modules/media/media.module';
+import { MonitorModule } from './modules/monitor/monitor.module';
 import { PublishJobsModule } from './modules/publish-jobs/publish-jobs.module';
 import { PublishScheduleModule } from './modules/publish-schedule/publish-schedule.module';
 import { SettingsHttpModule } from './modules/settings/settings-http.module';
@@ -43,6 +45,7 @@ import { UsersModule } from './modules/users/users.module';
     PrismaModule,
     RedisModule,
     AuditModule,
+    AuditHttpModule,
     AuthModule,
     UsersModule,
     MediaModule,
@@ -54,6 +57,7 @@ import { UsersModule } from './modules/users/users.module';
     AutoPostModule,
     ManualPostModule,
     PublishScheduleModule,
+    MonitorModule,
     HealthModule,
   ],
   providers: [

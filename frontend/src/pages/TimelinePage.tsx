@@ -38,12 +38,9 @@ import { env } from '../config/env';
 import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import { usePages } from '../hooks/usePages';
-import {
-  usePublishSchedule,
-  useRetryPublishJob,
-  useRunSlotNow,
-} from '../hooks/usePublishSchedule';
-import { JobEventsModal } from '../components/timeline/JobEventsModal';
+import { useRetryPublishJob } from '../hooks/usePublishJobs';
+import { usePublishSchedule, useRunSlotNow } from '../hooks/usePublishSchedule';
+import { JobEventsModal } from '../components/common/JobEventsModal';
 import type {
   PublishJob,
   PublishStatus,
@@ -147,7 +144,8 @@ function RealTimelinePage() {
       if (group === undefined) groups.set(item.time, [item]);
       else group.push(item);
     }
-    return [...groups.entries()];
+    // Mốc giờ mới nhất lên đầu — người dùng quan tâm việc vừa/sắp xảy ra trước.
+    return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a));
   }, [items]);
 
   return (
@@ -211,64 +209,75 @@ function RealTimelinePage() {
 
       <Row gutter={24}>
         <Col xs={24} lg={7}>
-          <Card title="Chọn ngày & bộ lọc">
-            <DatePicker
-              value={selectedDate}
-              onChange={(d) => d && setSelectedDate(d)}
-              allowClear={false}
-              format="DD/MM/YYYY"
-              style={{ width: '100%', marginBottom: 12 }}
-            />
-
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              <Select
-                placeholder="Kênh (FB Page)"
-                allowClear
-                style={{ width: '100%' }}
-                value={pageFilter}
-                onChange={setPageFilter}
-                options={(pages ?? []).map((p) => ({
-                  value: p.id,
-                  label: p.pageName,
-                }))}
+          {/* Bộ lọc dính theo màn hình khi cuộn — chỉ danh sách bên phải cuộn.
+              top = 64 (Header sticky của AdminLayout) + 16 khoảng thở. */}
+          <div
+            style={{
+              position: 'sticky',
+              top: 80,
+              maxHeight: 'calc(100vh - 96px)',
+              overflowY: 'auto',
+            }}
+          >
+            <Card title="Chọn ngày & bộ lọc">
+              <DatePicker
+                value={selectedDate}
+                onChange={(d) => d && setSelectedDate(d)}
+                allowClear={false}
+                format="DD/MM/YYYY"
+                style={{ width: '100%', marginBottom: 12 }}
               />
-              <Select
-                placeholder="Trạng thái job"
-                allowClear
-                style={{ width: '100%' }}
-                value={statusFilter}
-                onChange={setStatusFilter}
-                options={(Object.keys(STATUS_LABELS) as PublishStatus[]).map(
-                  (s) => ({ value: s, label: STATUS_LABELS[s] }),
-                )}
-              />
-            </Space>
 
-            <Divider style={{ margin: '16px 0' }} />
-
-            <div style={{ textAlign: 'center' }}>
-              <CalendarOutlined style={{ fontSize: 48, color: '#1677ff' }} />
-              <div style={{ marginTop: 8 }}>
-                <Text strong style={{ fontSize: 18 }}>
-                  {selectedDate.format('dddd, DD/MM/YYYY')}
-                </Text>
-              </div>
-              <Space wrap style={{ marginTop: 8, justifyContent: 'center' }}>
-                <Tag color="blue">{items.length} mốc giờ</Tag>
-                <Tag color="geekblue">
-                  {summary?.pagesAutoOn ?? 0} page bật auto
-                </Tag>
-                {(summary?.manualPosts ?? 0) > 0 && (
-                  <Tag color="purple">{summary?.manualPosts} bài đăng tay</Tag>
-                )}
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Select
+                  placeholder="Kênh (FB Page)"
+                  allowClear
+                  style={{ width: '100%' }}
+                  value={pageFilter}
+                  onChange={setPageFilter}
+                  options={(pages ?? []).map((p) => ({
+                    value: p.id,
+                    label: p.pageName,
+                  }))}
+                />
+                <Select
+                  placeholder="Trạng thái job"
+                  allowClear
+                  style={{ width: '100%' }}
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  options={(Object.keys(STATUS_LABELS) as PublishStatus[]).map(
+                    (s) => ({ value: s, label: STATUS_LABELS[s] }),
+                  )}
+                />
               </Space>
-              <div style={{ marginTop: 12 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Giờ hiển thị theo {data?.timezone ?? 'Asia/Ho_Chi_Minh'}
-                </Text>
+
+              <Divider style={{ margin: '16px 0' }} />
+
+              <div style={{ textAlign: 'center' }}>
+                <CalendarOutlined style={{ fontSize: 48, color: '#1677ff' }} />
+                <div style={{ marginTop: 8 }}>
+                  <Text strong style={{ fontSize: 18 }}>
+                    {selectedDate.format('dddd, DD/MM/YYYY')}
+                  </Text>
+                </div>
+                <Space wrap style={{ marginTop: 8, justifyContent: 'center' }}>
+                  <Tag color="blue">{items.length} mốc giờ</Tag>
+                  <Tag color="geekblue">
+                    {summary?.pagesAutoOn ?? 0} page bật auto
+                  </Tag>
+                  {(summary?.manualPosts ?? 0) > 0 && (
+                    <Tag color="purple">{summary?.manualPosts} bài đăng tay</Tag>
+                  )}
+                </Space>
+                <div style={{ marginTop: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Giờ hiển thị theo {data?.timezone ?? 'Asia/Ho_Chi_Minh'}
+                  </Text>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          </div>
         </Col>
 
         <Col xs={24} lg={17}>
@@ -299,6 +308,7 @@ function RealTimelinePage() {
                           <ScheduleItemCard
                             key={item.key}
                             item={item}
+                            date={date}
                             onShowEvents={setEventsJob}
                             onRetry={canRetry ? handleRetry : undefined}
                             retryingJobId={retryingJobId}
@@ -335,6 +345,7 @@ function timelineColor(items: ScheduleItem[]): string {
 
 function ScheduleItemCard({
   item,
+  date,
   onShowEvents,
   onRetry,
   retryingJobId,
@@ -342,6 +353,8 @@ function ScheduleItemCard({
   runningSlot,
 }: {
   item: ScheduleItem;
+  /** Ngày đang xem (`YYYY-MM-DD`) — ghép với `item.time` để biết mốc đã tới chưa. */
+  date: string;
   onShowEvents: (job: ScheduleJob) => void;
   /** `undefined` = người dùng không có quyền `jobs:retry` ⇒ ẩn nút đăng lại. */
   onRetry?: (job: ScheduleJob) => void;
@@ -351,10 +364,16 @@ function ScheduleItemCard({
   runningSlot: boolean;
 }) {
   const isManual = item.kind === 'manual';
-  // Mốc giờ chạy được nhưng chưa ra bài nào: Bot bỏ qua vì hết bài, hoặc chưa
-  // từng chạy (MISSED). Đăng đủ kế hoạch rồi thì không cho chạy thêm.
+  // Mốc giờ trong tương lai thì Bot sẽ tự chạy khi tới giờ — chạy tay lúc này chỉ
+  // làm bài đăng sớm hơn kế hoạch, nên ẩn nút. Giờ so theo máy người dùng, khớp
+  // với giả định toàn hệ thống chạy ở Asia/Ho_Chi_Minh.
+  // `YYYY-MM-DDTHH:mm` = ISO không timezone ⇒ dayjs hiểu là giờ địa phương.
+  const slotTimeReached = dayjs(`${date}T${item.time}`).isBefore(dayjs());
+  // Mốc giờ đã tới nhưng chưa ra bài nào: Bot bỏ qua vì hết bài, chạy lỗi, hoặc
+  // chưa từng chạy (MISSED). Đăng đủ kế hoạch rồi thì không cho chạy thêm.
   const canRunSlotNow =
     onRunSlot !== undefined &&
+    slotTimeReached &&
     item.kind === 'slot' &&
     item.slotId !== null &&
     item.slotEnabled &&

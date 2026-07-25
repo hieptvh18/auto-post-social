@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AuditRepository, type CreateAuditLogData } from './audit.repository';
+import {
+  AuditRepository,
+  type AuditLogWithUser,
+  type AuditPagingParams,
+  type CreateAuditLogData,
+  type FindAuditLogsFilter,
+} from './audit.repository';
 
 /** Action name dùng trong audit_logs (docs/05 §8). */
 export const AuditAction = {
@@ -49,4 +55,27 @@ export class AuditService {
       );
     }
   }
+
+  /** Đọc lịch sử thao tác (màn `/audit`, chỉ ADMIN). Luôn phân trang — bảng này chỉ to dần. */
+  async findMany(
+    filter: FindAuditLogsFilter,
+    paging: AuditPagingParams,
+  ): Promise<PaginatedAuditLogs> {
+    const [items, total] = await Promise.all([
+      this.repository.findMany(filter, paging),
+      this.repository.countMany(filter),
+    ]);
+    return { items, total, page: paging.page, pageSize: paging.pageSize };
+  }
+
+  findActions(): Promise<string[]> {
+    return this.repository.distinctActions();
+  }
+}
+
+export interface PaginatedAuditLogs {
+  items: AuditLogWithUser[];
+  total: number;
+  page: number;
+  pageSize: number;
 }

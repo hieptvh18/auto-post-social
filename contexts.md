@@ -5,7 +5,36 @@
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
 **Cập nhật lần cuối:** 2026-07-25
-**Session gần nhất (mới nhất):** **Auto-post engine** (plan 07) — trái tim của MVP.
+**Session gần nhất (mới nhất):** **M8 Monitor (plan 13) — code xong, chưa smoke UI.**
+3 màn `Queue Monitor` / `Failed Jobs` / `Audit Logs` đã bỏ mock, chạy API thật. Backend:
+module mới `monitor/` (`GET /monitor/queue/summary` — số BullMQ + `groupBy` DB + job kẹt,
+**Redis chết vẫn trả 200** với `queue: null` nhờ `Promise.race` timeout 2s), đường **đọc**
+audit log (`GET /audit-logs`, `GET /audit-logs/actions`) đặt trong `AuditHttpModule` riêng
+để không tạo vòng phụ thuộc (bài học `SettingsHttpModule`), và `GET /publish-jobs` đổi sang
+**phân trang** `{items,total,page,pageSize}` + lọc `from`/`to`/`search`. Mọi giá trị
+`beforeValue`/`afterValue` đi ra API đều qua `sanitizeAuditValue()` — che theo tên key, đệ
+quy, deny-by-default. Env mới `MONITOR_STUCK_MINUTES` (mặc định 15). **Không đụng schema ⇒
+`erd.md` giữ nguyên.** FE: `api/{monitor,audit,publishJobs,queryString}.ts`,
+`hooks/{useMonitor,useAuditLogs,usePublishJobs}.ts`, `JobEventsModal` chuyển sang
+`components/common/` dùng chung 2 màn. BE **516 test xanh (+31)**, FE 32 test cũ xanh,
+lint/build 2 phía xanh. **Đã smoke API thật** (Redis chết ⇒ 200 + badge; job kẹt 30 phút ⇒
+cảnh báo đúng số phút; phân trang/lọc đúng; EDITOR ⇒ 403). **Chưa bấm tay trên UI** ⇒ plan
+13 vẫn nằm ở `plans/`, xem §6 mục 17.
+
+---
+
+**Session trước đó:** **Chốt đóng MVP + mở Phase 2 (M8 Monitor).** User quyết
+định đóng MVP ngày 2026-07-25: toàn bộ M0→M7 chuyển ✅, 12 file plan còn lại chuyển vào
+`plans/DONE/`, `PLAN-MVP.md` §5 tick xong. **Nợ nghiệm thu không mất đi** — vẫn nằm nguyên
+ở §6 (đăng thật lên Page thiếu token — mục 10; smoke UI các trang — mục 5, 7–9, 11–16);
+đóng MVP nghĩa là không mở lại milestone, không phải "đã kiểm chứng hết trên UI thật".
+Tiếp theo: **M8 Monitor** — 3 màn `Queue Monitor` / `Failed Jobs` / `Audit Logs`, plan
+thiết kế xong ở [plans/13-monitor.md](./plans/13-monitor.md), **chưa code dòng nào**.
+Ba màn này trước ở "ngoài scope MVP", nay chuyển vào Phase 2 theo yêu cầu user.
+
+---
+
+**Session trước đó:** **Auto-post engine** (plan 07) — trái tim của MVP.
 Cron `@Cron('* * * * *', tz Asia/Ho_Chi_Minh)` chạy **trong chính process backend** (ADR-002,
 không phải crontab OS): mỗi phút lấy slot tới giờ → picker chọn bài (raw SQL theo docs/03 §7)
 → tạo `publish_jobs` QUEUED + đẩy vào BullMQ `publish-facebook` (3 attempts, backoff mũ 60s)
@@ -151,10 +180,10 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | 12 file plan feature + `_TEMPLATE.md` (2 file đã xong ở `plans/DONE/`) |
+| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8) + `_TEMPLATE.md` |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
-| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). Các trang còn lại vẫn mock (`SettingsPage`, dashboard/audit/queue...). |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
+| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). `SettingsPage` đã nối API thật (Drive 2 authMode). **`QueueMonitorPage` / `FailedJobsPage` / `AuditLogsPage` đã nối API thật** (M8, plan 13 — vẫn giữ nhánh mock theo ADR-005). **Còn mock: `DashboardPage`.** |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -178,6 +207,11 @@ picker query, BullMQ queue + processor, publish ảnh/video, timeline đọc job
 **Ngoài scope MVP:** dashboard aggregation nâng cao, queue monitor UI, audit log UI,
 failed-jobs UI, reconciliation cron, Nginx/production compose.
 (Vẫn ghi audit log ở backend vì rẻ, nhưng chưa làm màn hình.)
+
+**Cập nhật 2026-07-25 — MVP đã đóng, mở Phase 2.** 3 màn **Queue Monitor / Failed Jobs /
+Audit Logs** chuyển từ "ngoài scope" vào scope Phase 2 (M8, `plans/13-monitor.md`) theo
+yêu cầu user. Vẫn ngoài scope: dashboard aggregation nâng cao, reconciliation cron,
+Nginx/production compose, Instagram/TikTok, AI caption.
 
 ---
 
@@ -214,14 +248,20 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M0 — Scaffold + Docker + Prisma | ✅ | 2026-07-22 |
 | M1 — Auth + RBAC + Users | ✅ | 2026-07-22 |
 | M2 — Google Drive + Media upload | ✅ | 2026-07-23 |
-| M2.5 — FE core (api client + AuthContext + Login) | 🟡 | code+test xong 2026-07-23, chờ smoke test BE thật |
-| M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) 2026-07-24 + giai đoạn 2 (duyệt/isAds/phân bổ page/hashtag, plan 11) 2026-07-25 — code+test+smoke API xong, chờ smoke UI thật |
-| M4 — Facebook Pages + token crypto (+ nối FE PagePage) | 🟡 | code+test xong 2026-07-24, chờ smoke test UI thật |
-| M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | 🟡 | code+test+smoke API xong 2026-07-25, chờ smoke UI thật |
-| M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | 🟡 | FE "Lịch đăng bài" + `GET /publish-schedule` xong 2026-07-25 (plan 12); engine cron+queue+publisher + log DB xong 2026-07-25 (plan 07) — smoke API đủ, **chưa đăng thật lên FB** (thiếu Page token) |
-| M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | 🟡 | Users xong 2026-07-25 (chờ smoke UI); Settings + nghiệm thu end-to-end chưa làm |
+| M2.5 — FE core (api client + AuthContext + Login) | ✅ | 2026-07-23 — code+test xong; smoke UI còn nợ (§6 mục 5) |
+| M3 — Content Assets + assignments (+ nối FE ContentPage) | ✅ | 2026-07-25 — giai đoạn 1 (CRUD, plan 04) + giai đoạn 2 (duyệt/isAds/phân bổ page/hashtag, plan 11); smoke UI còn nợ (§6 mục 7, 13) |
+| M4 — Facebook Pages + token crypto (+ nối FE PagePage) | ✅ | 2026-07-24 — code+test+smoke API xong; smoke UI còn nợ (§6 mục 8) |
+| M5 — Auto-post slots CRUD + đăng tay (+ nối FE AutoPostPage) | ✅ | 2026-07-25 — plan 06 + plan 09; smoke UI còn nợ (§6 mục 9, 11) |
+| M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | ✅ | 2026-07-25 (plan 12 + plan 07) — smoke API + smoke cron/queue/retry với DB+Redis đủ; **chưa đăng thật lên FB** (thiếu Page token, §6 mục 10) |
+| M7 — Dọn FE còn sót (Users, Settings) | ✅ | 2026-07-25 — Users + Settings (2 authMode Drive) đã nối API thật |
+| **MVP đóng** | ✅ | **2026-07-25** — xem `PLAN-MVP.md` §5. Nợ nghiệm thu giữ ở §6 |
+| M8 — Monitor (Queue · Failed Jobs · Audit Logs) | 🟡 | 2026-07-25 — code + test + smoke API xong ([plans/13-monitor.md](./plans/13-monitor.md) §7); **chưa smoke UI thật** ⇒ chưa chuyển plan sang DONE (§6 mục 17) |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
+
+> **Cách đọc bảng này sau 2026-07-25:** ✅ ở M3–M7 nghĩa là *code + test xanh + smoke API*,
+> **không** đảm bảo đã bấm tay đủ trên UI thật. Danh sách chính xác việc còn phải kiểm tay
+> nằm ở §6 — đừng coi ✅ là đã nghiệm thu xong.
 
 ---
 
@@ -559,6 +599,50 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   "Đăng lại" (mỗi job hỏng) + "Chạy lại mốc này" (dòng slot còn thiếu bài). Audit
   `PUBLISH_JOB_RETRY`. Không đụng schema. BE 485 test xanh (+21). Chưa smoke UI thật.
 
+### Đóng MVP + thiết kế M8 Monitor (Plan 13) — 🟡 2026-07-25
+
+- **Phạm vi:** không code. Chốt đóng MVP theo quyết định user: `PLAN-MVP.md` §2 bảng
+  milestone đổi sang trạng thái ✅ + thêm dòng M8, §3 chuyển 3 màn Monitor từ "ngoài scope"
+  vào Phase 2, §5 tick xong định nghĩa Done kèm ghi chú nợ. 12 file plan còn lại `git mv`
+  vào `plans/DONE/` và sửa header trạng thái.
+- **File chính:** `PLAN-MVP.md`, `contexts.md`, `plans/DONE/*` (14 file), **`plans/13-monitor.md`** (mới)
+- **Quyết định:** (1) Đóng MVP **không** đồng nghĩa đã nghiệm thu hết — nợ smoke UI và
+  đăng thật lên Page giữ nguyên ở §6, có ghi chú cách đọc bảng §4 để session sau không
+  hiểu nhầm ✅. (2) M8 **không đụng schema** ⇒ không migration, `erd.md` không đổi.
+  (3) Failed Jobs **không có API riêng**, dùng lại `GET /publish-jobs` + filter (chỉ thêm
+  phân trang) — tránh 2 endpoint trùng chức năng. (4) Đường đọc audit tách
+  `AuditHttpModule` riêng vì `AuditModule` bị import khắp nơi (bài học `SettingsHttpModule`, §7).
+- **Đã kiểm khi thiết kế:** FE **chưa** gọi `GET /publish-jobs` (list) ở đâu — `/timeline`
+  đi qua `/publish-schedule` và chỉ mượn `/:id/events`, `/:id/retry` — nên đổi response
+  sang dạng phân trang không gãy màn nào.
+- **Test:** không có (chỉ tài liệu)
+- **Còn nợ:** M8 chưa code dòng nào; danh sách nghiệm thu ở `plans/13-monitor.md` §5.
+
+---
+
+### M8 Monitor — Queue · Failed Jobs · Audit Logs (Plan 13) — 🟡 2026-07-25
+
+- **Phạm vi:** `GET /monitor/queue/summary` (số BullMQ + `groupBy` DB + job kẹt +
+  job đang chờ), `GET /audit-logs` + `GET /audit-logs/actions` (đọc audit, ADMIN),
+  `GET /publish-jobs` đổi sang phân trang `{items,total,page,pageSize}` + lọc
+  `from`/`to`/`search`. FE bỏ mock 3 màn `/queue`, `/failed`, `/audit`.
+- **File chính:** `backend/src/modules/monitor/`,
+  `backend/src/modules/audit/{audit.controller,audit-http.module,audit-log.mapper,
+  sanitize-audit-value}.ts`, `backend/src/modules/publish-jobs/publish-jobs.repository.ts`,
+  `frontend/src/api/{monitor,audit,publishJobs}.ts`,
+  `frontend/src/pages/{QueueMonitorPage,FailedJobsPage,AuditLogsPage}.tsx`
+- **Quyết định:** (1) Redis chết ⇒ **không 500**: `Promise.race` timeout 2s, trả
+  `queue: null` + `queueError` để màn giám sát không chết theo thứ nó giám sát.
+  (2) Controller đọc audit đặt ở `AuditHttpModule` riêng — `AuditModule` bị cả chục
+  module import để *ghi* log, thêm controller vào đó là tạo vòng phụ thuộc.
+  (3) `summary` trả kèm `activeJobs` để `/queue` chỉ poll **một** endpoint mỗi 10s.
+  (4) Không đụng schema ⇒ `erd.md` giữ nguyên.
+- **Test:** BE 516 test xanh (+31, gồm 18 test `sanitizeAuditValue` và 10 `MonitorService`
+  dùng clock fake) · FE 32 test cũ xanh · lint/build 2 phía xanh · smoke API thật đủ
+  case (plan 13 §7).
+- **Còn nợ:** chưa bấm tay trên UI (§6 mục 17); `/failed` chưa có ô tìm kiếm dù backend
+  đã hỗ trợ `search`.
+
 ---
 
 ## 6. Việc đang dở / nợ kỹ thuật
@@ -567,7 +651,7 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 |---|------|----------|
 | 1 | **Pino logger + redact secret** ⚠️ TRỄ HẠN | Đã cài `nestjs-pino`, `pino-http`, `pino-pretty` nhưng **vẫn chưa wire** vào `app.module.ts`. Hiện dùng Nest Logger mặc định. Dự định làm ở M1 nhưng chưa làm — mà `POST /auth/login` và `POST /users` đã nhận password rồi. **Rủi ro hiện tại:** chưa có redact tự động; đang an toàn vì không có chỗ nào log body, nhưng phải làm **đầu M2**. Redact bắt buộc: `password`, `token`, `accessToken`, `accessTokenEnc`, `authorization`, `GOOGLE_SERVICE_ACCOUNT_JSON`. |
 | 2 | E2E test setup | `test/jest-e2e.json` còn nguyên mặc định, chưa có e2e nào. M1 đã kiểm §5 **bằng tay qua curl** (đạt hết), nhưng chưa tự động hóa. Nên làm cùng M2. |
-| 3 | `SettingsPage` (FE) chưa nối API thật | Đang chạy bằng state mock cục bộ trong component, không qua `MockDataContext`/react-query như các trang khác vì chưa tới M7. BE đã có đủ 3 endpoint (`GET/PUT /settings/google-drive`, `POST .../test`) sẵn sàng để nối. |
+| 3 | ~~`SettingsPage` (FE) chưa nối API thật~~ ✅ ĐÃ XONG 2026-07-24 (xem mục 6) | Đang chạy bằng state mock cục bộ trong component, không qua `MockDataContext`/react-query như các trang khác vì chưa tới M7. BE đã có đủ 3 endpoint (`GET/PUT /settings/google-drive`, `POST .../test`) sẵn sàng để nối. |
 | 4 | `GoogleDriveStorage` chưa test với credential Google thật ở CI | Chỉ test bằng mock `googleapis` (unit test). Đã xác nhận thủ công 1 lần với service account thật (2026-07-24) rằng service account không có storage quota trên My Drive cá nhân — đúng như `mapDriveError` đã cảnh báo; cần Shared Drive hoặc OAuth2. |
 | 5 | **M2.5 chưa smoke test với backend thật** | Code + 15 test Vitest xanh nhưng chưa chạy end-to-end với API. Cần: `docker compose up` + `cd backend && npm run start:dev`, rồi `cd frontend` (đảm bảo `.env` có `VITE_USE_MOCK=false`) `npm run dev` → login admin seed, kiểm token lưu localStorage, đổi role CONTENT bị chặn `/users`, `/pages`, `/settings`. |
 | 6 | ~~Drive FE đã nối xong~~ ✅ ĐÃ XONG 2026-07-24 | `api/media.api.ts` + `api/settings.api.ts` + SettingsPage 2 chế độ. **OAuth2 đã smoke test thật thành công** (connect tài khoản Gmail qua UI, redirect URI `http://localhost:3001/api/settings/google-drive/oauth/callback` — cổng đổi 3100→3001 để khớp OAuth Client đã đăng ký). Service_account chỉ chạy được với Shared Drive (Workspace), chưa test lại với authMode này sau đổi cổng (không ảnh hưởng vì không phụ thuộc redirect URI). |
@@ -584,6 +668,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 15 | **Engine auto-post chưa đăng thật lên Facebook + chưa smoke UI** | Code BE+FE xong (plan 07, BE 464 test xanh), đã smoke đủ đường cron→job→worker→retry→FAILED bằng page test token sai. Khi có Page token thật (mục 10): tạo 1 slot sát giờ + 1 bài ảnh APPROVED đã gán page → chờ tới mốc (hoặc `POST /auto-post/run-now`) → job phải SUCCESS, assignment có `published_at` + `facebook_post_id`, content `PUBLISHED`, chạy lại slot trong ngày không đăng lại. UI: `/timeline` xem dòng "Bot đã chạy lúc …", lý do "kho không còn bài phù hợp", nút "Xem nhật ký" trên job. |
 | 16 | **Nút "Đăng lại" / "Chạy lại mốc này" chưa smoke UI thật** | Code BE+FE xong (plan 07 §10, BE 485 test xanh) nhưng **chưa bấm thử trên UI và chưa chạy với Redis thật**. Cần: tạo 1 job hỏng (page token sai) → `/timeline` bấm "Đăng lại" ⇒ job về QUEUED rồi worker chạy lại, nhật ký có dòng "Đăng lại thủ công bởi …"; bấm lại khi job đang QUEUED ⇒ báo 409; tắt page rồi bấm ⇒ báo 400. Với mốc giờ `MISSED`/`SKIPPED`: bấm "Chạy lại mốc này" ⇒ tạo job nếu kho có bài, bấm lần 2 trong cùng phút ⇒ cảnh báo "vừa chạy trong phút này". Đăng nhập EDITOR kiểm không thấy nút "Đăng lại" (chỉ ADMIN có `jobs:retry`). |
 | 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
+| 17 | **M8 Monitor chưa smoke UI thật** | Code BE+FE xong (plan 13, BE 516 test xanh), đã smoke API thật đủ case (Redis chết ⇒ 200 + `queue: null`, job kẹt 30 phút ⇒ `stuckMinutes: 30`, phân trang + lọc `/publish-jobs` và `/audit-logs`, EDITOR ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/queue` (thẻ số tự nhảy trong 10s sau `POST /auto-post/run-now`, tắt container Redis ⇒ badge "Mất kết nối" chứ không trắng trang), `/failed` (phân trang >20 job, "Xem nhật ký", "Đăng lại" ⇒ 409 khi bấm lại lúc đang QUEUED), `/audit` (lọc ngày/action/user, Drawer diff JSON, log cron hiện tag "Bot"), và **mở lại `/timeline`** xác nhận không gãy sau khi đổi shape `/publish-jobs`. EDITOR gõ thẳng `/queue`,`/failed`,`/audit` ⇒ bị đá về `/dashboard`. Xong thì `git mv plans/13-monitor.md plans/DONE/`. Còn thiếu: ô tìm kiếm theo tiêu đề ở `/failed` (backend đã hỗ trợ `search`). |
 
 ---
 

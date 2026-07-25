@@ -1,7 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -10,24 +9,32 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { PublishStatus } from '../../../../generated/prisma/client';
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
-export class QueryPublishJobsDto {
+export class QueryAuditLogsDto {
+  @ApiPropertyOptional({ example: 'PAGE_TOKEN_UPDATE' })
+  @IsOptional()
+  @IsString()
+  action?: string;
+
+  @ApiPropertyOptional({ description: 'UUID người thực hiện' })
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+
   @ApiPropertyOptional({
-    example: '2026-07-25',
-    description:
-      "Ngày tạo job, 'YYYY-MM-DD' theo Asia/Ho_Chi_Minh. Bỏ trống = mọi ngày",
+    example: 'content_asset:',
+    description: 'Khớp tiền tố resource',
   })
   @IsOptional()
-  @Matches(DATE_REGEX, { message: "date phải có dạng 'YYYY-MM-DD'" })
-  date?: string;
+  @IsString()
+  resource?: string;
 
   @ApiPropertyOptional({
     example: '2026-07-01',
     description:
-      "Từ ngày (tính cả ngày này), 'YYYY-MM-DD'. Bị bỏ qua khi đã có `date`",
+      "Từ ngày (tính cả ngày này), 'YYYY-MM-DD' theo Asia/Ho_Chi_Minh",
   })
   @IsOptional()
   @Matches(DATE_REGEX, { message: "from phải có dạng 'YYYY-MM-DD'" })
@@ -40,21 +47,6 @@ export class QueryPublishJobsDto {
   @IsOptional()
   @Matches(DATE_REGEX, { message: "to phải có dạng 'YYYY-MM-DD'" })
   to?: string;
-
-  @ApiPropertyOptional({ description: 'UUID page trong hệ thống' })
-  @IsOptional()
-  @IsUUID()
-  pageId?: string;
-
-  @ApiPropertyOptional({ enum: PublishStatus })
-  @IsOptional()
-  @IsEnum(PublishStatus)
-  status?: PublishStatus;
-
-  @ApiPropertyOptional({ description: 'Tìm theo tiêu đề bài trong kho' })
-  @IsOptional()
-  @IsString()
-  search?: string;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

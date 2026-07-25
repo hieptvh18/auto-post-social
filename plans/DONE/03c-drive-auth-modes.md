@@ -1,7 +1,8 @@
 # Plan 03c — Drive auth modes: Service Account (Shared Drive) ⟷ OAuth2 (Gmail free)
 
 **Milestone:** M2 (mở rộng)
-**Trạng thái:** 🟡 đang làm
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 03 (Drive upload), ADR-014 (config động)
 **Spec tham chiếu:** rule 01 §Bảo mật, rule 04 §Env, ADR-017 (thay ADR-003 — đã bỏ driver fake)
 

@@ -24,6 +24,14 @@ import {
   type RetryJobResult,
 } from './publish-jobs.service';
 
+/** Response `GET /publish-jobs` — phân trang server-side (plan 13 §3.2a). */
+export interface PaginatedPublishJobsResponse {
+  items: PublishJobResponse[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 @ApiTags('publish-jobs')
 @ApiBearerAuth()
 @Controller('publish-jobs')
@@ -36,22 +44,47 @@ export class PublishJobsController {
 
   @Get()
   @ApiOperation({
-    summary: 'Danh sách publish job (Bot + đăng tay), mới nhất trước',
+    summary:
+      'Danh sách publish job (Bot + đăng tay) có phân trang, mới nhất trước',
   })
   async findMany(
     @Query() query: QueryPublishJobsDto,
-  ): Promise<PublishJobResponse[]> {
-    const range =
-      query.date === undefined
-        ? undefined
-        : dayRangeUtc(query.date, this.config.timezone);
-    const jobs = await this.service.findMany({
-      from: range?.from,
-      to: range?.to,
-      facebookPageId: query.pageId,
-      status: query.status,
-    });
-    return jobs.map(toPublishJobResponse);
+  ): Promise<PaginatedPublishJobsResponse> {
+    const range = this.resolveRange(query);
+    const result = await this.service.findPaginated(
+      {
+        from: range?.from,
+        to: range?.to,
+        facebookPageId: query.pageId,
+        status: query.status,
+        search: query.search,
+      },
+      { page: query.page, pageSize: query.pageSize },
+    );
+
+    return {
+      items: result.items.map(toPublishJobResponse),
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
+    };
+  }
+
+  /**
+   * `date` = đúng một ngày (giữ tương thích với cách gọi cũ); `from`/`to` =
+   * khoảng nhiều ngày cho màn Monitor. Có `date` thì `from`/`to` bị bỏ qua.
+   */
+  private resolveRange(
+    query: QueryPublishJobsDto,
+  ): { from: Date; to: Date } | undefined {
+    const tz = this.config.timezone;
+    if (query.date !== undefined) return dayRangeUtc(query.date, tz);
+    if (query.from === undefined || query.to === undefined) return undefined;
+    return {
+      from: dayRangeUtc(query.from, tz).from,
+      // `to` tính cả ngày cuối ⇒ lấy mốc đầu ngày kế tiếp làm biên trên (loại trừ).
+      to: dayRangeUtc(query.to, tz).to,
+    };
   }
 
   @Get(':id/events')

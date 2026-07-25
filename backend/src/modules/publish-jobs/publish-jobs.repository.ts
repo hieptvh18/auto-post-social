@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   ContentStatus,
   PublishStatus,
+  type Prisma,
   type ContentAsset,
   type FacebookPage,
   type PublishJob,
@@ -38,6 +39,35 @@ export interface FindJobsFilter {
   to?: Date;
   facebookPageId?: string;
   status?: PublishStatus;
+  /** Khớp tiêu đề bài trong kho (không phân biệt hoa thường). */
+  search?: string;
+}
+
+export interface PagingParams {
+  page: number;
+  pageSize: number;
+}
+
+/** Số job theo từng trạng thái — Monitor đối chiếu với BullMQ. */
+export type StatusCounts = Record<PublishStatus, number>;
+
+/**
+ * Điều kiện lọc dùng chung cho `findMany` và `countMany` — viết ở hai nơi thì
+ * tổng số bản ghi sẽ lệch với danh sách đang hiển thị.
+ */
+function buildJobsWhere(filter: FindJobsFilter): Prisma.PublishJobWhereInput {
+  return {
+    facebookPageId: filter.facebookPageId,
+    status: filter.status,
+    createdAt:
+      filter.from === undefined || filter.to === undefined
+        ? undefined
+        : { gte: filter.from, lt: filter.to },
+    contentAsset:
+      filter.search === undefined || filter.search === ''
+        ? undefined
+        : { title: { contains: filter.search, mode: 'insensitive' } },
+  };
 }
 
 /** Nơi duy nhất viết Prisma query cho `publish_jobs` (rule 01). */
@@ -77,19 +107,65 @@ export class PublishJobsRepository {
     });
   }
 
-  findMany(filter: FindJobsFilter): Promise<JobWithContext[]> {
+  findMany(
+    filter: FindJobsFilter,
+    paging?: PagingParams,
+  ): Promise<JobWithContext[]> {
     return this.prisma.publishJob.findMany({
-      where: {
-        facebookPageId: filter.facebookPageId,
-        status: filter.status,
-        createdAt:
-          filter.from === undefined || filter.to === undefined
-            ? undefined
-            : { gte: filter.from, lt: filter.to },
-      },
+      where: buildJobsWhere(filter),
       include: { contentAsset: true, facebookPage: true },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      skip: paging === undefined ? 0 : (paging.page - 1) * paging.pageSize,
+      take: paging === undefined ? 200 : paging.pageSize,
+    });
+  }
+
+  /** Dùng chung `buildJobsWhere` với `findMany` — hai nơi lệch điều kiện là sai tổng số trang. */
+  countMany(filter: FindJobsFilter): Promise<number> {
+    return this.prisma.publishJob.count({ where: buildJobsWhere(filter) });
+  }
+
+  /**
+   * Đếm job theo trạng thái. Monitor so số này với `getJobCounts()` của BullMQ:
+   * lệch nhau nghĩa là Redis bị xoá hoặc worker chết giữa chừng.
+   */
+  async countByStatus(): Promise<StatusCounts> {
+    const rows = await this.prisma.publishJob.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    });
+
+    const counts = Object.fromEntries(
+      Object.values(PublishStatus).map((status) => [status, 0]),
+    ) as StatusCounts;
+    for (const row of rows) {
+      counts[row.status] = row._count._all;
+    }
+    return counts;
+  }
+
+  /**
+   * Job còn kẹt ở `PUBLISHING` từ trước `before` — worker nhận job rồi chết
+   * giữa chừng thì không ai đưa nó ra khỏi trạng thái này (chưa có reconciliation cron).
+   */
+  findStuckPublishing(before: Date): Promise<JobWithContext[]> {
+    return this.prisma.publishJob.findMany({
+      where: { status: PublishStatus.PUBLISHING, updatedAt: { lt: before } },
+      include: { contentAsset: true, facebookPage: true },
+      orderBy: { updatedAt: 'asc' },
+      take: 50,
+    });
+  }
+
+  /** Job đang chờ tới lượt / đang chạy — bảng chính của màn Queue Monitor. */
+  findActive(limit: number): Promise<JobWithContext[]> {
+    return this.prisma.publishJob.findMany({
+      where: {
+        status: { in: [PublishStatus.QUEUED, PublishStatus.PUBLISHING] },
+      },
+      include: { contentAsset: true, facebookPage: true },
+      orderBy: { scheduleTime: 'asc' },
+      take: limit,
     });
   }
 

@@ -1,7 +1,8 @@
 # Plan 06 — Cài đặt đăng bài tự động (slots)
 
 **Milestone:** M5
-**Trạng thái:** 🟡 (code + test + smoke API xong, chờ smoke UI thật)
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 05
 **Spec:** `docs/04-api-spec.md` §6, `docs/03-database-design.md` §3
 

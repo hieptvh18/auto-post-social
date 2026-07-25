@@ -1,7 +1,8 @@
 # Plan 10 — User Management CRUD + tracking người upload/chỉnh sửa content
 
 **Milestone:** thuộc M7 (dọn FE còn sót) + bổ sung nhỏ cho M3
-**Trạng thái:** 🟡 code+test+smoke API xong, chờ smoke UI thật
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** M1 (users backend đã xong), M3 (content-assets giai đoạn 1)
 **Spec:** `docs/04-api-spec.md` §users, `docs/05-rbac.md` §2
 

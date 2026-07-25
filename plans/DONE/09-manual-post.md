@@ -1,7 +1,8 @@
 # Plan 09 — Đăng bài thủ công + filter page (trang Cài đặt đăng bài tự động)
 
 **Milestone:** bổ sung cho M5 (yêu cầu user 2026-07-25)
-**Trạng thái:** 🟡
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 04 (content-assets), Plan 05 (facebook-pages + adapter Graph), Plan 06
 **Spec liên quan:** `docs/07-facebook-publisher.md`, `docs/03-database-design.md` §7
 

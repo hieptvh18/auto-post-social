@@ -1,8 +1,8 @@
 # Plan 04 — Content Assets + duyệt + phân bổ page
 
 **Milestone:** M3
-**Trạng thái:** 🟡 (giai đoạn 1 + 2 code xong, chờ smoke test UI thật — giai đoạn 2
-làm ở `plans/11-content-review-assignment-hashtags.md`, xem `contexts.md` §6)
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 02, Plan 03
 **Spec:** `docs/04-api-spec.md` §5, `docs/03-database-design.md` §5, `docs/05-rbac.md` §3
 

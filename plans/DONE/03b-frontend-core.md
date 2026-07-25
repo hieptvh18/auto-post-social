@@ -1,7 +1,8 @@
 # Plan 03b — Frontend core: api client + AuthContext + Login thật
 
 **Milestone:** M2.5
-**Trạng thái:** 🟡 (code + test xong, chờ smoke test với backend chạy thật)
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 02 (auth thật ở backend)
 **Spec:** `docs/04-api-spec.md` §1 (auth), `docs/05-rbac.md` §7
 

@@ -99,4 +99,8 @@ export class AppConfigService {
       maxPostPerSlot: this.get('MAX_POST_PER_SLOT'),
     };
   }
+
+  get monitor(): { stuckMinutes: number } {
+    return { stuckMinutes: this.get('MONITOR_STUCK_MINUTES') };
+  }
 }

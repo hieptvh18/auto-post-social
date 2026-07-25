@@ -1,7 +1,8 @@
 # Plan 11 — Content giai đoạn 2 (duyệt / ADS / phân bổ page) + Hashtag & Danh mục quick-update
 
 **Milestone:** M3 giai đoạn 2 (nối tiếp `plans/04-content-assets.md` §4 "Giai đoạn 2")
-**Trạng thái:** 🟡 đang làm
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** M3 giai đoạn 1, M4 (facebook-pages)
 **Spec:** `docs/03-database-design.md` §5, `docs/04-api-spec.md` §5, `docs/05-rbac.md` §3
 

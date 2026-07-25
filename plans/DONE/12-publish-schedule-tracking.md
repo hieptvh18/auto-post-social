@@ -1,7 +1,8 @@
 # Plan 12 — Lịch đăng bài (tracking lịch + tiến độ auto-post của mọi page)
 
 **Milestone:** thuộc M6 nhưng **làm trước engine** (chốt với user 2026-07-25)
-**Trạng thái:** 🟡
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 06 (slot CRUD), Plan 09 (manual-post ghi `publish_jobs`)
 **Spec liên quan:** `docs/02-architecture.md` §5.3, `docs/03-database-design.md` §7
 

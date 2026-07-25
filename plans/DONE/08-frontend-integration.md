@@ -1,7 +1,8 @@
 # Plan 08 — Dọn dẹp FE còn lại + nghiệm thu MVP end-to-end
 
 **Milestone:** M7
-**Trạng thái:** ⬜
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 03b–07 (mỗi milestone đã tự nối FE trang của nó)
 **Spec:** `docs/04-api-spec.md`, `docs/05-rbac.md` §7
 

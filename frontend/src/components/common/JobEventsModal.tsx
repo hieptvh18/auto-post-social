@@ -1,5 +1,5 @@
 import { Alert, Modal, Spin, Tag, Timeline, Typography } from 'antd';
-import { usePublishJobEvents } from '../../hooks/usePublishSchedule';
+import { usePublishJobEvents } from '../../hooks/usePublishJobs';
 import type { PublishJobEventType } from '../../types';
 
 const { Text } = Typography;

@@ -141,6 +141,15 @@ export class EnvVars {
   @IsInt()
   @Min(1)
   MAX_POST_PER_SLOT = 20;
+
+  /**
+   * Job `PUBLISHING` lâu hơn ngần này phút ⇒ màn Monitor coi là kẹt (worker
+   * chết giữa chừng). Chỉ để cảnh báo, không tự sửa trạng thái.
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  MONITOR_STUCK_MINUTES = 15;
 }
 
 /** Gom lỗi validate thành message nhiều dòng, dễ đọc trong log khởi động. */

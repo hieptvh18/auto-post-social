@@ -1,7 +1,8 @@
 # Plan 07 — Auto-Post Engine (cron picker + BullMQ + publisher + log DB)
 
 **Milestone:** M6 — **trọng tâm của MVP**
-**Trạng thái:** 🟡 code + test + smoke API xong 2026-07-25, chờ Page token để đăng thật
+**Trạng thái:** ✅ xong 2026-07-25 (chốt MVP — code + test xanh; phần smoke UI/đăng thật
+còn lại theo dõi ở `contexts.md` §6)
 **Phụ thuộc:** Plan 04 (content), Plan 06 (slots), Plan 09 (publisher client), Plan 12 (màn lịch)
 **Spec:** `docs/02-architecture.md` §5.3 §5.4 §6, `docs/03-database-design.md` §7,
 `docs/07-facebook-publisher.md`, `docs/08-bullmq.md`

@@ -6,15 +6,10 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { autoPostApi } from '../api/autoPost.api';
-import {
-  publishJobsApi,
-  publishScheduleApi,
-} from '../api/publishSchedule.api';
+import { publishScheduleApi } from '../api/publishSchedule.api';
 import type {
-  PublishJobEvent,
   PublishScheduleResponse,
   QueryPublishScheduleParams,
-  RetryJobResult,
   RunSlotResult,
 } from '../types';
 
@@ -32,33 +27,6 @@ export function usePublishSchedule(
     queryFn: () => publishScheduleApi.get(params),
     enabled,
     refetchInterval: REFETCH_INTERVAL_MS,
-  });
-}
-
-/** Nhật ký một job — chỉ nạp khi người dùng mở xem (job lỗi). */
-export function usePublishJobEvents(
-  jobId: string | null,
-): UseQueryResult<PublishJobEvent[]> {
-  return useQuery({
-    queryKey: [SCHEDULE_KEY, 'events', jobId],
-    queryFn: () => publishJobsApi.events(jobId as string),
-    enabled: jobId !== null,
-  });
-}
-
-/** Đăng lại một job đã thất bại — lịch và nhật ký phải nạp lại ngay sau đó. */
-export function useRetryPublishJob(): UseMutationResult<
-  RetryJobResult,
-  Error,
-  string
-> {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (jobId: string) => publishJobsApi.retry(jobId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [SCHEDULE_KEY] });
-      void queryClient.invalidateQueries({ queryKey: ['content-assets'] });
-    },
   });
 }
 

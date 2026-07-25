@@ -618,3 +618,107 @@ export interface RetryJobResult {
   status: PublishStatus;
   message: string;
 }
+
+/** Trang dữ liệu do backend cắt sẵn (`{ items, total, page, pageSize }`). */
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Một publish job trong response `GET /publish-jobs` (backend `PublishJobResponse`). */
+export interface PublishJobItem {
+  id: string;
+  status: PublishStatus;
+  contentAssetId: string;
+  contentTitle: string;
+  pageId: string;
+  pageName: string;
+  caption: string;
+  hashtags: string | null;
+  scheduleTime: string;
+  publishedAt: string | null;
+  facebookPostId: string | null;
+  errorMessage: string | null;
+  attemptCount: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** Query `GET /publish-jobs` — `date` = 1 ngày, `from`/`to` = khoảng ngày. */
+export interface QueryPublishJobsParams {
+  date?: string;
+  from?: string;
+  to?: string;
+  pageId?: string;
+  status?: PublishStatus;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** Số job trong BullMQ (Redis) — `null` khi không đọc được Redis. */
+export interface QueueCounts {
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+  completed: number;
+}
+
+/** Job kẹt ở PUBLISHING quá lâu ⇒ nghi worker chết giữa chừng. */
+export interface StuckJob {
+  id: string;
+  contentTitle: string;
+  pageName: string;
+  status: PublishStatus;
+  stuckMinutes: number;
+  updatedAt: string;
+}
+
+/** Response `GET /monitor/queue/summary`. */
+export interface QueueSummary {
+  queue: QueueCounts | null;
+  queueHealthy: boolean;
+  queueError: string | null;
+  /** Đếm theo trạng thái trong DB — lệch với `queue` là dấu hiệu Redis bị flush. */
+  db: Record<PublishStatus, number>;
+  stuck: StuckJob[];
+  stuckThresholdMinutes: number;
+  activeJobs: PublishJobItem[];
+  checkedAt: string;
+}
+
+/** Người thực hiện một thao tác trong audit log. */
+export interface AuditLogActor {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+}
+
+/** Một dòng `GET /audit-logs` (backend `AuditLogResponse`). */
+export interface AuditLogItem {
+  id: string;
+  action: string;
+  resource: string;
+  /** `null` = do Bot/cron làm. */
+  actor: AuditLogActor | null;
+  /** JSONB tự do, backend đã lọc secret thành `'***'`. */
+  beforeValue: unknown;
+  afterValue: unknown;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+/** Query `GET /audit-logs`. */
+export interface QueryAuditLogsParams {
+  action?: string;
+  userId?: string;
+  resource?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
