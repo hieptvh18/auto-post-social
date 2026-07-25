@@ -5,7 +5,47 @@
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
 **Cập nhật lần cuối:** 2026-07-25
-**Session gần nhất (mới nhất):** **Lịch đăng bài** (plan 12) — biến trang `/timeline`
+**Session gần nhất (mới nhất):** **Auto-post engine** (plan 07) — trái tim của MVP.
+Cron `@Cron('* * * * *', tz Asia/Ho_Chi_Minh)` chạy **trong chính process backend** (ADR-002,
+không phải crontab OS): mỗi phút lấy slot tới giờ → picker chọn bài (raw SQL theo docs/03 §7)
+→ tạo `publish_jobs` QUEUED + đẩy vào BullMQ `publish-facebook` (3 attempts, backoff mũ 60s)
+→ worker tải file Drive → Graph API → ghi kết quả. Hai module mới: `modules/auto-post/`
+(scheduler + `content-picker.repository` + `slot-run.{repository,service}` + `POST /auto-post/run-now`
+để chạy tay khỏi đợi mốc giờ) và `modules/publish-jobs/` (repository/service/executor/processor
++ `GET /publish-jobs`, `GET /publish-jobs/:id/events`). **Log vào DB 2 tầng theo yêu cầu user:**
+`slot_runs` mở rộng thành nhật ký cron (status/picked_count/job_created_count/skip_reason/
+started_at/finished_at/error_message — vẫn giữ UNIQUE chống double-fire) + bảng mới
+`publish_job_events` (attempt_no, event, message, `raw_error` jsonb đã lọc token) ⇒
+**migration `20260725122007_autopost_engine_logs`, `erd.md` đã cập nhật.** Đường đăng bài rút
+thành `PublishMediaService` dùng chung với đăng tay (plan 09) để không có 2 bản logic publish.
+`/timeline` hiện thêm lý do cron skip + modal "Xem nhật ký" của job. BE 452 test xanh (+41),
+FE 32 test cũ xanh, lint/build 2 phía xanh. **Đã smoke thật với DB+Redis** (page test token sai
+để không đăng nhầm lên page thật): tick tạo job đúng, gọi tick 2 lần cùng phút ⇒ chỉ 1 job,
+bài đang QUEUED ⇒ tick sau `SKIPPED/NO_CONTENT`, token sai ⇒ 3 lần thử rồi `GAVE_UP` + job FAILED
++ content tự về APPROVED; dữ liệu smoke đã xoá. **Chưa đăng thật lên Facebook** (thiếu Page token
+— §6 mục 10) và **chưa smoke UI thật**.
+**Bổ sung cùng ngày (yêu cầu user):** slot 22:00 chạy ra `SKIPPED/NO_CONTENT` mà UI không
+nói vì sao ⇒ thêm chẩn đoán "hết bài": `GET /auto-post-configs` trả `readyCount` +
+`readiness` (`READY`/`NO_ASSIGNMENT`/`NO_MATCH`/`PAUSED`, hàm thuần `auto-post/slot-readiness.ts`,
+phân biệt "chưa phân bổ bài cho page" với "có bài nhưng không khớp danh mục/media") +
+`lastRun` (lần cron gần nhất hôm nay). FE `/auto-post` thêm cột "Kho bài" + "Bot chạy hôm nay"
++ banner cảnh báo; `/timeline` đổi dòng chữ nhỏ thành tag + `Alert` nói rõ cách sửa, và phân
+biệt "chạy rồi nhưng hết bài" với "chưa từng chạy". Tách `ContentPickerModule`/`SlotRunModule`
+để tránh vòng phụ thuộc. BE 464 test xanh (+12).
+
+**Bổ sung cùng ngày (yêu cầu user) — đăng lại thủ công khi Bot bỏ qua:** retry tự động
+(3 lượt) hết lượt là job nằm im `FAILED`, mốc giờ bị bỏ qua thì không có đường chạy lại.
+Thêm 2 nút ở `/timeline`: **"Đăng lại"** từng job (`POST /publish-jobs/:id/retry`, quyền
+`jobs:retry` = ADMIN) và **"Chạy lại mốc này"** cho cả slot (`POST /auto-post/slots/:id/run-now`,
+quyền `autopost:manage`, chạy ngay không cần trùng phút). Chặn đăng trùng: job đang
+`QUEUED`/`PUBLISHING` ⇒ 409, bài đã đăng lên page đó ⇒ 409, page tạm dừng/xoá ⇒ 400; slot
+run-now vẫn qua `slot_runs` claim theo phút hiện tại. **Cạm bẫy đã xử lý:** bull job cũ còn
+trong Redis (`removeOnFail: false`) ⇒ phải `queue.remove` rồi add với jobId mới
+`publish-<id>-retry-<ts>`, nếu không BullMQ bỏ qua lặng lẽ. Audit action mới
+`PUBLISH_JOB_RETRY`. Không đụng schema ⇒ `erd.md` giữ nguyên. BE 485 test xanh (+21),
+FE 32 test cũ xanh, lint/build 2 phía xanh. **Chưa smoke UI thật.**
+
+**Session trước:** **Lịch đăng bài** (plan 12) — biến trang `/timeline`
 từ mock thành màn **tracking lịch + tiến độ đăng tự động của mọi page**, dữ liệu map
 thẳng từ "Cài đặt đăng bài tự động": mỗi mốc giờ (`auto_post_slots`) × page = một dòng
 lịch trong ngày, kèm kế hoạch (`postCount`) / đã đăng / đang chạy / lỗi / **kho còn bao
@@ -24,7 +64,7 @@ ra PENDING/NO_CONTENT đúng, filter page/status, date sai ⇒ 400, CONTENT ⇒ 
 kho"** → `/content?edit=<contentAssetId>`; `ContentManagementPage` đọc param này và mở
 luôn Drawer sửa bài đó (hook mới `useContentAsset`), xoá param ngay sau khi mở.
 
-**Session trước:** Theo yêu cầu user: (1) **Content giai đoạn 2** (plan 11,
+**Trước đó:** Theo yêu cầu user: (1) **Content giai đoạn 2** (plan 11,
 tiếp plan 04) — mở lại 3 khối UI đang bị ẩn ở "Quản lý Ảnh/Video Edit": **Phân bổ page**,
 **Trạng thái duyệt**, checkbox **Đạt ADS**, kèm backend thật: `PATCH /content-assets/:id`
 nhận `status`/`isAds`/`rejectComment`/`assignedPageIds`, transition tách ra hàm thuần
@@ -114,7 +154,7 @@ tài liệu cũ chưa cập nhật).
 | `plans/` | ✅ Hoàn thiện | 12 file plan feature + `_TEMPLATE.md` (2 file đã xong ở `plans/DONE/`) |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
 | `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). Các trang còn lại vẫn mock (`SettingsPage`, dashboard/audit/queue...). |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** xong. Còn **auto-post engine** (cron+queue+publisher, plan 07) |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -178,7 +218,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) 2026-07-24 + giai đoạn 2 (duyệt/isAds/phân bổ page/hashtag, plan 11) 2026-07-25 — code+test+smoke API xong, chờ smoke UI thật |
 | M4 — Facebook Pages + token crypto (+ nối FE PagePage) | 🟡 | code+test xong 2026-07-24, chờ smoke test UI thật |
 | M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | 🟡 | code+test+smoke API xong 2026-07-25, chờ smoke UI thật |
-| M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | 🟡 | FE "Lịch đăng bài" + API `GET /publish-schedule` xong 2026-07-25 (plan 12, chờ smoke UI); engine cron+queue+publisher (plan 07) chưa làm |
+| M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | 🟡 | FE "Lịch đăng bài" + `GET /publish-schedule` xong 2026-07-25 (plan 12); engine cron+queue+publisher + log DB xong 2026-07-25 (plan 07) — smoke API đủ, **chưa đăng thật lên FB** (thiếu Page token) |
 | M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | 🟡 | Users xong 2026-07-25 (chờ smoke UI); Settings + nghiệm thu end-to-end chưa làm |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
@@ -477,6 +517,50 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Còn nợ:** chưa smoke UI thật (§6 mục 14). Job tự động chỉ xuất hiện sau plan 07.
   `readyCount` chạy 1 query/slot — chấp nhận ở MVP.
 
+### Auto-post engine — cron picker + BullMQ + publisher + log DB (Plan 07) — 🟡 2026-07-25
+
+- **Phạm vi:** Bot tự đăng theo lịch. `AutoPostSchedulerService` `@Cron('* * * * *')` (tz VN,
+  tắt bằng `AUTOPOST_ENABLED`) → `findDueSlots('HH:mm')` → claim `slot_runs` → picker →
+  `publish_jobs` QUEUED + BullMQ (3 attempts, backoff mũ 60s) → `PublishExecutorService` đăng
+  qua Graph → ghi assignment + content `PUBLISHED`. Thêm `POST /auto-post/run-now` (chạy tay
+  1 nhịp), `GET /publish-jobs`, `GET /publish-jobs/:id/events`; `GET /publish-schedule` trả
+  thêm `slotRun`.
+- **File chính:** `backend/src/modules/auto-post/` (scheduler, `content-picker.repository.ts`,
+  `slot-run.{repository,service}.ts`, `auto-post-engine.controller.ts`),
+  `backend/src/modules/publish-jobs/` (`publish-jobs.{repository,service}.ts`,
+  `publish-executor.service.ts`, `publish-media.service.ts`, `publish-job-events.{repository,service}.ts`,
+  `publish-facebook.processor.ts`), `frontend/src/components/timeline/JobEventsModal.tsx`
+- **Quyết định:** (1) Đường đăng dùng chung tách thành **`PublishMediaService`** (Drive + chọn
+  ảnh/video + ghép caption), `ManualPostService` gọi lại — tránh 2 bản logic publish trôi khỏi
+  nhau; 11 test cũ của plan 09 xanh không sửa assertion. (2) **Không** set content → PUBLISHING
+  lúc tạo job (khác `docs/08` §1b): nằm trong queue chưa phải đang đăng; picker vẫn không chọn
+  lại nhờ mệnh đề loại job QUEUED. (3) Còn lượt retry ⇒ job quay về QUEUED (đi đúng cửa
+  idempotent), hết lượt ⇒ FAILED + content **recompute** từ assignments. (4) Thêm `run-now` để
+  nghiệm thu không phải đợi đúng mốc giờ — vẫn qua claim nên bấm nhiều lần không đăng trùng.
+- **Schema:** migration `20260725122007_autopost_engine_logs` — `slot_runs` +7 cột (nhật ký cron)
+  + index `(run_date,status)`; bảng mới `publish_job_events`; enum `SlotRunStatus`,
+  `PublishJobEventType`. `erd.md` đã cập nhật (sơ đồ + enum + index + ràng buộc + lịch sử).
+- **Test:** BE 452 test / 38 suite xanh (+41: scheduler 13 gồm double-fire, picker 6, slot-run
+  repository 4 gồm P2002, executor 11 gồm idempotent/retry, events + `sanitizeRawError` 7).
+  FE 32 test cũ xanh, lint/build 2 phía xanh. Smoke thật với DB+Redis bằng **page test token sai**
+  (cố ý không đăng lên page thật): tick → 1 job, tick lại cùng phút ⇒ `claimed=false`, bài đang
+  QUEUED ⇒ `SKIPPED/NO_CONTENT`, token sai ⇒ 3 lần thử → `GAVE_UP` + job FAILED + content về
+  APPROVED. Dữ liệu smoke đã xoá khỏi DB dev.
+- **Còn nợ:** chưa đăng thật lên Facebook (§6 mục 10); chưa smoke UI `/timeline` phần nhật ký;
+  chưa có reconciliation cron cho job kẹt `PUBLISHING` (ngoài scope MVP); đổi giờ slot giữa ngày
+  ⇒ dòng lịch giờ cũ mất `slotRun`.
+- **Bổ sung 2026-07-25 — đăng lại thủ công (plan 07 §10):** `POST /publish-jobs/:id/retry`
+  (`jobs:retry`, ADMIN) đưa job `FAILED`/`CANCELLED`/`SCHEDULED` về QUEUED + xếp lại BullMQ;
+  `POST /auto-post/slots/:slotId/run-now` (`autopost:manage`) chạy lại nguyên một mốc giờ ngay,
+  không cần trùng phút. Chặn đăng trùng: job đang QUEUED/PUBLISHING ⇒ 409, bài đã đăng lên page
+  đó ⇒ 409, page tạm dừng/xoá ⇒ 400; slot run-now vẫn qua `slot_runs` claim theo phút hiện tại.
+  **Bull job cũ còn trong Redis** (`removeOnFail:false`) nên phải `queue.remove` rồi add với
+  jobId mới `publish-<id>-retry-<ts>`, không thì BullMQ bỏ qua lặng lẽ. FE `/timeline` thêm nút
+  "Đăng lại" (mỗi job hỏng) + "Chạy lại mốc này" (dòng slot còn thiếu bài). Audit
+  `PUBLISH_JOB_RETRY`. Không đụng schema. BE 485 test xanh (+21). Chưa smoke UI thật.
+
+---
+
 ## 6. Việc đang dở / nợ kỹ thuật
 
 | # | Việc | Chi tiết |
@@ -497,6 +581,8 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | 14 | **Lịch đăng bài chưa smoke UI thật** | Code BE+FE xong (plan 12, BE 411 test xanh), đã smoke API qua curl (lịch hôm nay đúng 2 slot × page, bài đăng tay hiện tên user "System Admin", ngày mai ra PENDING/NO_CONTENT, filter page/status, `date=25-07-2026` ⇒ 400, CONTENT ⇒ 403). **Chưa test tay UI**: `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/timeline` — kiểm 4 ô thống kê, đổi ngày (hôm qua/mai), lọc theo page và theo trạng thái job, dòng đăng tay hiện tag "Đăng tay" + tên user, tắt 1 mốc giờ ở `/auto-post` rồi quay lại xem có báo "Đang tắt"/PAUSED, bấm "Xem/sửa bài
 trong kho" ở một job ⇒ sang `/content` và Drawer sửa đúng bài mở sẵn (đóng Drawer rồi F5
 không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
+| 15 | **Engine auto-post chưa đăng thật lên Facebook + chưa smoke UI** | Code BE+FE xong (plan 07, BE 464 test xanh), đã smoke đủ đường cron→job→worker→retry→FAILED bằng page test token sai. Khi có Page token thật (mục 10): tạo 1 slot sát giờ + 1 bài ảnh APPROVED đã gán page → chờ tới mốc (hoặc `POST /auto-post/run-now`) → job phải SUCCESS, assignment có `published_at` + `facebook_post_id`, content `PUBLISHED`, chạy lại slot trong ngày không đăng lại. UI: `/timeline` xem dòng "Bot đã chạy lúc …", lý do "kho không còn bài phù hợp", nút "Xem nhật ký" trên job. |
+| 16 | **Nút "Đăng lại" / "Chạy lại mốc này" chưa smoke UI thật** | Code BE+FE xong (plan 07 §10, BE 485 test xanh) nhưng **chưa bấm thử trên UI và chưa chạy với Redis thật**. Cần: tạo 1 job hỏng (page token sai) → `/timeline` bấm "Đăng lại" ⇒ job về QUEUED rồi worker chạy lại, nhật ký có dòng "Đăng lại thủ công bởi …"; bấm lại khi job đang QUEUED ⇒ báo 409; tắt page rồi bấm ⇒ báo 400. Với mốc giờ `MISSED`/`SKIPPED`: bấm "Chạy lại mốc này" ⇒ tạo job nếu kho có bài, bấm lần 2 trong cùng phút ⇒ cảnh báo "vừa chạy trong phút này". Đăng nhập EDITOR kiểm không thấy nút "Đăng lại" (chỉ ADMIN có `jobs:retry`). |
 | 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
 
 ---

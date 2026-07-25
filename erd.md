@@ -4,7 +4,7 @@
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
 **Cập nhật:** 2026-07-25
-**Migration tương ứng:** `20260725062013_content_assets_updated_by` (đã apply)
+**Migration tương ứng:** `20260725122007_autopost_engine_logs` (đã apply)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -25,6 +25,7 @@ erDiagram
     facebook_pages ||--o{ publish_jobs : targets
     facebook_pages ||--o{ auto_post_slots : schedules
     auto_post_slots ||--o{ slot_runs : "fired as"
+    publish_jobs ||--o{ publish_job_events : "logs attempts"
 
     users {
         uuid id PK
@@ -100,6 +101,13 @@ erDiagram
         uuid slot_id FK
         string run_date
         string run_time
+        enum status
+        int picked_count
+        int job_created_count
+        string skip_reason
+        timestamp started_at
+        timestamp finished_at
+        text error_message
         timestamp created_at
     }
 
@@ -119,6 +127,16 @@ erDiagram
         string created_by
         timestamp created_at
         timestamp updated_at
+    }
+
+    publish_job_events {
+        uuid id PK
+        uuid publish_job_id FK
+        int attempt_no
+        enum event
+        text message
+        jsonb raw_error
+        timestamp created_at
     }
 
     app_settings {
@@ -152,6 +170,8 @@ erDiagram
 | `SlotMediaType` | `image` · `video` · `all` | `auto_post_slots.media_type` |
 | `ContentStatus` | `PENDING_REVIEW` · `APPROVED` · `REJECTED` · `PUBLISHING` · `PUBLISHED` | `content_assets.status` |
 | `PublishStatus` | `SCHEDULED` · `QUEUED` · `PUBLISHING` · `SUCCESS` · `FAILED` · `CANCELLED` | `publish_jobs.status` |
+| `SlotRunStatus` | `CLAIMED` · `DONE` · `SKIPPED` · `ERROR` | `slot_runs.status` |
+| `PublishJobEventType` | `ENQUEUED` · `STARTED` · `SUCCEEDED` · `FAILED` · `RETRY_SCHEDULED` · `GAVE_UP` | `publish_job_events.event` |
 
 ---
 
@@ -168,7 +188,9 @@ erDiagram
 | `content_page_assignments` | **UNIQUE `(content_asset_id, facebook_page_id)`** | **Mỗi bài chỉ đăng 1 lần trên 1 page** |
 | `content_page_assignments` | `(facebook_page_id, published_at)` | Thống kê bài đã đăng theo page |
 | `auto_post_slots` | `(facebook_page_id, enabled)` | Cron quét slot đến giờ |
-| `slot_runs` | **UNIQUE `(slot_id, run_date, run_time)`** | **Chống cron double-fire (ADR-006)** |
+| `slot_runs` | **UNIQUE `(slot_id, run_date, run_time)`** | **Chống cron double-fire (ADR-006)** — claim bằng INSERT, bắt P2002 |
+| `slot_runs` | `(run_date, status)` | Xem nhật ký cron theo ngày / lọc slot bị SKIPPED–ERROR |
+| `publish_job_events` | `(publish_job_id, created_at)` | Đọc nhật ký từng lần thử của một job theo thứ tự thời gian |
 | `publish_jobs` | `status` · `schedule_time` | Queue monitor + timeline |
 | `publish_jobs` | `(content_asset_id, facebook_page_id)` | Kiểm tra job trùng trong picker |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
@@ -197,9 +219,14 @@ erDiagram
 | Secret trong `app_settings.value` luôn là ciphertext AES-256-GCM | `CryptoService`; API trả bản mask, không trả JSON gốc |
 | Không có bản ghi `app_settings` ⇒ đọc fallback từ `.env` | `SettingsService.getDriveConfig()` (ADR-014) |
 | `app_settings['google_drive'].value` có `authMode ∈ service_account \| oauth2` (plan 03c). Field mã hoá: `serviceAccountJsonEnc`, `oauthClientSecretEnc`, `oauthRefreshTokenEnc` | Không đổi cột DB (JSONB) — shape do `settings.types.ts` định nghĩa |
+| Một `slot_runs` = một lần cron chạm slot đó trong ngày. **Không có dòng nào = cron chưa chạy**, khác hẳn `SKIPPED` (cron chạy nhưng hết bài) | `SlotRunService.claim()/finish()` — INSERT rồi UPDATE cùng một hàng |
+| `slot_runs.status = SKIPPED` bắt buộc có `skip_reason`; `ERROR` bắt buộc có `error_message` | `SlotRunService.finish()` |
+| `publish_job_events.raw_error` **không được chứa access token** (đi qua `sanitizeRawError`) | `PublishJobEventsService.log()` — có unit test riêng |
+| `publish_job_events` là nhật ký kỹ thuật (retry, lỗi Graph); `audit_logs` là dấu vết nghiệp vụ (`AUTO_PUBLISH`, actor = Bot ⇒ `user_id = null`) | Hai đường ghi tách bạch, không nhồi stacktrace vào audit |
 
 **Cascade:** `content_page_assignments` xóa theo `content_assets`;
-`auto_post_slots` xóa theo `facebook_pages`. `publish_jobs` **không** cascade (giữ lịch sử).
+`auto_post_slots` xóa theo `facebook_pages`; `slot_runs` xóa theo `auto_post_slots`;
+`publish_job_events` xóa theo `publish_jobs`. `publish_jobs` **không** cascade (giữ lịch sử).
 
 ---
 
@@ -207,6 +234,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-07-25 | `20260725122007_autopost_engine_logs` | **Plan 07 (engine auto-post).** (1) Mở rộng `slot_runs` thành nhật ký cron: thêm `status` (enum `SlotRunStatus`), `picked_count`, `job_created_count`, `skip_reason`, `started_at`, `finished_at`, `error_message` + index `(run_date, status)`. UNIQUE cũ giữ nguyên vì vẫn là khoá chống double-fire. Lý do: trả lời được "tới giờ mà không đăng gì — vì hết bài, page tắt, hay cron không chạy?". (2) Bảng mới `publish_job_events` + enum `PublishJobEventType`: nhật ký từng lần thử đăng (attempt, event, message, `raw_error` jsonb đã lọc token), cascade theo `publish_jobs`. |
 | 2026-07-25 | `20260725062013_content_assets_updated_by` | Thêm cột `content_assets.updated_by` (uuid, nullable, FK → `users.id`) + quan hệ `ContentUpdater`. Lý do: trang "Quản lý Ảnh/Video Edit" cần tracking **ai sửa gần nhất** bên cạnh `created_by` (ai upload). Nullable vì dòng cũ không biết ai sửa; không index vì chưa có truy vấn lọc theo cột này. |
 | 2026-07-25 | `20260725033247_facebook_pages_deleted_at` | Thêm cột `facebook_pages.deleted_at` + index. Lý do: `remove()` trước đây chỉ set `is_active=false` mà `findMany()` không lọc ⇒ page bị xoá vẫn hiện trên UI; mà không thể lọc theo `is_active` vì cột đó mang nghĩa "tạm dừng". Tách hẳn 2 khái niệm. |
 | 2026-07-24 | (không migration) | Plan 03c: mở rộng **shape JSONB** `app_settings['google_drive']` thêm `authMode` + field OAuth2 (`oauthClientId/oauthClientSecretEnc/oauthRefreshTokenEnc/oauthAccountEmail`). Không đổi cột/bảng nên không tạo migration. |

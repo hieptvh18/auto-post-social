@@ -1,0 +1,115 @@
+import { Injectable } from '@nestjs/common';
+import {
+  ContentStatus,
+  Prisma,
+  type MediaType,
+} from '../../../generated/prisma/client';
+import { PrismaService } from '../../infra/prisma/prisma.service';
+
+/** Bài được picker chọn — chỉ những cột engine thực sự cần để tạo job và đăng. */
+export interface PickedContent {
+  id: string;
+  title: string;
+  caption: string;
+  hashtags: string | null;
+  mediaType: MediaType;
+  driveFileId: string;
+  mimeType: string | null;
+  updatedAt: Date;
+}
+
+/**
+ * Trần khi *đếm* bài sẵn sàng. Đếm bằng cách chạy lại đúng câu pick (bỏ LIMIT thật)
+ * để con số trên UI không bao giờ lệch với cái Bot chọn; ở quy mô MVP (vài trăm bài)
+ * chi phí không đáng kể, quá trần thì hiển thị "500+" là đủ nghĩa.
+ */
+const MAX_COUNT = 500;
+
+export interface PickForSlotParams {
+  facebookPageId: string;
+  categories: string[];
+  /** `'all'` nghĩa là không lọc theo loại media. */
+  mediaType: 'image' | 'video' | 'all';
+  limit: number;
+}
+
+/**
+ * Query chọn bài cho Bot — **hàm dễ sai nhất hệ thống** (picker sai ⇒ đăng lặp
+ * hoặc bỏ sót). Viết raw vì Prisma không diễn tả gọn `NOT EXISTS` + `= ANY`.
+ * Bám đúng `docs/03-database-design.md` §7.
+ */
+@Injectable()
+export class ContentPickerRepository {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Đếm bài **thực sự** đăng được cho mốc giờ này — cùng điều kiện với
+   * `pickForSlot`, chỉ bỏ `LIMIT`. Dùng cho cảnh báo "hết bài" trên UI: con số
+   * phải khớp tuyệt đối với cái Bot sẽ chọn, nếu không UI nói một đằng Bot làm
+   * một nẻo.
+   */
+  async countForSlot(
+    params: Omit<PickForSlotParams, 'limit'>,
+  ): Promise<number> {
+    const rows = await this.pickForSlot({ ...params, limit: MAX_COUNT });
+    return rows.length;
+  }
+
+  /**
+   * Bài đã phân bổ vào page và chưa đăng — **không** lọc theo danh mục/loại media.
+   * Dùng để nói đúng lý do khi hết bài: chưa phân bổ bài nào cho page, hay có
+   * phân bổ nhưng không khớp cấu hình của mốc giờ.
+   */
+  countAssignedPending(facebookPageId: string): Promise<number> {
+    return this.prisma.contentPageAssignment.count({
+      where: {
+        facebookPageId,
+        publishedAt: null,
+        contentAsset: {
+          status: {
+            in: [
+              ContentStatus.APPROVED,
+              ContentStatus.PUBLISHING,
+              ContentStatus.PUBLISHED,
+            ],
+          },
+        },
+      },
+    });
+  }
+
+  pickForSlot(params: PickForSlotParams): Promise<PickedContent[]> {
+    // Điều kiện media: 'all' ⇒ không lọc. Ghép bằng Prisma.sql để giữ tham số hoá.
+    const mediaFilter =
+      params.mediaType === 'all'
+        ? Prisma.empty
+        : Prisma.sql`AND c.media_type = ${params.mediaType}::"MediaType"`;
+
+    return this.prisma.$queryRaw<PickedContent[]>`
+      SELECT c.id,
+             c.title,
+             c.caption,
+             c.hashtags,
+             c.media_type   AS "mediaType",
+             c.drive_file_id AS "driveFileId",
+             c.mime_type    AS "mimeType",
+             c.updated_at   AS "updatedAt"
+        FROM content_assets c
+        JOIN content_page_assignments a
+          ON a.content_asset_id = c.id
+         AND a.facebook_page_id = ${params.facebookPageId}::uuid
+         AND a.published_at IS NULL
+       WHERE c.status IN ('APPROVED', 'PUBLISHING', 'PUBLISHED')
+         AND c.category = ANY(${params.categories}::text[])
+         ${mediaFilter}
+         AND NOT EXISTS (
+           SELECT 1 FROM publish_jobs j
+            WHERE j.content_asset_id = c.id
+              AND j.facebook_page_id = ${params.facebookPageId}::uuid
+              AND j.status IN ('QUEUED', 'PUBLISHING')
+         )
+       ORDER BY c.updated_at ASC
+       LIMIT ${params.limit}
+    `;
+  }
+}

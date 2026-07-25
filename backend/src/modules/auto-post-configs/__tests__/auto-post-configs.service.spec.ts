@@ -7,9 +7,16 @@ import type {
   AutoPostSlot,
   FacebookPage,
 } from '../../../../generated/prisma/client';
-import { SlotMediaType, UserRole } from '../../../../generated/prisma/client';
+import {
+  SlotMediaType,
+  UserRole,
+  type SlotRun,
+} from '../../../../generated/prisma/client';
 import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 import type { AppConfigService } from '../../../config/app-config.service';
+import type { ClockService } from '../../../infra/clock/clock.service';
+import type { ContentPickerRepository } from '../../auto-post/content-picker.repository';
+import type { SlotRunService } from '../../auto-post/slot-run.service';
 import type { CreateAuditLogData } from '../../audit/audit.repository';
 import type { AuditService } from '../../audit/audit.service';
 import { AuditAction } from '../../audit/audit.service';
@@ -72,7 +79,15 @@ describe('AutoPostConfigsService', () => {
     deleteSlot: jest.Mock<Promise<void>, [string]>;
   };
   let auditService: { log: jest.Mock<Promise<void>, [CreateAuditLogData]> };
+  let picker: {
+    countForSlot: jest.Mock<Promise<number>, [unknown]>;
+    countAssignedPending: jest.Mock<Promise<number>, [string]>;
+  };
+  let slotRuns: { findByRunDate: jest.Mock<Promise<SlotRun[]>, [string]> };
   let service: AutoPostConfigsService;
+
+  // 2026-07-25 17:00 giờ VN — cố định để `findByRunDate` luôn hỏi đúng một ngày.
+  const clock: ClockService = { now: () => new Date('2026-07-25T10:00:00Z') };
 
   beforeEach(() => {
     repository = {
@@ -89,11 +104,101 @@ describe('AutoPostConfigsService', () => {
       deleteSlot: jest.fn<Promise<void>, [string]>(),
     };
     auditService = { log: jest.fn<Promise<void>, [CreateAuditLogData]>() };
+    picker = {
+      countForSlot: jest.fn<Promise<number>, [unknown]>().mockResolvedValue(3),
+      countAssignedPending: jest
+        .fn<Promise<number>, [string]>()
+        .mockResolvedValue(3),
+    };
+    slotRuns = {
+      findByRunDate: jest
+        .fn<Promise<SlotRun[]>, [string]>()
+        .mockResolvedValue([]),
+    };
     service = new AutoPostConfigsService(
       repository as unknown as AutoPostConfigsRepository,
       auditService as unknown as AuditService,
-      { autoPost: { enabled: true, maxPostPerSlot: 20 } } as AppConfigService,
+      {
+        autoPost: { enabled: true, maxPostPerSlot: 20 },
+        timezone: 'Asia/Ho_Chi_Minh',
+      } as AppConfigService,
+      picker as unknown as ContentPickerRepository,
+      slotRuns as unknown as SlotRunService,
+      clock,
     );
+  });
+
+  describe('findAllConfigs — cảnh báo tình trạng kho', () => {
+    beforeEach(() => {
+      repository.findPagesWithSlots.mockResolvedValue([
+        makePage({ autopostEnabled: true, autoPostSlots: [makeSlot()] }),
+      ]);
+    });
+
+    it('slot hết bài và page chưa được phân bổ bài nào ⇒ readiness NO_ASSIGNMENT', async () => {
+      picker.countForSlot.mockResolvedValue(0);
+      picker.countAssignedPending.mockResolvedValue(0);
+
+      const [config] = await service.findAllConfigs();
+
+      expect(config.slots[0].readyCount).toBe(0);
+      expect(config.slots[0].readiness.status).toBe('NO_ASSIGNMENT');
+    });
+
+    it('page còn bài chờ nhưng không khớp mốc giờ ⇒ NO_MATCH', async () => {
+      picker.countForSlot.mockResolvedValue(0);
+      picker.countAssignedPending.mockResolvedValue(2);
+
+      const [config] = await service.findAllConfigs();
+
+      expect(config.slots[0].readiness.status).toBe('NO_MATCH');
+    });
+
+    it('còn bài khớp ⇒ READY kèm số bài sẵn sàng', async () => {
+      picker.countForSlot.mockResolvedValue(4);
+
+      const [config] = await service.findAllConfigs();
+
+      expect(config.slots[0].readiness.status).toBe('READY');
+      expect(config.slots[0].readyCount).toBe(4);
+    });
+
+    it('đếm bài theo đúng danh mục và loại media của từng mốc giờ', async () => {
+      await service.findAllConfigs();
+
+      expect(picker.countForSlot).toHaveBeenCalledWith({
+        facebookPageId: 'page-1',
+        categories: ['Cơ xương khớp'],
+        mediaType: 'all',
+      });
+    });
+
+    it('lần cron chạy gần nhất hôm nay được trả kèm; chưa chạy thì null', async () => {
+      const [before] = await service.findAllConfigs();
+      expect(before.slots[0].lastRun).toBeNull();
+
+      slotRuns.findByRunDate.mockResolvedValue([
+        {
+          id: 'run-1',
+          slotId: 'slot-1',
+          runDate: '2026-07-25',
+          runTime: '22:00',
+          status: 'SKIPPED',
+          pickedCount: 0,
+          jobCreatedCount: 0,
+          skipReason: 'NO_CONTENT',
+          startedAt: new Date('2026-07-25T15:00:00Z'),
+          finishedAt: new Date('2026-07-25T15:00:01Z'),
+          errorMessage: null,
+          createdAt: new Date('2026-07-25T15:00:00Z'),
+        },
+      ]);
+
+      const [after] = await service.findAllConfigs();
+
+      expect(after.slots[0].lastRun?.status).toBe('SKIPPED');
+      expect(after.slots[0].lastRun?.skipReason).toBe('NO_CONTENT');
+    });
   });
 
   describe('findAllConfigs', () => {

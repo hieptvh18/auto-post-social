@@ -61,6 +61,14 @@ export class AutoPostConfigsRepository {
     return this.prisma.autoPostSlot.findUnique({ where: { id: slotId } });
   }
 
+  /** Kèm page để engine kiểm được điều kiện chạy (tạm dừng / tắt auto / đã xoá). */
+  findSlotWithPage(slotId: string): Promise<SlotWithPage | null> {
+    return this.prisma.autoPostSlot.findUnique({
+      where: { id: slotId },
+      include: { facebookPage: true },
+    });
+  }
+
   /** Dùng để chặn 2 slot cùng page bắn cùng một lúc. */
   findSlotByPageAndTime(
     facebookPageId: string,

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ClockModule } from '../../infra/clock/clock.module';
 import { PrismaModule } from '../../infra/prisma/prisma.module';
 import { AutoPostConfigsModule } from '../auto-post-configs/auto-post-configs.module';
+import { SlotRunModule } from '../auto-post/slot-run.module';
 import { PublishScheduleController } from './publish-schedule.controller';
 import { PublishScheduleRepository } from './publish-schedule.repository';
 import { PublishScheduleService } from './publish-schedule.service';
@@ -11,7 +12,7 @@ import { PublishScheduleService } from './publish-schedule.service';
  * hình mốc giờ thay vì tự query `auto_post_slots` (một nguồn sự thật cho slot).
  */
 @Module({
-  imports: [PrismaModule, ClockModule, AutoPostConfigsModule],
+  imports: [PrismaModule, ClockModule, AutoPostConfigsModule, SlotRunModule],
   controllers: [PublishScheduleController],
   providers: [PublishScheduleRepository, PublishScheduleService],
 })

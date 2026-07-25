@@ -25,6 +25,7 @@ import type {
 import { FacebookGraphError } from '../../../infra/facebook/facebook.errors';
 import type { CreateAuditLogData } from '../../audit/audit.repository';
 import type { AuditService } from '../../audit/audit.service';
+import { PublishMediaService } from '../../publish-jobs/publish-media.service';
 import type { ContentAssetsRepository } from '../../content-assets/content-assets.repository';
 import type { FacebookPagesRepository } from '../../facebook-pages/facebook-pages.repository';
 import type { FacebookPagesService } from '../../facebook-pages/facebook-pages.service';
@@ -166,8 +167,12 @@ describe('ManualPostService', () => {
       contentRepository as unknown as ContentAssetsRepository,
       pagesRepository as unknown as FacebookPagesRepository,
       pagesService as unknown as FacebookPagesService,
-      driveFactory as unknown as DriveStorageFactory,
-      publisher as unknown as FacebookPublisherClient,
+      // PublishMediaService thật (đường đăng dùng chung với Bot) trên nền
+      // Drive/publisher mock — giữ nguyên các assertion về input gửi lên Graph.
+      new PublishMediaService(
+        driveFactory as unknown as DriveStorageFactory,
+        publisher as unknown as FacebookPublisherClient,
+      ),
       auditService as unknown as AuditService,
     );
   });

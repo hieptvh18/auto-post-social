@@ -189,6 +189,31 @@ export interface AutoPostConfig {
   slots: AutoPostSlot[];
 }
 
+/** Vì sao mốc giờ này đăng được / không đăng được (backend `SlotReadiness`). */
+export type SlotReadinessStatus =
+  | 'READY'
+  | 'NO_ASSIGNMENT'
+  | 'NO_MATCH'
+  | 'PAUSED';
+
+export interface SlotReadiness {
+  status: SlotReadinessStatus;
+  /** Câu giải thích + cách sửa, hiển thị thẳng lên UI. `null` khi READY. */
+  message: string | null;
+}
+
+/** Lần cron gần nhất chạm mốc giờ này trong hôm nay. */
+export interface SlotLastRun {
+  status: SlotRunStatus;
+  runDate: string;
+  runTime: string;
+  pickedCount: number;
+  jobCreatedCount: number;
+  skipReason: string | null;
+  errorMessage: string | null;
+  startedAt: string;
+}
+
 /** Response slot từ backend (`AutoPostSlotResponse`). */
 export interface AutoPostSlotResponse {
   id: string;
@@ -200,6 +225,11 @@ export interface AutoPostSlotResponse {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Số bài trong kho đăng được cho mốc này (đúng điều kiện picker của Bot). */
+  readyCount: number;
+  readiness: SlotReadiness;
+  /** `null` = hôm nay cron chưa chạy mốc này. */
+  lastRun: SlotLastRun | null;
 }
 
 /** Response `GET /auto-post-configs` (backend `AutoPostConfigResponse`). */
@@ -285,6 +315,20 @@ export interface ScheduleJob {
   isManual: boolean;
 }
 
+/** Trạng thái một lần cron chạm mốc giờ (backend `SlotRunStatus`). */
+export type SlotRunStatus = 'CLAIMED' | 'DONE' | 'SKIPPED' | 'ERROR';
+
+/** Dấu vết cron đã chạy mốc giờ này trong ngày (backend `SlotRunSummary`). */
+export interface SlotRunSummary {
+  status: SlotRunStatus;
+  pickedCount: number;
+  jobCreatedCount: number;
+  skipReason: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  errorMessage: string | null;
+}
+
 /** Một mốc giờ của một page trong ngày (backend `ScheduleItemResponse`). */
 export interface ScheduleItem {
   key: string;
@@ -305,6 +349,8 @@ export interface ScheduleItem {
   runningCount: number;
   readyCount: number | null;
   progress: SlotProgress;
+  /** `null` = cron chưa chạy mốc này (khác `status: 'SKIPPED'` = chạy nhưng hết bài). */
+  slotRun: SlotRunSummary | null;
   publishers: string[];
   jobs: ScheduleJob[];
 }
@@ -535,4 +581,40 @@ export interface UpdateContentAssetBody {
   rejectComment?: string;
   /** Gửi lên là thay thế toàn bộ phân bổ — backend tự diff. */
   assignedPageIds?: string[];
+}
+
+/** Loại sự kiện trong nhật ký kỹ thuật của publish job (backend `PublishJobEventType`). */
+export type PublishJobEventType =
+  | 'ENQUEUED'
+  | 'STARTED'
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'RETRY_SCHEDULED'
+  | 'GAVE_UP';
+
+/** Một dòng nhật ký của job (`GET /publish-jobs/:id/events`). */
+export interface PublishJobEvent {
+  id: string;
+  attemptNo: number;
+  event: PublishJobEventType;
+  message: string | null;
+  rawError: unknown;
+  createdAt: string;
+}
+
+/** Kết quả `POST /auto-post/slots/:slotId/run-now` — chạy lại một mốc giờ. */
+export interface RunSlotResult {
+  slotId: string;
+  /** `false` = phút này mốc đó đã chạy rồi (chống chạy trùng), không tạo job mới. */
+  claimed: boolean;
+  pickedCount: number;
+  jobCreatedCount: number;
+  skipReason?: string;
+}
+
+/** Kết quả `POST /publish-jobs/:id/retry`. */
+export interface RetryJobResult {
+  jobId: string;
+  status: PublishStatus;
+  message: string;
 }

@@ -44,6 +44,24 @@ enum PublishStatus {
   CANCELLED
 }
 
+/// Kết quả một lần cron chạm một slot (plan 07 §4.3).
+enum SlotRunStatus {
+  CLAIMED // đã giành quyền chạy, chưa đóng sổ
+  DONE // đã tạo job
+  SKIPPED // không tạo job nào, lý do ở skip_reason
+  ERROR // hỏng giữa chừng, lý do ở error_message
+}
+
+/// Nhật ký kỹ thuật từng lần thử đăng của một publish job (plan 07 §4.3).
+enum PublishJobEventType {
+  ENQUEUED
+  STARTED
+  SUCCEEDED
+  FAILED
+  RETRY_SCHEDULED
+  GAVE_UP
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -162,17 +180,27 @@ model AutoPostSlot {
   @@map("auto_post_slots")
 }
 
-/// Chống cron double-fire (ADR-006). Claim bằng INSERT, bắt unique violation.
+/// Chống cron double-fire (ADR-006) **và** nhật ký mỗi lần cron chạm slot (plan 07 §4.3).
+/// Cùng một hàng: INSERT để giành quyền chạy, UPDATE để đóng sổ kết quả — không tách
+/// bảng log riêng để khỏi có 2 đường ghi lệch nhau.
 model SlotRun {
-  id        String   @id @default(uuid()) @db.Uuid
-  slotId    String   @map("slot_id") @db.Uuid
-  runDate   String   @map("run_date") // 'YYYY-MM-DD' theo Asia/Ho_Chi_Minh
-  runTime   String   @map("run_time") // 'HH:mm'
-  createdAt DateTime @default(now()) @map("created_at")
+  id              String        @id @default(uuid()) @db.Uuid
+  slotId          String        @map("slot_id") @db.Uuid
+  runDate         String        @map("run_date") // 'YYYY-MM-DD' theo Asia/Ho_Chi_Minh
+  runTime         String        @map("run_time") // 'HH:mm'
+  status          SlotRunStatus @default(CLAIMED)
+  pickedCount     Int           @default(0) @map("picked_count")
+  jobCreatedCount Int           @default(0) @map("job_created_count")
+  skipReason      String?       @map("skip_reason") // NO_CONTENT | PAGE_PAUSED | TOKEN_MISSING...
+  startedAt       DateTime      @default(now()) @map("started_at")
+  finishedAt      DateTime?     @map("finished_at")
+  errorMessage    String?       @map("error_message") @db.Text
+  createdAt       DateTime      @default(now()) @map("created_at")
 
   slot AutoPostSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
 
   @@unique([slotId, runDate, runTime])
+  @@index([runDate, status])
   @@map("slot_runs")
 }
 
@@ -193,13 +221,32 @@ model PublishJob {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id])
-  facebookPage FacebookPage @relation(fields: [facebookPageId], references: [id])
+  contentAsset ContentAsset       @relation(fields: [contentAssetId], references: [id])
+  facebookPage FacebookPage       @relation(fields: [facebookPageId], references: [id])
+  events       PublishJobEvent[]
 
   @@index([status])
   @@index([scheduleTime])
   @@index([contentAssetId, facebookPageId])
   @@map("publish_jobs")
+}
+
+/// Nhật ký kỹ thuật của publish job: mỗi lần thử đăng ghi lại đã tới bước nào,
+/// hỏng vì sao. Khác `audit_logs` (dấu vết nghiệp vụ, ai làm gì).
+/// `raw_error` PHẢI đi qua hàm lọc trước khi ghi — không được chứa access token.
+model PublishJobEvent {
+  id           String              @id @default(uuid()) @db.Uuid
+  publishJobId String              @map("publish_job_id") @db.Uuid
+  attemptNo    Int                 @map("attempt_no")
+  event        PublishJobEventType
+  message      String?             @db.Text
+  rawError     Json?               @map("raw_error")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  publishJob PublishJob @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+
+  @@index([publishJobId, createdAt])
+  @@map("publish_job_events")
 }
 
 /// Cấu hình động sửa được từ UI "Cài đặt chung" (ADR-014).

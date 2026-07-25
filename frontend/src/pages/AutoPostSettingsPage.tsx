@@ -49,6 +49,7 @@ import type {
   AutoPostConfigResponse,
   AutoPostSlot,
   AutoPostSlotResponse,
+  SlotReadinessStatus,
   SlotMediaType,
 } from '../types';
 import { SLOT_MEDIA_TYPE_LABELS } from '../utils/constants';
@@ -231,6 +232,18 @@ function RealAutoPostSettingsPage() {
       align: 'center',
     },
     {
+      title: 'Kho bài',
+      key: 'readiness',
+      width: 190,
+      render: (_, slot) => <SlotReadinessCell slot={slot} />,
+    },
+    {
+      title: 'Bot chạy hôm nay',
+      key: 'lastRun',
+      width: 190,
+      render: (_, slot) => <SlotLastRunCell slot={slot} />,
+    },
+    {
       title: 'Bật',
       dataIndex: 'enabled',
       width: 80,
@@ -380,13 +393,16 @@ function RealAutoPostSettingsPage() {
                   description="Chưa có mốc giờ nào — thêm mốc giờ để bot bắt đầu đăng"
                 />
               ) : (
-                <Table
-                  rowKey="id"
-                  size="small"
-                  columns={slotColumns}
-                  dataSource={config.slots}
-                  pagination={false}
-                />
+                <>
+                  <PageReadinessAlert slots={config.slots} />
+                  <Table
+                    rowKey="id"
+                    size="small"
+                    columns={slotColumns}
+                    dataSource={config.slots}
+                    pagination={false}
+                  />
+                </>
               )}
             </Card>
           ))}
@@ -411,6 +427,106 @@ function RealAutoPostSettingsPage() {
         onClose={() => setManualPost(null)}
       />
     </div>
+  );
+}
+
+/* ──────────────────── Tình trạng kho & nhật ký cron ──────────────────── */
+
+/**
+ * Cảnh báo gộp ở đầu mỗi page: tới giờ mà kho trống thì Bot im lặng bỏ qua, nên
+ * phải nói trước ngay tại chỗ admin cấu hình, kèm đúng việc cần làm để sửa.
+ */
+function PageReadinessAlert({ slots }: { slots: AutoPostSlotResponse[] }) {
+  const blocked = slots.filter(
+    (slot) =>
+      slot.enabled &&
+      (slot.readiness.status === 'NO_ASSIGNMENT' ||
+        slot.readiness.status === 'NO_MATCH'),
+  );
+  if (blocked.length === 0) return null;
+
+  const times = blocked.map((slot) => slot.time).join(', ');
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      style={{ marginBottom: 12 }}
+      message={`${blocked.length} mốc giờ sẽ bị bỏ qua vì không có bài phù hợp: ${times}`}
+      description={blocked[0].readiness.message}
+    />
+  );
+}
+
+const READINESS_COLORS: Record<SlotReadinessStatus, string> = {
+  READY: 'green',
+  NO_ASSIGNMENT: 'red',
+  NO_MATCH: 'orange',
+  PAUSED: 'default',
+};
+
+const READINESS_LABELS: Record<SlotReadinessStatus, string> = {
+  READY: 'Sẵn sàng',
+  NO_ASSIGNMENT: 'Chưa phân bổ bài',
+  NO_MATCH: 'Không khớp danh mục',
+  PAUSED: 'Đang tắt',
+};
+
+/**
+ * Cho biết mốc giờ này tới giờ có đăng được không **trước khi** tới giờ — chứ
+ * không để admin ngồi đợi rồi mới phát hiện kho trống.
+ */
+function SlotReadinessCell({ slot }: { slot: AutoPostSlotResponse }) {
+  const { status, message } = slot.readiness;
+
+  return (
+    <Tooltip title={message ?? undefined}>
+      <Space direction="vertical" size={0}>
+        <Tag color={READINESS_COLORS[status]} style={{ marginInlineEnd: 0 }}>
+          {status === 'READY'
+            ? `${slot.readyCount} bài sẵn sàng`
+            : READINESS_LABELS[status]}
+        </Tag>
+        {status !== 'READY' && status !== 'PAUSED' && (
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            Bot sẽ bỏ qua mốc này
+          </Text>
+        )}
+      </Space>
+    </Tooltip>
+  );
+}
+
+/** Lần cron gần nhất trong ngày — "không có dòng nào" nghĩa là chưa tới lượt chạy. */
+function SlotLastRunCell({ slot }: { slot: AutoPostSlotResponse }) {
+  const run = slot.lastRun;
+  if (run === null) {
+    return (
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        Chưa chạy hôm nay
+      </Text>
+    );
+  }
+  if (run.status === 'SKIPPED') {
+    return (
+      <Tooltip title="Bot có chạy đúng giờ nhưng không tìm được bài phù hợp">
+        <Tag color="orange">
+          {run.runTime} · bỏ qua
+          {run.skipReason === 'NO_CONTENT' ? ' (hết bài)' : ''}
+        </Tag>
+      </Tooltip>
+    );
+  }
+  if (run.status === 'ERROR') {
+    return (
+      <Tooltip title={run.errorMessage ?? undefined}>
+        <Tag color="red">{run.runTime} · lỗi</Tag>
+      </Tooltip>
+    );
+  }
+  return (
+    <Tag color="green">
+      {run.runTime} · tạo {run.jobCreatedCount} job
+    </Tag>
   );
 }
 

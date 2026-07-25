@@ -22,6 +22,10 @@ export const AuditAction = {
   AUTOPOST_SLOT_UPDATE: 'AUTOPOST_SLOT_UPDATE',
   AUTOPOST_SLOT_DELETE: 'AUTOPOST_SLOT_DELETE',
   MANUAL_PUBLISH: 'MANUAL_PUBLISH',
+  /** Bot đăng tự động — actor là Bot nên `userId = null`. */
+  AUTO_PUBLISH: 'AUTO_PUBLISH',
+  /** Người dùng bấm "Đăng lại" cho một job đã hỏng ở màn Lịch đăng bài. */
+  PUBLISH_JOB_RETRY: 'PUBLISH_JOB_RETRY',
 } as const;
 
 @Injectable()

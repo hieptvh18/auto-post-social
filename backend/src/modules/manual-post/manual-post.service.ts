@@ -6,17 +6,16 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { Readable } from 'node:stream';
-import { MediaType, type ContentAsset } from '../../../generated/prisma/client';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
-import { DriveStorageFactory } from '../../infra/drive/drive-storage.factory';
-import { FacebookPublisherClient } from '../../infra/facebook/facebook-publisher.client';
 import type { PublishResult } from '../../infra/facebook/facebook-publisher.interface';
-import { FacebookGraphError } from '../../infra/facebook/facebook.errors';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { ContentAssetsRepository } from '../content-assets/content-assets.repository';
 import { FacebookPagesRepository } from '../facebook-pages/facebook-pages.repository';
 import { FacebookPagesService } from '../facebook-pages/facebook-pages.service';
+import {
+  PublishMediaService,
+  describePublishError,
+} from '../publish-jobs/publish-media.service';
 import type { CreateManualPostDto } from './dto/create-manual-post.dto';
 import { ManualPostRepository } from './manual-post.repository';
 
@@ -31,14 +30,6 @@ export interface ManualPostResult {
   message: string;
 }
 
-const EXTENSION_BY_MIME: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'video/quicktime': 'mov',
-};
-
 @Injectable()
 export class ManualPostService {
   private readonly logger = new Logger(ManualPostService.name);
@@ -48,8 +39,7 @@ export class ManualPostService {
     private readonly contentRepository: ContentAssetsRepository,
     private readonly pagesRepository: FacebookPagesRepository,
     private readonly pagesService: FacebookPagesService,
-    private readonly driveFactory: DriveStorageFactory,
-    private readonly publisher: FacebookPublisherClient,
+    private readonly publishMedia: PublishMediaService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -88,7 +78,6 @@ export class ManualPostService {
     }
 
     const token = await this.pagesService.getDecryptedToken(page.id);
-    const message = buildMessage(dto.caption, dto.hashtags);
 
     const job = await this.repository.createPublishingJob({
       contentAssetId: content.id,
@@ -100,24 +89,16 @@ export class ManualPostService {
 
     let published: PublishResult;
     try {
-      const buffer = await this.downloadFromDrive(content.driveFileId);
-      const input = {
+      // Đường đăng dùng chung với Bot tự động (plan 07) — không copy logic ra đây.
+      published = await this.publishMedia.publish({
+        content,
         pageId: page.pageId,
         accessToken: token,
-        message,
-        file: {
-          buffer,
-          filename: buildFilename(content),
-          mimeType: content.mimeType ?? defaultMime(content.mediaType),
-        },
-      };
-
-      published =
-        content.mediaType === MediaType.video
-          ? await this.publisher.publishVideo(input)
-          : await this.publisher.publishImage(input);
+        caption: dto.caption,
+        hashtags: dto.hashtags,
+      });
     } catch (error) {
-      const reason = describeError(error);
+      const reason = describePublishError(error);
       await this.repository.markFailed(job.id, reason);
       this.logger.error(
         `Đăng thủ công thất bại: job=${job.id} content=${content.id} page=${page.id} — ${reason}`,
@@ -156,45 +137,4 @@ export class ManualPostService {
       message: `Đã đăng "${content.title}" lên page "${page.pageName}"`,
     };
   }
-
-  private async downloadFromDrive(fileId: string): Promise<Buffer> {
-    const storage = await this.driveFactory.get();
-    const stream = await storage.createReadStream(fileId);
-    return collectStream(stream);
-  }
-}
-
-/** Hashtag đặt xuống dòng riêng cho dễ đọc trên Facebook. */
-function buildMessage(caption: string, hashtags?: string): string {
-  const tags = hashtags?.trim();
-  return tags === undefined || tags === '' ? caption : `${caption}\n\n${tags}`;
-}
-
-function buildFilename(content: ContentAsset): string {
-  const ext =
-    (content.mimeType === null
-      ? undefined
-      : EXTENSION_BY_MIME[content.mimeType]) ??
-    (content.mediaType === MediaType.video ? 'mp4' : 'jpg');
-  return `${content.id}.${ext}`;
-}
-
-function defaultMime(mediaType: MediaType): string {
-  return mediaType === MediaType.video ? 'video/mp4' : 'image/jpeg';
-}
-
-/** Lỗi domain (Graph/Drive) đã có message tiếng Việt; lỗi lạ thì nói chung chung. */
-function describeError(error: unknown): string {
-  if (error instanceof FacebookGraphError) return error.message;
-  if (error instanceof BadRequestException) return error.message;
-  if (error instanceof Error && error.message !== '') return error.message;
-  return 'Đăng bài thất bại vì lỗi không xác định';
-}
-
-async function collectStream(stream: Readable): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
-  }
-  return Buffer.concat(chunks);
 }

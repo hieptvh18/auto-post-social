@@ -2,6 +2,7 @@ import type {
   AutoPostConfigResponse,
   AutoPostSlotResponse,
   CreateAutoPostSlotBody,
+  RunSlotResult,
   UpdateAutoPostConfigResponse,
   UpdateAutoPostSlotBody,
 } from '../types';
@@ -45,5 +46,12 @@ export const autoPostApi = {
 
   removeSlot(slotId: string): Promise<void> {
     return apiRequest<void>(`/auto-post-slots/${slotId}`, { method: 'DELETE' });
+  },
+
+  /** POST /auto-post/slots/:slotId/run-now — chạy lại ngay một mốc giờ bị bỏ qua. */
+  runSlotNow(slotId: string): Promise<RunSlotResult> {
+    return apiRequest<RunSlotResult>(`/auto-post/slots/${slotId}/run-now`, {
+      method: 'POST',
+    });
   },
 };

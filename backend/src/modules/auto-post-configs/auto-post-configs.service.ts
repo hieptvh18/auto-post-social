@@ -4,15 +4,24 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { AutoPostSlot } from '../../../generated/prisma/client';
+import {
+  SlotMediaType,
+  type AutoPostSlot,
+} from '../../../generated/prisma/client';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
+import { todayInTz } from '../../common/utils/datetime.util';
 import { AppConfigService } from '../../config/app-config.service';
+import { ClockService } from '../../infra/clock/clock.service';
 import { AuditAction, AuditService } from '../audit/audit.service';
+import { ContentPickerRepository } from '../auto-post/content-picker.repository';
+import { resolveSlotReadiness } from '../auto-post/slot-readiness';
+import { SlotRunService } from '../auto-post/slot-run.service';
 import {
   toAutoPostConfigResponse,
   toAutoPostSlotResponse,
   type AutoPostConfigResponse,
   type AutoPostSlotResponse,
+  type SlotEnrichment,
 } from './auto-post-config.mapper';
 import {
   AutoPostConfigsRepository,
@@ -37,11 +46,52 @@ export class AutoPostConfigsService {
     private readonly repository: AutoPostConfigsRepository,
     private readonly auditService: AuditService,
     private readonly appConfig: AppConfigService,
+    private readonly picker: ContentPickerRepository,
+    private readonly slotRuns: SlotRunService,
+    private readonly clock: ClockService,
   ) {}
 
+  /**
+   * Kèm theo cấu hình còn trả **tình trạng kho** của từng mốc giờ và **lần cron
+   * chạy gần nhất hôm nay**. Không có hai thứ này thì admin bật auto xong ngồi
+   * đợi mà không biết vì sao Bot im lặng (đúng tình huống 2026-07-25: slot đúng
+   * giờ nhưng bài chưa được phân bổ page ⇒ SKIPPED/NO_CONTENT).
+   */
   async findAllConfigs(): Promise<AutoPostConfigResponse[]> {
     const pages = await this.repository.findPagesWithSlots();
-    return pages.map(toAutoPostConfigResponse);
+    const today = todayInTz(this.clock.now(), this.appConfig.timezone);
+    const runs = await this.slotRuns.findByRunDate(today);
+    const runBySlotId = new Map(runs.map((run) => [run.slotId, run]));
+
+    const configs: AutoPostConfigResponse[] = [];
+    for (const page of pages) {
+      const enrichments = new Map<string, SlotEnrichment>();
+      // Đếm 1 lần cho cả page: số bài chờ ở page không phụ thuộc mốc giờ.
+      const assignedPendingCount = await this.picker.countAssignedPending(
+        page.id,
+      );
+
+      for (const slot of page.autoPostSlots) {
+        const readyCount = await this.picker.countForSlot({
+          facebookPageId: page.id,
+          categories: slot.categories,
+          mediaType: toPickerMediaType(slot.mediaType),
+        });
+        enrichments.set(slot.id, {
+          readyCount,
+          readiness: resolveSlotReadiness({
+            readyCount,
+            assignedPendingCount,
+            slotEnabled: slot.enabled,
+            pageAutopostEnabled: page.autopostEnabled,
+            pageIsActive: page.isActive,
+          }),
+          lastRun: runBySlotId.get(slot.id) ?? null,
+        });
+      }
+      configs.push(toAutoPostConfigResponse(page, enrichments));
+    }
+    return configs;
   }
 
   async setEnabled(
@@ -213,4 +263,12 @@ export class AutoPostConfigsService {
     }
     return slot;
   }
+}
+
+function toPickerMediaType(
+  mediaType: SlotMediaType,
+): 'image' | 'video' | 'all' {
+  if (mediaType === SlotMediaType.image) return 'image';
+  if (mediaType === SlotMediaType.video) return 'video';
+  return 'all';
 }

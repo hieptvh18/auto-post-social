@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PublishStatus } from '../../../generated/prisma/client';
+import { PublishStatus, type SlotRun } from '../../../generated/prisma/client';
 import { AppConfigService } from '../../config/app-config.service';
 import {
   dayRangeUtc,
@@ -12,14 +12,17 @@ import {
   AutoPostConfigsRepository,
   type PageWithSlots,
 } from '../auto-post-configs/auto-post-configs.repository';
+import { SlotRunService } from '../auto-post/slot-run.service';
 import type { QueryPublishScheduleDto } from './dto/query-publish-schedule.dto';
 import {
   BOT_PUBLISHER,
   toScheduleJobResponse,
+  toSlotRunSummary,
   type PublishScheduleResponse,
   type PublishScheduleSummary,
   type ScheduleItemResponse,
   type ScheduleJobResponse,
+  type SlotRunSummary,
 } from './publish-schedule.mapper';
 import {
   PublishScheduleRepository,
@@ -43,6 +46,7 @@ export class PublishScheduleService {
   constructor(
     private readonly repository: PublishScheduleRepository,
     private readonly configsRepository: AutoPostConfigsRepository,
+    private readonly slotRuns: SlotRunService,
     private readonly clock: ClockService,
     private readonly config: AppConfigService,
   ) {}
@@ -55,10 +59,14 @@ export class PublishScheduleService {
     const date = query.date ?? todayInTz(now, timezone);
     const { from, to } = dayRangeUtc(date, timezone);
 
-    const [pages, jobRows] = await Promise.all([
+    const [pages, jobRows, slotRuns] = await Promise.all([
       this.configsRepository.findPagesWithSlots(),
       this.repository.findJobsInRange(from, to, query.pageId),
+      this.slotRuns.findByRunDate(date),
     ]);
+    // Một slot chạy nhiều lần trong ngày (nhiều mốc giờ khác nhau thì khác slot,
+    // nhưng slot bị đổi giờ có thể có 2 dòng) — lấy lần chạy gần nhất.
+    const runBySlotId = new Map(slotRuns.map((run) => [run.slotId, run]));
 
     const visiblePages =
       query.pageId === undefined
@@ -74,6 +82,7 @@ export class PublishScheduleService {
       date,
       now,
       timezone,
+      runBySlotId,
     );
     const looseItems = this.buildLooseItems(
       jobRows.filter((row) => !claimedJobIds.has(row.id)),
@@ -95,6 +104,7 @@ export class PublishScheduleService {
     date: string,
     now: Date,
     timezone: string,
+    runBySlotId: Map<string, SlotRun>,
   ): Promise<ScheduleItemResponse[]> {
     const items: ScheduleItemResponse[] = [];
 
@@ -140,6 +150,7 @@ export class PublishScheduleService {
             slotPassed: hasSlotTimePassed(date, slot.time, now, timezone),
             runnable,
           }),
+          slotRun: mapSlotRun(runBySlotId.get(slot.id)),
           ...countJobs(jobs),
           publishers: distinctPublishers(jobs),
           jobs,
@@ -197,12 +208,17 @@ export class PublishScheduleService {
           slotPassed: true,
           runnable: true,
         }),
+        slotRun: null,
         ...counts,
         publishers: distinctPublishers(jobs),
         jobs,
       };
     });
   }
+}
+
+function mapSlotRun(run: SlotRun | undefined): SlotRunSummary | null {
+  return run === undefined ? null : toSlotRunSummary(run);
 }
 
 function countJobs(jobs: ScheduleJobResponse[]): {

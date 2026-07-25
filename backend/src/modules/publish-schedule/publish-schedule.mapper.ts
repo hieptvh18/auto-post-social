@@ -2,6 +2,8 @@ import type {
   MediaType,
   PublishStatus,
   SlotMediaType,
+  SlotRun,
+  SlotRunStatus,
 } from '../../../generated/prisma/client';
 import type { ScheduleJobRow } from './publish-schedule.repository';
 import type { SlotProgress } from './schedule-progress';
@@ -30,6 +32,17 @@ export interface ScheduleJobResponse {
   isManual: boolean;
 }
 
+/** Dấu vết cron đã chạm mốc giờ này trong ngày (`slot_runs`, plan 07). */
+export interface SlotRunSummary {
+  status: SlotRunStatus;
+  pickedCount: number;
+  jobCreatedCount: number;
+  skipReason: string | null;
+  startedAt: Date;
+  finishedAt: Date | null;
+  errorMessage: string | null;
+}
+
 export interface ScheduleItemResponse {
   /** Khoá ổn định cho UI: `slot:<id>` hoặc `manual:<pageId>:<HH:mm>`. */
   key: string;
@@ -52,6 +65,11 @@ export interface ScheduleItemResponse {
   /** Bài trong kho còn dùng được cho mốc này — `null` với item đăng tay. */
   readyCount: number | null;
   progress: SlotProgress;
+  /**
+   * `null` = cron **chưa chạy** mốc này (khác hẳn `status: SKIPPED` = có chạy
+   * nhưng không tạo job nào, lý do ở `skipReason`).
+   */
+  slotRun: SlotRunSummary | null;
   /** Danh sách người đăng thực tế của các job trong mốc này (không trùng lặp). */
   publishers: string[];
   jobs: ScheduleJobResponse[];
@@ -95,5 +113,17 @@ export function toScheduleJobResponse(
     attemptCount: row.attemptCount,
     publishedBy: row.createdBy,
     isManual: row.createdBy !== BOT_PUBLISHER,
+  };
+}
+
+export function toSlotRunSummary(run: SlotRun): SlotRunSummary {
+  return {
+    status: run.status,
+    pickedCount: run.pickedCount,
+    jobCreatedCount: run.jobCreatedCount,
+    skipReason: run.skipReason,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    errorMessage: run.errorMessage,
   };
 }

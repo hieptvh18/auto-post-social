@@ -7,6 +7,7 @@ import {
 } from '../../../../generated/prisma/client';
 import type { AppConfigService } from '../../../config/app-config.service';
 import type { ClockService } from '../../../infra/clock/clock.service';
+import type { SlotRunService } from '../../auto-post/slot-run.service';
 import type {
   AutoPostConfigsRepository,
   PageWithSlots,
@@ -96,6 +97,7 @@ describe('PublishScheduleService', () => {
   let configsRepository: jest.Mocked<
     Pick<AutoPostConfigsRepository, 'findPagesWithSlots'>
   >;
+  let slotRuns: jest.Mocked<Pick<SlotRunService, 'findByRunDate'>>;
   let service: PublishScheduleService;
 
   const clock: ClockService = {
@@ -111,10 +113,12 @@ describe('PublishScheduleService', () => {
     configsRepository = {
       findPagesWithSlots: jest.fn().mockResolvedValue([makePage()]),
     };
+    slotRuns = { findByRunDate: jest.fn().mockResolvedValue([]) };
 
     service = new PublishScheduleService(
       repository as unknown as PublishScheduleRepository,
       configsRepository as unknown as AutoPostConfigsRepository,
+      slotRuns as unknown as SlotRunService,
       clock,
       { timezone: TIMEZONE } as AppConfigService,
     );

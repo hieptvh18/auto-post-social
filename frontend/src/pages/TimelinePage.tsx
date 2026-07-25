@@ -1,17 +1,22 @@
 import {
   CalendarOutlined,
   EditOutlined,
+  HistoryOutlined,
   LinkOutlined,
+  RedoOutlined,
   RobotOutlined,
   UserOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
+  Button,
   Card,
   Col,
   DatePicker,
   Divider,
   Empty,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -20,23 +25,32 @@ import {
   Tag,
   Timeline,
   Typography,
+  message,
 } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ApiError } from '../api/client';
 import { mockPages } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
 import { StatusTag } from '../components/common/StatusTag';
 import { env } from '../config/env';
+import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import { usePages } from '../hooks/usePages';
-import { usePublishSchedule } from '../hooks/usePublishSchedule';
+import {
+  usePublishSchedule,
+  useRetryPublishJob,
+  useRunSlotNow,
+} from '../hooks/usePublishSchedule';
+import { JobEventsModal } from '../components/timeline/JobEventsModal';
 import type {
   PublishJob,
   PublishStatus,
   ScheduleItem,
   ScheduleJob,
 } from '../types';
+import { can } from '../utils/permissions';
 import {
   BOT_PUBLISHER,
   MEDIA_TYPE_LABELS,
@@ -60,6 +74,8 @@ function RealTimelinePage() {
   const [selectedDate, setSelectedDate] = useState(dayjs());
   const [pageFilter, setPageFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<PublishStatus | undefined>();
+  // Job đang xem nhật ký — null là đóng modal.
+  const [eventsJob, setEventsJob] = useState<ScheduleJob | null>(null);
 
   const date = selectedDate.format('YYYY-MM-DD');
   const { data, isLoading, isError, error } = usePublishSchedule({
@@ -68,6 +84,57 @@ function RealTimelinePage() {
     status: statusFilter,
   });
   const { data: pages } = usePages();
+
+  const user = useAuthUser();
+  // Chỉ ADMIN có `jobs:retry` (docs/05 §2) — role khác không thấy nút.
+  const canRetry = can(user.role, 'jobs:retry');
+  const retryMutation = useRetryPublishJob();
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+
+  // Chạy lại cả mốc giờ = việc của engine tự động ⇒ quyền `autopost:manage`.
+  const canRunSlot = can(user.role, 'autopost:manage');
+  const runSlotMutation = useRunSlotNow();
+  const [runningSlotId, setRunningSlotId] = useState<string | null>(null);
+
+  const handleRunSlot = async (item: ScheduleItem) => {
+    if (item.slotId === null) return;
+    setRunningSlotId(item.slotId);
+    try {
+      const result = await runSlotMutation.mutateAsync(item.slotId);
+      if (!result.claimed) {
+        message.warning('Mốc giờ này vừa chạy trong phút này — thử lại sau 1 phút');
+      } else if (result.jobCreatedCount > 0) {
+        message.success(
+          `Đã xếp hàng đăng ${result.jobCreatedCount} bài cho mốc ${item.time}`,
+        );
+      } else {
+        message.warning(
+          'Đã chạy lại nhưng kho vẫn không có bài nào dùng được cho mốc này',
+        );
+      }
+    } catch (err) {
+      message.error(
+        err instanceof ApiError ? err.message : 'Không chạy lại được mốc giờ này',
+      );
+    } finally {
+      setRunningSlotId(null);
+    }
+  };
+
+  const handleRetry = async (job: ScheduleJob) => {
+    setRetryingJobId(job.id);
+    try {
+      const result = await retryMutation.mutateAsync(job.id);
+      message.success(result.message);
+    } catch (err) {
+      // 409 = job đang chạy / bài đã đăng rồi, 400 = page tạm dừng hoặc đã xoá.
+      message.error(
+        err instanceof ApiError ? err.message : 'Không đăng lại được bài này',
+      );
+    } finally {
+      setRetryingJobId(null);
+    }
+  };
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const summary = data?.summary;
@@ -229,7 +296,15 @@ function RealTimelinePage() {
                       </Text>
                       <div style={{ marginTop: 8 }}>
                         {timeItems.map((item) => (
-                          <ScheduleItemCard key={item.key} item={item} />
+                          <ScheduleItemCard
+                            key={item.key}
+                            item={item}
+                            onShowEvents={setEventsJob}
+                            onRetry={canRetry ? handleRetry : undefined}
+                            retryingJobId={retryingJobId}
+                            onRunSlot={canRunSlot ? handleRunSlot : undefined}
+                            runningSlot={runningSlotId === item.slotId}
+                          />
                         ))}
                       </div>
                     </div>
@@ -240,6 +315,12 @@ function RealTimelinePage() {
           </Card>
         </Col>
       </Row>
+
+      <JobEventsModal
+        jobId={eventsJob?.id ?? null}
+        jobTitle={eventsJob?.contentTitle}
+        onClose={() => setEventsJob(null)}
+      />
     </div>
   );
 }
@@ -252,8 +333,34 @@ function timelineColor(items: ScheduleItem[]): string {
   return 'blue';
 }
 
-function ScheduleItemCard({ item }: { item: ScheduleItem }) {
+function ScheduleItemCard({
+  item,
+  onShowEvents,
+  onRetry,
+  retryingJobId,
+  onRunSlot,
+  runningSlot,
+}: {
+  item: ScheduleItem;
+  onShowEvents: (job: ScheduleJob) => void;
+  /** `undefined` = người dùng không có quyền `jobs:retry` ⇒ ẩn nút đăng lại. */
+  onRetry?: (job: ScheduleJob) => void;
+  retryingJobId: string | null;
+  /** `undefined` = không có quyền `autopost:manage` ⇒ ẩn nút chạy lại mốc giờ. */
+  onRunSlot?: (item: ScheduleItem) => void;
+  runningSlot: boolean;
+}) {
   const isManual = item.kind === 'manual';
+  // Mốc giờ chạy được nhưng chưa ra bài nào: Bot bỏ qua vì hết bài, hoặc chưa
+  // từng chạy (MISSED). Đăng đủ kế hoạch rồi thì không cho chạy thêm.
+  const canRunSlotNow =
+    onRunSlot !== undefined &&
+    item.kind === 'slot' &&
+    item.slotId !== null &&
+    item.slotEnabled &&
+    item.autopostEnabled &&
+    item.pageIsActive &&
+    item.successCount + item.runningCount < item.plannedCount;
 
   return (
     <Card size="small" style={{ marginBottom: 8 }} styles={{ body: { padding: '12px 16px' } }}>
@@ -270,6 +377,16 @@ function ScheduleItemCard({ item }: { item: ScheduleItem }) {
           ) : (
             <Tag color="cyan">
               {item.successCount}/{item.plannedCount} bài
+            </Tag>
+          )}
+          {item.slotRun?.status === 'SKIPPED' && (
+            <Tag color="orange" icon={<WarningOutlined />}>
+              Bot bỏ qua — không có bài
+            </Tag>
+          )}
+          {item.slotRun?.status === 'ERROR' && (
+            <Tag color="red" icon={<WarningOutlined />}>
+              Bot chạy lỗi
             </Tag>
           )}
           {item.mediaType && (
@@ -296,6 +413,10 @@ function ScheduleItemCard({ item }: { item: ScheduleItem }) {
           )}
         </Space>
 
+        {item.kind === 'slot' && item.slotId !== null && (
+          <SlotRunNote item={item} />
+        )}
+
         {!item.pageIsActive && (
           <Text type="warning" style={{ fontSize: 12 }}>
             Page đang tạm dừng — Bot sẽ không đăng
@@ -315,8 +436,33 @@ function ScheduleItemCard({ item }: { item: ScheduleItem }) {
             </Text>
           )}
 
+        {canRunSlotNow && (
+          <Popconfirm
+            title={`Chạy lại mốc ${item.time}?`}
+            description={`Bot sẽ chọn bài trong kho cho page "${item.pageName}" và xếp hàng đăng ngay bây giờ (tối đa ${item.plannedCount} bài). Bài đã đăng rồi không bị đăng lại.`}
+            okText="Chạy lại"
+            cancelText="Huỷ"
+            onConfirm={() => onRunSlot?.(item)}
+          >
+            <Button
+              size="small"
+              icon={<RedoOutlined />}
+              loading={runningSlot}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              Chạy lại mốc này
+            </Button>
+          </Popconfirm>
+        )}
+
         {item.jobs.map((job) => (
-          <JobRow key={job.id} job={job} />
+          <JobRow
+            key={job.id}
+            job={job}
+            onShowEvents={onShowEvents}
+            onRetry={onRetry}
+            retrying={retryingJobId === job.id}
+          />
         ))}
       </Space>
     </Card>
@@ -330,7 +476,81 @@ function PublisherIcon({ publishers }: { publishers: string[] }) {
   return onlyBot ? <RobotOutlined /> : <UserOutlined />;
 }
 
-function JobRow({ job }: { job: ScheduleJob }) {
+/**
+ * Dấu vết cron cho mốc giờ này. Phân biệt rõ 3 tình huống hay bị lẫn:
+ * chưa tới lượt chạy · chạy rồi nhưng hết bài · chạy hỏng.
+ */
+function SlotRunNote({ item }: { item: ScheduleItem }) {
+  const run = item.slotRun;
+  if (run === null) {
+    // Không có dòng slot_runs = cron chưa chạm mốc này (chưa tới giờ, hoặc app
+    // không chạy lúc đó) — khác hẳn "chạy rồi nhưng hết bài".
+    return item.progress === 'MISSED' ? (
+      <Alert
+        type="warning"
+        showIcon
+        message="Mốc giờ đã qua nhưng Bot chưa từng chạy mốc này"
+        description="Thường do backend không chạy đúng thời điểm đó, hoặc mốc giờ vừa được tạo/đổi giờ sau khi thời điểm đã trôi qua."
+        style={{ marginTop: 4 }}
+      />
+    ) : null;
+  }
+
+  if (run.status === 'SKIPPED') {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        message={`Bot đã chạy lúc ${dayjs(run.startedAt).format('HH:mm')} nhưng KHÔNG đăng bài nào`}
+        description={
+          run.skipReason === 'NO_CONTENT'
+            ? 'Kho không còn bài nào khớp mốc giờ này: bài phải ở trạng thái Đã duyệt, đúng danh mục/loại media của mốc, và đã được phân bổ vào page này (chưa đăng lần nào ở page đó). Kiểm tra ở Quản lý Ảnh/Video Edit → mục "Phân bổ page".'
+            : run.skipReason
+        }
+        style={{ marginTop: 4 }}
+      />
+    );
+  }
+  if (run.status === 'ERROR') {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="Bot chạy mốc này lỗi"
+        description={run.errorMessage}
+        style={{ marginTop: 4 }}
+      />
+    );
+  }
+  return (
+    <Text type="secondary" style={{ fontSize: 12 }}>
+      Bot đã chạy lúc {dayjs(run.startedAt).format('HH:mm')} — chọn{' '}
+      {run.pickedCount} bài, tạo {run.jobCreatedCount} job
+    </Text>
+  );
+}
+
+/** Job đã dừng hẳn thì mới cho đăng lại — QUEUED/PUBLISHING vẫn đang trong hàng đợi. */
+const RETRYABLE_JOB_STATUSES: PublishStatus[] = [
+  'FAILED',
+  'CANCELLED',
+  'SCHEDULED',
+];
+
+function JobRow({
+  job,
+  onShowEvents,
+  onRetry,
+  retrying,
+}: {
+  job: ScheduleJob;
+  onShowEvents: (job: ScheduleJob) => void;
+  onRetry?: (job: ScheduleJob) => void;
+  retrying: boolean;
+}) {
+  const canRetryJob =
+    onRetry !== undefined && RETRYABLE_JOB_STATUSES.includes(job.status);
+
   return (
     <div
       style={{
@@ -356,11 +576,38 @@ function JobRow({ job }: { job: ScheduleJob }) {
             {job.errorMessage}
           </Text>
         )}
+        {canRetryJob && (
+          <Popconfirm
+            title="Đăng lại bài này?"
+            description={`Bài "${job.contentTitle}" sẽ được xếp hàng đăng lại ngay lên page. Chỉ làm khi lỗi trước đó đã được xử lý.`}
+            okText="Đăng lại"
+            cancelText="Huỷ"
+            onConfirm={() => onRetry?.(job)}
+          >
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              danger={job.status === 'FAILED'}
+              icon={<RedoOutlined />}
+              loading={retrying}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              Đăng lại
+            </Button>
+          </Popconfirm>
+        )}
         <Space size={12} wrap>
           {/* Deep-link sang "Quản lý Ảnh/Video Edit" và mở luôn Drawer sửa bài. */}
           <Link to={`/content?edit=${job.contentAssetId}`} style={{ fontSize: 12 }}>
             <EditOutlined /> Xem/sửa bài trong kho
           </Link>
+          <a
+            onClick={() => onShowEvents(job)}
+            style={{ fontSize: 12, cursor: 'pointer' }}
+          >
+            <HistoryOutlined /> Xem nhật ký
+          </a>
           {job.facebookPostId && (
             <a
               href={`https://facebook.com/${job.facebookPostId}`}
