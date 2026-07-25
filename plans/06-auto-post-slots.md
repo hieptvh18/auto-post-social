@@ -1,7 +1,7 @@
 # Plan 06 — Cài đặt đăng bài tự động (slots)
 
 **Milestone:** M5
-**Trạng thái:** ⬜
+**Trạng thái:** 🟡 (code + test + smoke API xong, chờ smoke UI thật)
 **Phụ thuộc:** Plan 05
 **Spec:** `docs/04-api-spec.md` §6, `docs/03-database-design.md` §3
 
@@ -40,40 +40,40 @@ MVP: slot lặp lại **mỗi ngày**.
 
 ## 4. Task
 
-- [ ] DTO create/update slot + validate như trên
-- [ ] Repository: `findAllWithSlots`, `findByPage`, CRUD slot, `findDueSlots(hhmm)`
+- [x] DTO create/update slot + validate như trên
+- [x] Repository: `findAllWithSlots`, `findByPage`, CRUD slot, `findDueSlots(hhmm)`
       (dùng ở Plan 07: slot `enabled` + page `isActive` + `autopostEnabled`)
-- [ ] Service: chặn trùng `time`/page, kiểm tra page tồn tại
-- [ ] Bật `autopostEnabled` khi page chưa có slot nào ⇒ trả cảnh báo (không chặn)
-- [ ] Audit `AUTOPOST_CONFIG_UPDATE`
-- [ ] Env `MAX_POST_PER_SLOT` → `.env` + `.env.example`
-- [ ] Unit test **cho logic lọc/validate quan trọng** (không bắt buộc 100%):
+- [x] Service: chặn trùng `time`/page, kiểm tra page tồn tại
+- [x] Bật `autopostEnabled` khi page chưa có slot nào ⇒ trả cảnh báo (không chặn)
+- [x] Audit `AUTOPOST_CONFIG_UPDATE`
+- [x] Env `MAX_POST_PER_SLOT` → `.env` + `.env.example`
+- [x] Unit test **cho logic lọc/validate quan trọng** (không bắt buộc 100%):
       `findDueSlots` lọc đúng (slot disabled / page inactive / autopost off đều bị
       loại) — đây là đầu vào của cron nên phải chắc; validate time/categories/postCount;
       trùng time ⇒ 409. CRUD thuần không cần test riêng.
-- [ ] `npm run lint && npm run build` xanh (chạy `npm run test` cho `findDueSlots` + validate)
-- [ ] Cập nhật `contexts.md`
+- [x] `npm run lint && npm run build` xanh (chạy `npm run test` cho `findDueSlots` + validate)
+- [x] Cập nhật `contexts.md`
 
 ## 4b. Nối frontend — AutoPostSettingsPage
 
 Làm ngay sau khi backend xanh, test tay trên UI thật. Hạ tầng chung đã có ở Plan 03b.
 
-- [ ] `src/api/autoPost.api.ts`: list configs kèm slots, patch config (bật/tắt),
+- [x] `src/api/autoPost.api.ts`: list configs kèm slots, patch config (bật/tắt),
       CRUD slot
-- [ ] `src/hooks/useAutoPostConfigs.ts`: query key + mutation, `invalidateQueries`
-- [ ] `AutoPostSettingsPage`: bỏ mock cho trang này khi `VITE_USE_MOCK=false`; form
+- [x] `src/hooks/useAutoPostConfigs.ts`: query key + mutation, `invalidateQueries`
+- [x] `AutoPostSettingsPage`: bỏ mock cho trang này khi `VITE_USE_MOCK=false`; form
       thêm/sửa slot (time picker, category, mediaType, postCount); hiện lỗi 409 trùng time
-- [ ] Type response ở `src/types/`, đối chiếu Swagger
-- [ ] `npm run lint && npm run build` (frontend) xanh
+- [x] Type response ở `src/types/`, đối chiếu Swagger
+- [x] `npm run lint && npm run build` (frontend) xanh
 
 ## 5. Điều kiện nghiệm thu
 
-- [ ] Tạo page + 3 slot (08:00, 12:00, 20:00) → `GET /auto-post-configs` trả đúng, sắp theo giờ
-- [ ] Thêm slot trùng 08:00 cùng page ⇒ 409
-- [ ] `time = '25:00'` ⇒ 400
-- [ ] CONTENT gọi bất kỳ endpoint nào ở đây ⇒ 403
+- [x] Tạo page + 3 slot (08:00, 12:00, 20:00) → `GET /auto-post-configs` trả đúng, sắp theo giờ
+- [x] Thêm slot trùng 08:00 cùng page ⇒ 409
+- [x] `time = '25:00'` ⇒ 400
+- [x] CONTENT gọi bất kỳ endpoint nào ở đây ⇒ 403
 - [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): tạo page + 3 slot qua UI → hiện đúng,
-      sắp theo giờ; thêm slot trùng giờ báo lỗi
+      sắp theo giờ; thêm slot trùng giờ báo lỗi — **CHƯA LÀM** (mới smoke qua curl)
 
 ## 6. Rủi ro
 
@@ -86,8 +86,29 @@ Làm ngay sau khi backend xanh, test tay trên UI thật. Hạ tầng chung đã
 
 ## 7. Kết quả (điền khi xong)
 
-- **Ngày xong:**
-- **File chính:**
+- **Ngày xong:** 2026-07-25 (code + test + smoke API; chờ smoke UI thật)
+- **File chính:** `backend/src/modules/auto-post-configs/` (repository/service/
+  2 controller/dto/mapper), `frontend/src/api/autoPost.api.ts`,
+  `frontend/src/hooks/useAutoPostConfigs.ts`,
+  `frontend/src/pages/AutoPostSettingsPage.tsx`
 - **Khác thiết kế ban đầu:**
-- **Test:**
-- **Còn nợ:**
+  - Module đặt tên `auto-post-configs` và **chỉ chứa CRUD cấu hình** — engine đăng
+    tự động (cron picker + BullMQ + publisher) sẽ là module riêng ở plan 07, dùng lại
+    `AutoPostConfigsRepository.findDueSlots` được export sẵn. (Yêu cầu user 2026-07-25:
+    tách hẳn phần logic auto đăng bài.)
+  - Hai controller trong cùng module (`/auto-post-configs` và `/auto-post-slots`) vì
+    docs/04 §6 khai 2 nhóm route nhưng cùng một nghiệp vụ.
+  - Audit tách 4 action thay vì 1: `AUTOPOST_CONFIG_UPDATE` (bật/tắt page) +
+    `AUTOPOST_SLOT_CREATE/UPDATE/DELETE` — điều tra "ai xoá mốc giờ" cần biết slot nào.
+  - `MAX_POST_PER_SLOT` đã có sẵn trong `.env`/`.env.example`/`env.validation.ts` từ M0,
+    không phải thêm mới; chỉ dùng ở service (`assertPostCountInRange`).
+  - Response config thêm `facebookPageId` (page id phía Meta) và `isActive` ngoài spec —
+    UI cần phân biệt page tạm dừng (bật auto vẫn không chạy).
+  - Không đụng schema ⇒ `erd.md` không đổi (bảng `auto_post_slots` đã có từ M0).
+- **Test:** BE 318 test / 28 suite xanh (+32 test mới: 20 service, 2 repository
+  `findDueSlots`, 10 DTO validate). Lint + build BE/FE xanh, FE 16 test cũ vẫn xanh.
+  Smoke API qua curl với backend thật: tạo 3 slot sắp đúng theo giờ, trùng giờ ⇒ 409,
+  `time='25:00'` ⇒ 400, `postCount=21` ⇒ 400, `categories=[]` ⇒ 400, bật auto khi
+  chưa có slot ⇒ trả `warning`, PATCH đổi sang giờ trùng ⇒ 409, DELETE ⇒ 204 rồi 404,
+  CONTENT gọi mọi endpoint ⇒ 403. Đã dọn sạch dữ liệu smoke test khỏi DB dev.
+- **Còn nợ:** chưa smoke test tay trên UI thật (§5 mục cuối).

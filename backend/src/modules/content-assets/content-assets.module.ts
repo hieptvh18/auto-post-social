@@ -10,5 +10,7 @@ import { ContentAssetsService } from './content-assets.service';
   imports: [PrismaModule, DriveModule, AuditModule],
   controllers: [ContentAssetsController],
   providers: [ContentAssetsRepository, ContentAssetsService],
+  // ManualPostModule (plan 09) đọc content qua repository này thay vì tự query Prisma.
+  exports: [ContentAssetsRepository],
 })
 export class ContentAssetsModule {}

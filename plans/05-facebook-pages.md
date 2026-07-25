@@ -113,3 +113,87 @@ Làm ngay sau khi backend xanh, test tay trên UI thật. Hạ tầng chung đã
 - **Còn nợ:** chưa smoke test UI thật qua trình duyệt (chỉ mới test API qua curl +
   `npm run build` xanh) — cần làm khi có phiên làm việc tiếp theo trước khi coi milestone
   hoàn toàn Done theo rule 00.
+
+---
+
+## 8. Bổ sung 2026-07-25 — Test kết nối Page + Search danh sách
+
+Yêu cầu phát sinh từ user (ghi theo rule 03: không âm thầm làm thêm):
+popup thêm/sửa Page cần nút **"Test kết nối"** gửi thử request tới Page để biết
+cấu hình đúng chưa; bảng danh sách cần **ô tìm kiếm**.
+
+### Backend
+
+- [x] `src/infra/facebook/` — adapter Meta Graph đầu tiên của dự án (rule 01: external
+      API luôn sau interface trong `infra/`): `facebook-graph.interface.ts` (`FacebookGraph`,
+      `FacebookPageProbe`), `facebook-graph.client.ts` (fetch + timeout 10s),
+      `facebook.errors.ts` (`FacebookGraphError` + `mapFacebookError`), `facebook.module.ts`
+- [x] `POST /pages/test-connection` (ADMIN) — test `pageId` + token **chưa lưu**
+- [x] `POST /pages/:id/test-connection` (ADMIN) — test page đã lưu bằng token trong DB
+- [x] Service `testConnection` / `testSavedPageConnection` / `probe` — trả
+      `FacebookConnectionResult { ok, pageId, pageName, category, canPost, message }`
+- [x] Test: 11 case mới (7 service + client 9 case map lỗi Graph) — tổng BE 336 test xanh
+
+### Frontend
+
+- [x] `pages.api.ts`: `testConnection` / `testSavedConnection`; hook `useTestPageConnection`
+- [x] Popup: footer thêm nút "Test kết nối", kết quả hiện bằng `Alert` ngay trong modal
+- [x] Bảng danh sách: ô search lọc theo tên Page / Page ID (client-side, `GET /pages`
+      trả toàn bộ nên không cần đổi API) — áp cho cả bản Real lẫn Mock
+
+### Quyết định
+
+- Gọi `GET /{pageId}?fields=id,name,category,tasks`: `tasks` cho biết token có quyền
+  `CREATE_CONTENT` hay không ⇒ phát hiện sớm token đọc được page nhưng **không đăng
+  bài được**, thay vì đợi tới lúc bot publish mới lỗi.
+- Token gửi qua header `Authorization: Bearer`, **không** qua query string — tránh
+  token lọt vào access log.
+- Lỗi Graph ⇒ trả `200 { ok:false, message }` chứ không ném exception: đây là nút kiểm
+  tra cấu hình, user cần đọc lý do ngay trên form. Lỗi không phải của Graph vẫn ném lên.
+- `testSavedPageConnection` **không** dùng `getDecryptedToken` vì hàm đó chặn page
+  inactive — page đang tạm dừng vẫn phải test được cấu hình.
+- Không ghi audit cho thao tác test (chỉ đọc, không đổi dữ liệu).
+- Chưa dùng `META_APP_ID`/`META_APP_SECRET` — chỉ cần Page Access Token. Không thêm
+  biến env mới (`META_GRAPH_API_VERSION` đã có sẵn) ⇒ `.env.example` không đổi.
+
+### Còn nợ
+
+- [ ] Smoke test với **Page + token Facebook thật** (chưa có token thật để thử) — hiện
+      mới phủ bằng unit test mock `fetch`.
+- [ ] Smoke test UI thật (chung với mục 5 ở trên).
+
+### Sửa 2026-07-25 (sau khi gọi Graph thật lần đầu)
+
+Test với Page + token thật lộ ra 2 lỗi mà unit test mock `fetch` không thể thấy:
+
+1. **Hỏi sai field.** Code hỏi `fields=id,name,category,tasks`, nhưng `tasks` **không
+   tồn tại** trên page node khi dùng Page token — nó chỉ có ở edge `/me/accounts`
+   (ngữ cảnh user token). Graph trả `(#100) nonexisting field (tasks)` ⇒ hỏng cả lời
+   gọi. Đã bỏ `tasks`, chuyển sang xác định quyền đăng bài qua `scopes` của `/debug_token`.
+2. **Thông báo lỗi đánh lạc hướng.** Token của page A dùng để đọc page B ⇒ Graph trả
+   `(#10)`, code map thành "thiếu quyền" khiến user đi tìm quyền trong khi lỗi thật là
+   **sai Page ID**. Đã thêm `debugToken()` gọi **trước**: biết chính xác token thuộc page
+   nào, loại gì, còn hạn bao lâu.
+
+- [x] `FacebookGraph.debugToken()` — trả `type`, `isValid`, `profileId`, `scopes`, `expiresAt`
+- [x] `probe()` kiểm theo thứ tự: token hợp lệ → đúng page → đúng loại PAGE → đọc page → scope
+- [x] Cảnh báo hạn token trong message (`expires_at=0` = vĩnh viễn, System User)
+- [x] Response thêm `tokenType` + `expiresAt`; UI hiện 2 field này dưới Alert
+- [x] BE 343 test xanh (13 case cho probe + 3 case cho `debugToken`), lint/build 2 phía xanh
+
+**Bài học:** adapter external API phải được gọi thật ít nhất 1 lần trước khi coi là xong.
+Unit test mock `fetch` chỉ chứng minh code xử lý đúng *giả định của mình về* API, không
+chứng minh giả định đó đúng.
+
+### Sửa lần 2 — 2026-07-25 (test với token System User thật)
+
+- **Bug:** `debugToken()` chỉ nhận `PAGE|USER|APP` nên token System User (Graph trả
+  `type: "SYSTEM_USER"`) bị quy về `UNKNOWN` ⇒ message sai. Đã bổ sung `SYSTEM_USER`.
+- **Cải tiến chẩn đoán:** token không phải PAGE thì gọi thêm `/me/accounts` để phân biệt
+  3 tình huống rất khác nhau mà trước đó gộp làm một:
+  1. danh sách rỗng ⇒ tài khoản **chưa được gán Page** trong Business settings (nguyên
+     nhân thật đứng sau lỗi `(#10)`),
+  2. có page khác nhưng không có page đang cấu hình ⇒ liệt kê ra để đối chiếu Page ID,
+  3. có đúng page ⇒ chỉ còn thiếu bước đổi sang Page token.
+- [x] `FacebookGraph.listPages()` + `explainNonPageToken()` trong service
+- [x] BE 346 test xanh (thêm 4 case), lint/build 2 phía xanh

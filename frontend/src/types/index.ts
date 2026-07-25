@@ -58,6 +58,26 @@ export interface CreateFacebookPageBody {
   tokenExpireAt?: string;
 }
 
+/** Body `POST /pages/test-connection` — test cấu hình chưa lưu. */
+export interface TestPageConnectionBody {
+  pageId: string;
+  accessToken: string;
+}
+
+/** Kết quả test kết nối page — sai cấu hình vẫn trả 200 với `ok:false`. */
+export interface PageConnectionResult {
+  ok: boolean;
+  pageId: string;
+  pageName: string | null;
+  category: string | null;
+  canPost: boolean;
+  /** Chỉ token loại `PAGE` mới đăng bài được với tư cách page. */
+  tokenType: 'PAGE' | 'USER' | 'SYSTEM_USER' | 'APP' | 'UNKNOWN';
+  /** `null` = token không hết hạn (System User). */
+  expiresAt: string | null;
+  message: string;
+}
+
 /** Body `PUT /pages/:id` — `accessToken` chỉ gửi khi đổi token. */
 export interface UpdateFacebookPageBody {
   pageName?: string;
@@ -126,6 +146,69 @@ export interface AutoPostConfig {
   pageId: string;
   enabled: boolean;
   slots: AutoPostSlot[];
+}
+
+/** Response slot từ backend (`AutoPostSlotResponse`). */
+export interface AutoPostSlotResponse {
+  id: string;
+  pageId: string;
+  time: string; // 'HH:mm' theo Asia/Ho_Chi_Minh
+  categories: string[];
+  mediaType: SlotMediaType;
+  postCount: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Response `GET /auto-post-configs` (backend `AutoPostConfigResponse`). */
+export interface AutoPostConfigResponse {
+  /** UUID page trong hệ thống. */
+  pageId: string;
+  pageName: string;
+  /** Page id phía Meta. */
+  facebookPageId: string;
+  enabled: boolean;
+  isActive: boolean;
+  slots: AutoPostSlotResponse[];
+}
+
+/** Response `PATCH /auto-post-configs/:pageId` — kèm cảnh báo mềm. */
+export interface UpdateAutoPostConfigResponse extends AutoPostConfigResponse {
+  warning: string | null;
+}
+
+/** Body `POST /auto-post-configs/:pageId/slots`. */
+export interface CreateAutoPostSlotBody {
+  time: string;
+  categories: string[];
+  mediaType: SlotMediaType;
+  postCount: number;
+  enabled?: boolean;
+}
+
+/** Body `PATCH /auto-post-slots/:slotId` — mọi field optional. */
+export type UpdateAutoPostSlotBody = Partial<CreateAutoPostSlotBody>;
+
+/** Body `POST /manual-post` — đăng ngay 1 bài lên 1 page. */
+export interface ManualPostBody {
+  /** UUID page trong hệ thống (không phải page id của Meta). */
+  pageId: string;
+  contentAssetId: string;
+  /** Caption cho riêng lần đăng này — không ghi đè caption gốc của bài. */
+  caption: string;
+  hashtags?: string;
+}
+
+/** Response `POST /manual-post` (backend `ManualPostResult`). */
+export interface ManualPostResponse {
+  jobId: string;
+  contentAssetId: string;
+  pageId: string;
+  pageName: string;
+  facebookPostId: string;
+  publishedAt: string;
+  message: string;
 }
 
 export interface AuditLog {

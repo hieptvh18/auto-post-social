@@ -4,8 +4,40 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-07-24
-**Session gần nhất:** Làm **M4 Facebook Pages + token crypto** (plan 05): module
+**Cập nhật lần cuối:** 2026-07-25
+**Session gần nhất (mới nhất):** Bổ sung theo yêu cầu user cho trang **Cài đặt đăng bài
+tự động** (plan 09): **filter theo FB Page** + **nút "Đăng bài thủ công"** — popup chọn
+page, lọc danh mục/loại media, chọn 1 bài ảnh/video trong kho, sửa caption/hashtag lấy
+sẵn từ bài rồi **đăng ngay lập tức** qua Graph API. Backend thêm module `manual-post`
+(`POST /manual-post`, gác `autopost:manage`) và adapter publisher đầu tiên
+`infra/facebook/facebook-publisher.client.ts` (ảnh `/{pageId}/photos`, video
+`/{pageId}/videos` trên host `graph-video`). Đăng xong ghi `publish_jobs` + `content_page_assignments`
++ chuyển content sang `PUBLISHED` trong **một transaction**; lỗi Graph/Drive ⇒ job FAILED
++ 502 kèm message tiếng Việt. Không đụng schema ⇒ `erd.md` không đổi. BE 357 test xanh
+(11 test mới), lint/build 2 phía xanh, FE 16 test cũ vẫn xanh. **Chưa đăng thật lên page**
+— vẫn kẹt ở nợ §6 mục 10 (chưa có Page token).
+**Session trước:** Bổ sung theo yêu cầu user cho trang **Facebook Pages**:
+nút **"Test kết nối"** trong popup thêm/sửa Page + **ô search** trên bảng danh sách.
+Tạo adapter Meta Graph đầu tiên của dự án `backend/src/infra/facebook/` (interface +
+`FacebookGraphClient` dùng fetch + map lỗi Graph sang message tiếng Việt), 2 endpoint
+`POST /pages/test-connection` (cấu hình chưa lưu) và `POST /pages/:id/test-connection`
+(token đã lưu trong DB), cả hai gác `pages:manage`. Sai cấu hình trả `200 {ok:false,message}`
+để form hiện lý do. Không đụng schema, không thêm biến env. Sau đó **gọi Graph thật** và
+phát hiện 2 lỗi mock test không thấy: field `tasks` không tồn tại trên page node, và lỗi
+`(#10)` bị map nhầm thành "thiếu quyền" trong khi lỗi thật là sai Page ID ⇒ thêm
+`debugToken()` gọi trước, response thêm `tokenType`/`expiresAt`. BE 343 test xanh,
+lint/build 2 phía xanh — xem plan 05 §8 + §7 cạm bẫy. **Còn thiếu Page token dài hạn
+(System User) để chạy thật** — §6 mục 10.
+**Trước đó:** Làm **M5 Cài đặt đăng bài tự động** (plan 06): module backend
+`auto-post-configs` — **chỉ CRUD cấu hình**, phần logic auto đăng bài (cron picker +
+BullMQ + publisher) tách hẳn thành module riêng ở plan 07 theo yêu cầu user.
+5 endpoint theo docs/04 §6 (`GET /auto-post-configs`, `PATCH /auto-post-configs/:pageId`,
+`POST /auto-post-configs/:pageId/slots`, `PATCH|DELETE /auto-post-slots/:slotId`), tất cả
+gác `autopost:manage` (ADMIN + EDITOR). Không đụng schema ⇒ `erd.md` không đổi.
+Nối FE `AutoPostSettingsPage` theo pattern Real/Mock split (`api/autoPost.api.ts`,
+`hooks/useAutoPostConfigs.ts`). BE 318 test xanh (+32), lint/build 2 phía xanh,
+**đã smoke test API qua curl với backend thật** nhưng **chưa smoke UI thật** — xem §6 mục 9.
+Trước đó: **M4 Facebook Pages + token crypto** (plan 05): module
 backend `facebook-pages` (repository/service/controller/dto/mapper) — tái dùng
 `CryptoService` sẵn có từ M2 thay vì tạo `crypto.util.ts` riêng, thêm
 `common/utils/token-mask.util.ts` (`maskToken`). `GET /pages` mọi role đọc được
@@ -37,10 +69,10 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | 8 file plan feature + `_TEMPLATE.md` |
+| `plans/` | ✅ Hoàn thiện | 9 file plan feature + `_TEMPLATE.md` |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
-| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` giai đoạn 1 đã nối API thật** (upload+CRUD, chưa duyệt/phân bổ page). **`PageManagementPage` đã nối API thật** (CRUD + token mask). Các trang còn lại vẫn mock. |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets giai đoạn 1 (CRUD)** + **facebook-pages (CRUD + token crypto)** xong. Còn duyệt/phân bổ page (content giai đoạn 2), auto-post |
+| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` giai đoạn 1 đã nối API thật** (upload+CRUD, chưa duyệt/phân bổ page). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). Các trang còn lại vẫn mock. |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets giai đoạn 1 (CRUD)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** xong. Còn duyệt/phân bổ page (content giai đoạn 2), **auto-post engine** (cron+queue+publisher, plan 07) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -103,7 +135,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M2.5 — FE core (api client + AuthContext + Login) | 🟡 | code+test xong 2026-07-23, chờ smoke test BE thật |
 | M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) code xong 2026-07-24, chờ smoke test UI thật; giai đoạn 2 (duyệt/isAds/phân bổ page) chưa làm |
 | M4 — Facebook Pages + token crypto (+ nối FE PagePage) | 🟡 | code+test xong 2026-07-24, chờ smoke test UI thật |
-| M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | ⬜ | |
+| M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | 🟡 | code+test+smoke API xong 2026-07-25, chờ smoke UI thật |
 | M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | ⬜ | |
 | M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | ⬜ | |
 
@@ -252,6 +284,84 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   curl. Cần mở `VITE_USE_MOCK=false`, đăng nhập ADMIN, thao tác CRUD trên `/pages`
   thật trước khi coi milestone Done theo rule 00 (`git mv` sang `plans/DONE/` khi
   đó). Xem §6 mục 8.
+- **Fix 2026-07-25 — nút Xoá page không có tác dụng:** `remove()` soft delete bằng
+  `isActive=false` nhưng `findMany()` không lọc ⇒ page vẫn nằm trong danh sách, chỉ
+  đổi cột Active sang "No". Không thể lọc theo `isActive` vì cột đó mang nghĩa
+  **tạm dừng** (bật/tắt được trong form Sửa, page tạm dừng vẫn phải hiện). Đã tách
+  2 khái niệm: thêm cột `facebook_pages.deleted_at` (migration
+  `20260725033247_facebook_pages_deleted_at`, đã cập nhật `erd.md`).
+  `remove()` set `deletedAt=now()` + `isActive=false` + `autopostEnabled=false`,
+  audit action mới `PAGE_DELETE`. `findMany`/`findById` lọc `deletedAt: null` ⇒ page
+  đã xoá coi như không tồn tại (404 khi PUT/DELETE, publisher không lấy được token).
+  `create()` với `pageId` đã xoá mềm thì **hồi sinh** dòng cũ thay vì 409 (UNIQUE
+  `page_id` áp cả trên dòng đã xoá). 288 test BE xanh (thêm 3), lint/build xanh.
+  FE không phải sửa.
+- **Bổ sung 2026-07-25 — Test kết nối Page + search danh sách** (yêu cầu user, plan 05 §8):
+  thêm `backend/src/infra/facebook/` (adapter Meta Graph đầu tiên: interface,
+  `FacebookGraphClient` gọi `GET /{pageId}?fields=id,name,category,tasks` bằng fetch,
+  timeout 10s, token đi qua header `Authorization` chứ không qua query; `facebook.errors.ts`
+  map code 190/100/200/4 sang message tiếng Việt nói rõ cách sửa). 2 endpoint ADMIN:
+  `POST /pages/test-connection` (pageId+token chưa lưu) và `POST /pages/:id/test-connection`
+  (dùng token đã lưu — cố ý **không** qua `getDecryptedToken` để page tạm dừng vẫn test được).
+  Lỗi Graph ⇒ `200 {ok:false,message}` để form đọc được lý do; `canPost` bật khi `tasks`
+  chứa `CREATE_CONTENT` ⇒ phát hiện sớm token đọc được page nhưng không đăng bài được.
+  FE: nút "Test kết nối" trong footer popup + `Alert` kết quả, ô search lọc theo tên/Page ID
+  (client-side, cả bản Real lẫn Mock). BE 336 test xanh (+18), lint/build 2 phía xanh.
+- **Sửa cùng ngày, sau khi gọi Graph thật lần đầu:** bỏ field `tasks` (không tồn tại
+  trên page node khi dùng Page token ⇒ Graph trả `(#100)`), thêm `debugToken()` gọi
+  **trước** page node để biết token loại gì / của page nào / hạn tới bao giờ ⇒ báo đúng
+  "sai Page ID" thay vì "thiếu quyền". Response thêm `tokenType` + `expiresAt`, cảnh báo
+  khi token sắp hết hạn. BE 343 test xanh. Chi tiết + bài học: plan 05 §8, §7 cạm bẫy.
+
+### Cài đặt đăng bài tự động — slots CRUD (Plan 06) — 🟡 2026-07-25
+
+- **Phạm vi:** CRUD cấu hình đăng tự động, **không** có logic cron/queue nào.
+  `GET /auto-post-configs` (mọi page kèm slot, slot sắp theo giờ tăng dần),
+  `PATCH /auto-post-configs/:pageId` (bật/tắt auto — bật khi page chưa có slot thì
+  vẫn cho, chỉ trả `warning`), `POST /auto-post-configs/:pageId/slots`,
+  `PATCH|DELETE /auto-post-slots/:slotId`. Tất cả gác `autopost:manage`
+  (ADMIN + EDITOR; CONTENT ⇒ 403). Trùng `time` trong cùng page ⇒ 409;
+  `time` sai định dạng / `categories` rỗng ⇒ 400; `postCount > MAX_POST_PER_SLOT` ⇒ 400.
+- **File chính:** `backend/src/modules/auto-post-configs/` (repository/service/
+  `auto-post-configs.controller.ts` + `auto-post-slots.controller.ts`/dto/mapper),
+  `frontend/src/api/autoPost.api.ts`, `frontend/src/hooks/useAutoPostConfigs.ts`,
+  `frontend/src/pages/AutoPostSettingsPage.tsx` (Real/Mock split theo `env.useMock`).
+- **Quyết định:** **tách engine đăng tự động ra module riêng** (yêu cầu user
+  2026-07-25) — module này chỉ là cấu hình, plan 07 sẽ tạo module engine dùng lại
+  `AutoPostConfigsRepository.findDueSlots(hhmm)` (đã export). Audit tách 4 action
+  (`AUTOPOST_CONFIG_UPDATE` + `AUTOPOST_SLOT_CREATE/UPDATE/DELETE`) thay vì 1 như plan.
+  Response thêm `facebookPageId` + `isActive` ngoài spec để UI cảnh báo page tạm dừng.
+  **Không đụng schema** (`auto_post_slots` có từ M0) ⇒ `erd.md` không đổi.
+- **Test:** BE 318 test / 28 suite xanh (+32 mới: service 20, repository `findDueSlots`
+  2 — lọc đúng slot tắt / page tạm dừng / page tắt auto / page đã xoá, DTO validate 10).
+  Lint + build BE/FE xanh, FE 16 test cũ vẫn xanh. Smoke API qua curl với backend thật
+  (đủ 4 điều kiện nghiệm thu §5 của plan 06 trừ mục UI), dữ liệu smoke đã dọn khỏi DB dev.
+- **Còn nợ:** chưa smoke test tay trên UI thật — xem §6 mục 9.
+
+### Đăng bài thủ công + filter page (Plan 09) — 🟡 2026-07-25
+
+- **Phạm vi:** trang "Cài đặt đăng bài tự động" có thêm filter theo FB Page và nút
+  "Đăng bài thủ công" (cả nút "Đăng ngay" trên từng card page). `POST /manual-post`
+  (`autopost:manage`) đăng **đồng bộ** 1 bài lên 1 page qua Graph API: chặn page tạm
+  dừng (400), bài đã đăng lên chính page đó (409), lỗi Graph/Drive ⇒ job FAILED + 502.
+- **File chính:** `backend/src/infra/facebook/facebook-publisher.{interface,client}.ts`,
+  `backend/src/modules/manual-post/` (repository/service/controller/dto),
+  `frontend/src/api/manualPost.api.ts`, `frontend/src/hooks/useManualPost.ts`,
+  `frontend/src/components/autopost/ManualPostModal.tsx`,
+  `frontend/src/pages/AutoPostSettingsPage.tsx`
+- **Quyết định:** tách hẳn khỏi engine tự động (plan 07) — không cron, không BullMQ,
+  user đứng chờ kết quả. Caption/hashtag sửa trong popup chỉ áp cho **lần đăng này**
+  (lưu ở `publish_jobs.caption/hashtags`), không ghi đè caption gốc của content.
+  `content.status = PUBLISHED` do server set sau khi Graph trả post id — vẫn đúng rule
+  "client không được tự set PUBLISHING/PUBLISHED". Video đi qua host `graph-video.facebook.com`.
+  File nạp cả vào RAM (đã bị chặn bởi `maxUploadMb` lúc upload Drive).
+  Không đụng schema ⇒ `erd.md` không đổi.
+- **Test:** BE 357 test / 30 suite xanh (11 test mới `ManualPostService`: chọn đúng
+  publishImage/publishVideo theo mediaType, ghép caption+hashtag, 409 trùng, page tạm
+  dừng ⇒ 400, lỗi Graph/Drive ⇒ job FAILED và không đụng content/assignment, audit
+  MANUAL_PUBLISH). Lint + build BE/FE xanh, FE 16 test cũ vẫn xanh.
+- **Còn nợ:** **chưa đăng thật lên Facebook** (thiếu Page token — §6 mục 10); chưa smoke
+  UI thật. Video lớn chưa có resumable upload.
 
 ---
 
@@ -267,6 +377,9 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | 6 | ~~Drive FE đã nối xong~~ ✅ ĐÃ XONG 2026-07-24 | `api/media.api.ts` + `api/settings.api.ts` + SettingsPage 2 chế độ. **OAuth2 đã smoke test thật thành công** (connect tài khoản Gmail qua UI, redirect URI `http://localhost:3001/api/settings/google-drive/oauth/callback` — cổng đổi 3100→3001 để khớp OAuth Client đã đăng ký). Service_account chỉ chạy được với Shared Drive (Workspace), chưa test lại với authMode này sau đổi cổng (không ảnh hưởng vì không phụ thuộc redirect URI). |
 | 7 | **Content Assets giai đoạn 1 chưa smoke test UI thật** | Code BE+FE xong (274 test BE, lint/build 2 phía xanh) nhưng **chưa test tay** — process backend dev hiện tại (`node dist/main`) là build cũ từ trước khi thêm module `content-assets`, cần `npm run start:dev` lại (hoặc restart) để nạp route mới. Sau khi restart: test trên `/content` — upload ảnh/video thật, sửa, xoá (kiểm file trên Drive cũng bị xoá), CONTENT không thấy/sửa được bài người khác. |
 | 8 | **Facebook Pages chưa smoke test UI thật** | Code BE+FE xong (286 test BE, lint/build 2 phía xanh), đã smoke test API qua curl (tạo/sửa/xoá page, mask đúng, 409 trùng pageId, EDITOR bị 403) nhưng **chưa test tay trên UI thật**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/pages` — thêm/sửa/xoá page qua form, kiểm token hiện dạng mask trong bảng, đăng nhập EDITOR kiểm không thấy nút sửa/xoá. |
+| 9 | **Auto-post configs chưa smoke test UI thật** | Code BE+FE xong (318 test BE, lint/build 2 phía xanh), đã smoke API qua curl đủ các case nghiệm thu (3 slot sắp theo giờ, trùng giờ ⇒ 409, `time='25:00'` ⇒ 400, `postCount=21` ⇒ 400, warning khi bật auto lúc chưa có slot, CONTENT ⇒ 403) nhưng **chưa test tay trên UI**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/auto-post` — thêm 3 mốc giờ, kiểm sắp xếp, thêm trùng giờ xem báo lỗi 409, bật/tắt switch Auto ON, xoá mốc giờ. Đăng nhập CONTENT kiểm không vào được trang. |
+| 11 | **Đăng bài thủ công chưa chạy thật** | Code BE+FE xong (plan 09, BE 357 test xanh) nhưng đường publish **chưa từng gọi Graph thật** — chặn bởi mục 10 (chưa có Page token). Khi có token: vào `/auto-post` → "Đăng bài thủ công" → chọn 1 **ảnh** trước (nhẹ, nhanh) → kiểm bài lên Page thật, `publish_jobs` SUCCESS + `facebookPostId`, assignment có `published_at`, content chuyển `PUBLISHED`; đăng lại chính bài đó ⇒ 409. Sau đó thử 1 video (đường `graph-video`, timeout 180s). |
+| 10 | **Chưa có Page token dùng được cho Page thật** | Đã gọi Graph thật 2026-07-25 và sửa xong adapter (xem §7). Token hiện lưu là **SYSTEM_USER token** (hết hạn 23/09/2026) nhưng system user `toolfbtest` **chưa được gán Page nào** (`/me/accounts` rỗng) nên vẫn không đọc được page. Bước còn lại: Business settings → System users → Add assets → Pages → gán page + task Manage Page, rồi đổi sang Page token qua `/me/accounts`. Token cũ hơn là USER token ngắn hạn (hết hạn trong ngày) nên nút Test vẫn báo đỏ đúng nghiệp vụ. Cần token **System User** (`expires_at = 0`) → dùng nó gọi `/me/accounts` lấy Page token vĩnh viễn → dán vào form. Publisher (plan 07) sẽ chết vì token hết hạn nếu bỏ qua bước này. Business đang dùng: `27820019340966159`, app `KakuCoach`, page thật `111367907895365` (Cửa hàng cây cảnh mini). |
 
 ---
 
@@ -287,4 +400,7 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | `jwtService.signAsync` báo TS2769 khi truyền `expiresIn: '15m'` | `@nestjs/jwt` v11 nhận `expiresIn` kiểu template `StringValue` của thư viện `ms`, không nhận `string` thường. Xử lý: quy đổi sang **số giây** bằng `common/utils/duration.ts` rồi truyền number. Tiện thể tái dùng luôn cho field `expiresIn` trong response login. |
 | Đăng ký guard global làm health check thành 401 | `APP_GUARD` áp cho **mọi** route, kể cả `/api/health` vốn phải public cho Docker healthcheck. Xử lý: `@Public()` decorator + gắn lên `HealthController`. **Nhớ: mỗi lần thêm route công khai mới phải gắn `@Public()`.** |
 | `SettingsModule` cần `DriveStorageFactory` (nút "Test kết nối") nhưng `DriveModule` lại import `SettingsModule` (đọc config) ⇒ vòng phụ thuộc NestJS | Tách `SettingsController` ra khỏi `SettingsModule` sang module riêng `SettingsHttpModule` (import cả `SettingsModule` lẫn `MediaModule`). `SettingsModule` chỉ export service, không khai controller. **Bài học: khi 2 module cần lẫn nhau vì 1 phía chỉ cần đọc còn phía kia chỉ cần route, tách controller ra module riêng thay vì cố gộp.** |
+| Nút "Xoá" ở `/pages` bấm xong không thấy gì thay đổi | Soft delete dùng chung cột `is_active` với chức năng "tạm dừng", mà list không lọc. **Bài học: soft delete phải có cột dấu xoá riêng (`deleted_at`), không mượn cờ trạng thái nghiệp vụ** — và phải lọc ngay ở repository, không để service/UI tự lọc. |
+| `nest build` báo `Property 'deletedAt' does not exist` sau khi sửa schema | Prisma Client sinh ra `backend/generated/prisma` (ADR-010) nên `prisma migrate dev` **không** tự cập nhật type cho tsc trong mọi trường hợp — chạy `npm run prisma:generate` sau khi đổi schema. Lưu ý jest vẫn xanh trong khi tsc đỏ, dễ tưởng là ổn. |
+| Nút Test kết nối FB báo "thiếu quyền" trong khi quyền đã đủ | Hai lỗi chồng nhau, mất >1h mới ra: (1) code hỏi `fields=...,tasks` nhưng `tasks` **không tồn tại** trên page node với Page token (chỉ có ở `/me/accounts`) ⇒ Graph trả `(#100)`; (2) Page token của page A đọc page B ⇒ Graph trả `(#10)` = "thiếu quyền", đánh lạc hướng khỏi lỗi thật là **sai Page ID**. Xử lý: gọi `/debug_token` **trước** để biết token loại gì, của page nào, hạn bao lâu — rồi mới gọi page node. **Bài học: adapter external API phải gọi thật ít nhất 1 lần trước khi coi là xong; unit test mock `fetch` chỉ chứng minh code khớp *giả định của mình* về API.** |
 | Coverage kẹt vì `jest.Mock` không generic khiến biểu thức trong `expect(...).toEqual({ message: expect.stringContaining(...) })` bị coi là `any` (`no-unsafe-assignment`) | ESLint `recommendedTypeChecked` bắt lỗi này ngay cả trong test. Xử lý: tách thành nhiều `expect(...).toBe(...)`/`toContain(...)` riêng lẻ thay vì gộp vào object literal cho `toEqual`. |

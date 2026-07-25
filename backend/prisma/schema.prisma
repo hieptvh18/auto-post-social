@@ -69,8 +69,9 @@ model FacebookPage {
   pageId          String    @unique @map("page_id")
   accessTokenEnc  String    @map("access_token_enc") @db.Text
   tokenExpireAt   DateTime? @map("token_expire_at")
-  isActive        Boolean   @default(true) @map("is_active")
+  isActive        Boolean   @default(true) @map("is_active") // tạm dừng page (vẫn hiện ở UI)
   autopostEnabled Boolean   @default(false) @map("autopost_enabled")
+  deletedAt       DateTime? @map("deleted_at") // != null = đã xoá, ẩn khỏi mọi truy vấn nghiệp vụ
   createdById     String    @map("created_by") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
@@ -81,6 +82,7 @@ model FacebookPage {
   autoPostSlots AutoPostSlot[]
 
   @@index([isActive])
+  @@index([deletedAt])
   @@map("facebook_pages")
 }
 

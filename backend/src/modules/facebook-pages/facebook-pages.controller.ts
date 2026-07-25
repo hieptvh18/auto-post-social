@@ -14,9 +14,13 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { CreateFacebookPageDto } from './dto/create-facebook-page.dto';
+import { TestFacebookConnectionDto } from './dto/test-connection.dto';
 import { UpdateFacebookPageDto } from './dto/update-facebook-page.dto';
 import type { FacebookPageResponse } from './facebook-page.mapper';
-import { FacebookPagesService } from './facebook-pages.service';
+import {
+  FacebookPagesService,
+  type FacebookConnectionResult,
+} from './facebook-pages.service';
 
 @ApiTags('pages')
 @ApiBearerAuth()
@@ -40,6 +44,31 @@ export class FacebookPagesController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<FacebookPageResponse> {
     return this.service.create(dto, actor);
+  }
+
+  @Post('test-connection')
+  @HttpCode(200)
+  @RequirePermission('pages:manage')
+  @ApiOperation({
+    summary:
+      'Test cấu hình chưa lưu: gọi thử Graph API bằng pageId + token vừa nhập (ADMIN)',
+  })
+  testConnection(
+    @Body() dto: TestFacebookConnectionDto,
+  ): Promise<FacebookConnectionResult> {
+    return this.service.testConnection(dto.pageId, dto.accessToken);
+  }
+
+  @Post(':id/test-connection')
+  @HttpCode(200)
+  @RequirePermission('pages:manage')
+  @ApiOperation({
+    summary: 'Test page đã lưu bằng token trong DB (ADMIN)',
+  })
+  testSavedConnection(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<FacebookConnectionResult> {
+    return this.service.testSavedPageConnection(id);
   }
 
   @Put(':id')

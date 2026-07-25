@@ -8,6 +8,7 @@ import { pagesApi } from '../api/pages.api';
 import type {
   CreateFacebookPageBody,
   FacebookPageResponse,
+  PageConnectionResult,
   UpdateFacebookPageBody,
 } from '../types';
 
@@ -38,6 +39,26 @@ export function useUpdatePage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [PAGES_KEY] });
     },
+  });
+}
+
+/**
+ * Test kết nối tới page. `raw` = cấu hình đang nhập trên form (chưa lưu),
+ * `saved` = page đã lưu, dùng token trong DB (khi sửa mà không nhập token mới).
+ */
+export type TestPageConnectionInput =
+  | { mode: 'raw'; pageId: string; accessToken: string }
+  | { mode: 'saved'; id: string };
+
+export function useTestPageConnection() {
+  return useMutation<PageConnectionResult, Error, TestPageConnectionInput>({
+    mutationFn: (input) =>
+      input.mode === 'saved'
+        ? pagesApi.testSavedConnection(input.id)
+        : pagesApi.testConnection({
+            pageId: input.pageId,
+            accessToken: input.accessToken,
+          }),
   });
 }
 

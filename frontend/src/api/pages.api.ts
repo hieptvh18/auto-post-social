@@ -1,6 +1,8 @@
 import type {
   CreateFacebookPageBody,
   FacebookPageResponse,
+  PageConnectionResult,
+  TestPageConnectionBody,
   UpdateFacebookPageBody,
 } from '../types';
 import { apiRequest } from './client';
@@ -27,5 +29,20 @@ export const pagesApi = {
 
   remove(id: string): Promise<void> {
     return apiRequest<void>(`/pages/${id}`, { method: 'DELETE' });
+  },
+
+  /** Test pageId + token vừa nhập trên form (chưa lưu). */
+  testConnection(body: TestPageConnectionBody): Promise<PageConnectionResult> {
+    return apiRequest<PageConnectionResult>('/pages/test-connection', {
+      method: 'POST',
+      body,
+    });
+  },
+
+  /** Test page đã lưu bằng token trong DB — dùng khi sửa mà không đổi token. */
+  testSavedConnection(id: string): Promise<PageConnectionResult> {
+    return apiRequest<PageConnectionResult>(`/pages/${id}/test-connection`, {
+      method: 'POST',
+    });
   },
 };

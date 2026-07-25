@@ -8,9 +8,11 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AutoPostConfigsModule } from './modules/auto-post-configs/auto-post-configs.module';
 import { ContentAssetsModule } from './modules/content-assets/content-assets.module';
 import { FacebookPagesModule } from './modules/facebook-pages/facebook-pages.module';
 import { HealthModule } from './modules/health/health.module';
+import { ManualPostModule } from './modules/manual-post/manual-post.module';
 import { MediaModule } from './modules/media/media.module';
 import { SettingsHttpModule } from './modules/settings/settings-http.module';
 import { UsersModule } from './modules/users/users.module';
@@ -27,6 +29,8 @@ import { UsersModule } from './modules/users/users.module';
     SettingsHttpModule,
     ContentAssetsModule,
     FacebookPagesModule,
+    AutoPostConfigsModule,
+    ManualPostModule,
     HealthModule,
   ],
   providers: [
