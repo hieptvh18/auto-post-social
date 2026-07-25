@@ -1,4 +1,10 @@
-import type { ContentStatus, PublishStatus, SlotMediaType, UserRole } from '../types';
+import type {
+  ContentStatus,
+  PublishStatus,
+  SlotMediaType,
+  SlotProgress,
+  UserRole,
+} from '../types';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: 'Quản trị viên',
@@ -55,6 +61,29 @@ export const SLOT_MEDIA_TYPE_LABELS: Record<SlotMediaType, string> = {
   image: 'Ảnh',
   video: 'Video',
   all: 'Ảnh + Video',
+};
+
+/** Nhãn tiến độ một mốc giờ ở màn "Lịch đăng bài" (backend `SlotProgress`). */
+export const SLOT_PROGRESS_LABELS: Record<SlotProgress, string> = {
+  PENDING: 'Chờ tới giờ',
+  RUNNING: 'Đang đăng',
+  DONE: 'Đã đăng đủ',
+  PARTIAL: 'Đăng thiếu',
+  FAILED: 'Lỗi',
+  MISSED: 'Không chạy',
+  NO_CONTENT: 'Hết bài trong kho',
+  PAUSED: 'Đang tắt',
+};
+
+export const SLOT_PROGRESS_COLORS: Record<SlotProgress, string> = {
+  PENDING: 'blue',
+  RUNNING: 'processing',
+  DONE: 'success',
+  PARTIAL: 'gold',
+  FAILED: 'error',
+  MISSED: 'volcano',
+  NO_CONTENT: 'orange',
+  PAUSED: 'default',
 };
 
 export const BOT_PUBLISHER = 'Bot';

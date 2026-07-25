@@ -252,6 +252,88 @@ export interface ManualPostResponse {
   message: string;
 }
 
+/** Tiến độ một mốc giờ trong ngày (backend `SlotProgress`). */
+export type SlotProgress =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'DONE'
+  | 'PARTIAL'
+  | 'FAILED'
+  | 'MISSED'
+  | 'NO_CONTENT'
+  | 'PAUSED';
+
+/** Một job trong màn "Lịch đăng bài" (backend `ScheduleJobResponse`). */
+export interface ScheduleJob {
+  id: string;
+  contentAssetId: string;
+  contentTitle: string;
+  category: string;
+  mediaType: MediaType;
+  driveUrl: string | null;
+  thumbnailUrl: string | null;
+  caption: string;
+  hashtags: string | null;
+  status: PublishStatus;
+  scheduleTime: string;
+  publishedAt: string | null;
+  facebookPostId: string | null;
+  errorMessage: string | null;
+  attemptCount: number;
+  /** Tên người đăng — 'Bot' nếu do engine tự động, còn lại là user đăng tay. */
+  publishedBy: string;
+  isManual: boolean;
+}
+
+/** Một mốc giờ của một page trong ngày (backend `ScheduleItemResponse`). */
+export interface ScheduleItem {
+  key: string;
+  kind: 'slot' | 'manual';
+  time: string;
+  slotId: string | null;
+  pageId: string;
+  facebookPageId: string;
+  pageName: string;
+  pageIsActive: boolean;
+  autopostEnabled: boolean;
+  slotEnabled: boolean;
+  categories: string[];
+  mediaType: SlotMediaType | null;
+  plannedCount: number;
+  successCount: number;
+  failedCount: number;
+  runningCount: number;
+  readyCount: number | null;
+  progress: SlotProgress;
+  publishers: string[];
+  jobs: ScheduleJob[];
+}
+
+export interface PublishScheduleSummary {
+  plannedPosts: number;
+  activeSlots: number;
+  pagesAutoOn: number;
+  successPosts: number;
+  failedPosts: number;
+  runningPosts: number;
+  manualPosts: number;
+}
+
+/** Response `GET /publish-schedule`. */
+export interface PublishScheduleResponse {
+  date: string;
+  timezone: string;
+  summary: PublishScheduleSummary;
+  items: ScheduleItem[];
+}
+
+/** Query `GET /publish-schedule`. */
+export interface QueryPublishScheduleParams {
+  date?: string;
+  pageId?: string;
+  status?: PublishStatus;
+}
+
 export interface AuditLog {
   id: string;
   userEmail: string;

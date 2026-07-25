@@ -5,7 +5,26 @@
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
 **Cập nhật lần cuối:** 2026-07-25
-**Session gần nhất (mới nhất):** Theo yêu cầu user: (1) **Content giai đoạn 2** (plan 11,
+**Session gần nhất (mới nhất):** **Lịch đăng bài** (plan 12) — biến trang `/timeline`
+từ mock thành màn **tracking lịch + tiến độ đăng tự động của mọi page**, dữ liệu map
+thẳng từ "Cài đặt đăng bài tự động": mỗi mốc giờ (`auto_post_slots`) × page = một dòng
+lịch trong ngày, kèm kế hoạch (`postCount`) / đã đăng / đang chạy / lỗi / **kho còn bao
+nhiêu bài dùng được**. Backend module mới `publish-schedule` (`GET /publish-schedule?date=&pageId=&status=`,
+gác `timeline:view` ⇒ CONTENT 403) + `ClockService` (`src/infra/clock/`, plan 07 dùng lại)
++ `common/utils/datetime.util.ts` (quy đổi ngày/giờ VN ↔ UTC) + hàm thuần
+`resolveSlotProgress` 8 trạng thái (PENDING/RUNNING/DONE/PARTIAL/FAILED/MISSED/NO_CONTENT/PAUSED).
+**Bài đăng tay cũng được map** (yêu cầu user): job `created_by != 'Bot'` gom thành dòng
+`kind: 'manual'`, và **người đăng hiển thị đúng tên USER** thay vì "Bot" (`publishedBy`
+per job + `publishers` per dòng); job của Bot lệch giờ slot (slot bị xoá/đổi giờ) hiện
+thành dòng "Ngoài lịch". **Không đụng schema** ⇒ `erd.md` giữ nguyên. BE 411 test xanh
+(+28), FE 32 test cũ xanh, lint/build 2 phía xanh. **Đã smoke API với backend thật**
+(dữ liệu thật: 2 slot MISSED hôm nay, 1 bài đăng tay 13:13 do "System Admin", ngày mai
+ra PENDING/NO_CONTENT đúng, filter page/status, date sai ⇒ 400, CONTENT ⇒ 403) —
+**chưa smoke UI thật**, xem §6 mục 14. Mỗi job trong lịch có link **"Xem/sửa bài trong
+kho"** → `/content?edit=<contentAssetId>`; `ContentManagementPage` đọc param này và mở
+luôn Drawer sửa bài đó (hook mới `useContentAsset`), xoá param ngay sau khi mở.
+
+**Session trước:** Theo yêu cầu user: (1) **Content giai đoạn 2** (plan 11,
 tiếp plan 04) — mở lại 3 khối UI đang bị ẩn ở "Quản lý Ảnh/Video Edit": **Phân bổ page**,
 **Trạng thái duyệt**, checkbox **Đạt ADS**, kèm backend thật: `PATCH /content-assets/:id`
 nhận `status`/`isAds`/`rejectComment`/`assignedPageIds`, transition tách ra hàm thuần
@@ -28,7 +47,7 @@ phía xanh. **Đã smoke API
 qua curl** đủ các case 403/400/422/409 + gợi ý hashtag — **chưa smoke UI thật**, xem plan
 11 + §6 mục 13.
 
-**Session trước:** Bổ sung theo yêu cầu user cho trang **Cài đặt đăng bài
+**Trước đó:** Bổ sung theo yêu cầu user cho trang **Cài đặt đăng bài
 tự động** (plan 09): **filter theo FB Page** + **nút "Đăng bài thủ công"** — popup chọn
 page, lọc danh mục/loại media, chọn 1 bài ảnh/video trong kho, sửa caption/hashtag lấy
 sẵn từ bài rồi **đăng ngay lập tức** qua Graph API. Backend thêm module `manual-post`
@@ -92,10 +111,10 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | 11 file plan feature + `_TEMPLATE.md` (2 file đã xong ở `plans/DONE/`) |
+| `plans/` | ✅ Hoàn thiện | 12 file plan feature + `_TEMPLATE.md` (2 file đã xong ở `plans/DONE/`) |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
-| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). Các trang còn lại vẫn mock (`SettingsPage`, dashboard/timeline/audit...). |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** xong. Còn **auto-post engine** (cron+queue+publisher, plan 07) |
+| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). Các trang còn lại vẫn mock (`SettingsPage`, dashboard/audit/queue...). |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** xong. Còn **auto-post engine** (cron+queue+publisher, plan 07) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -159,7 +178,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) 2026-07-24 + giai đoạn 2 (duyệt/isAds/phân bổ page/hashtag, plan 11) 2026-07-25 — code+test+smoke API xong, chờ smoke UI thật |
 | M4 — Facebook Pages + token crypto (+ nối FE PagePage) | 🟡 | code+test xong 2026-07-24, chờ smoke test UI thật |
 | M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | 🟡 | code+test+smoke API xong 2026-07-25, chờ smoke UI thật |
-| M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | ⬜ | |
+| M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | 🟡 | FE "Lịch đăng bài" + API `GET /publish-schedule` xong 2026-07-25 (plan 12, chờ smoke UI); engine cron+queue+publisher (plan 07) chưa làm |
 | M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | 🟡 | Users xong 2026-07-25 (chờ smoke UI); Settings + nghiệm thu end-to-end chưa làm |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
@@ -429,6 +448,35 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Test:** BE 383 test / 30 suite xanh (+22). FE 32 test (+15). Smoke curl đủ §5 plan 11.
 - **Còn nợ:** chưa smoke UI thật (§6 mục 13).
 
+### Lịch đăng bài — tracking lịch + tiến độ auto-post (Plan 12) — 🟡 2026-07-25
+
+- **Phạm vi:** `GET /publish-schedule?date=&pageId=&status=` (`timeline:view`, ADMIN+EDITOR)
+  — **chỉ đọc**. Ghép `auto_post_slots` (dữ liệu của trang "Cài đặt đăng bài tự động")
+  với `publish_jobs` trong ngày: mỗi mốc giờ × page = 1 dòng lịch kèm `plannedCount`
+  (`postCount`) / `successCount` / `failedCount` / `runningCount` / `readyCount` (kho còn
+  bài dùng được) / `progress`. Bài **đăng tay** thành dòng `kind: 'manual'` với đúng tên
+  USER đăng; job Bot không khớp mốc giờ nào ⇒ dòng "Ngoài lịch". FE `/timeline` bỏ mock.
+- **File chính:** `backend/src/modules/publish-schedule/` (repository/service/controller/
+  dto/mapper + `schedule-progress.ts`), `backend/src/infra/clock/`,
+  `backend/src/common/utils/datetime.util.ts`, `frontend/src/api/publishSchedule.api.ts`,
+  `frontend/src/hooks/usePublishSchedule.ts`, `frontend/src/pages/TimelinePage.tsx`,
+  `frontend/src/pages/ContentManagementPage.tsx` (deep-link `?edit=<id>` mở Drawer),
+  `frontend/src/hooks/useContentAssets.ts` (`useContentAsset`)
+- **Quyết định:** làm **trước** engine plan 07 (yêu cầu user) — engine xong thì trang này
+  không phải sửa vì job tự động cùng đổ vào `publish_jobs`. Ghép job↔slot theo (page, `HH:mm`
+  giờ VN) chứ **không thêm cột `slot_id`** vào `publish_jobs` ⇒ **schema không đổi, `erd.md`
+  giữ nguyên** (plan 06 đã chặn 2 slot cùng page trùng giờ nên khoá này đủ phân biệt).
+  `readyCount` cố ý **không** nhân bản toàn bộ picker của plan 07 (thiếu mệnh đề "chưa có
+  job QUEUED/PUBLISHING") — chỉ để cảnh báo hết bài, không quyết định đăng gì.
+  Dùng lại `AutoPostConfigsRepository.findPagesWithSlots` thay vì tự query slot.
+  `ClockService` tách ra `src/infra/clock/` để plan 07 dùng lại.
+- **Test:** BE 411 test / 33 suite xanh (+28: `resolveSlotProgress` 10, service 12 —
+  ghép job UTC lệch ngày sang giờ VN, dòng manual, filter page/status, summary, sắp xếp;
+  `datetime.util` 6). FE 32 test cũ xanh, lint/build 2 phía xanh. Smoke API với backend
+  thật: đủ mục §5 plan 12 (CONTENT ⇒ 403, `date` sai định dạng ⇒ 400).
+- **Còn nợ:** chưa smoke UI thật (§6 mục 14). Job tự động chỉ xuất hiện sau plan 07.
+  `readyCount` chạy 1 query/slot — chấp nhận ở MVP.
+
 ## 6. Việc đang dở / nợ kỹ thuật
 
 | # | Việc | Chi tiết |
@@ -446,6 +494,9 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | 12 | **User Management + tracking content chưa smoke UI thật** | Code BE+FE xong (plan 10, BE 361 test xanh), đã smoke API qua curl đủ case (tạo/sửa/vô hiệu hóa user, 409 email trùng, 400 tự khóa mình, `PATCH /content-assets` ⇒ `updatedBy` đúng actor) nhưng **chưa test tay trên UI**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN: `/users` tạo user mới (có tên) → sửa quyền → vô hiệu hóa; `/content` kiểm 2 cột "Người upload"/"Người sửa gần nhất" đổi đúng sau khi sửa bài; đăng nhập CONTENT gõ `/users` phải bị chặn. |
 | 10 | **Chưa có Page token dùng được cho Page thật** | Đã gọi Graph thật 2026-07-25 và sửa xong adapter (xem §7). Token hiện lưu là **SYSTEM_USER token** (hết hạn 23/09/2026) nhưng system user `toolfbtest` **chưa được gán Page nào** (`/me/accounts` rỗng) nên vẫn không đọc được page. Bước còn lại: Business settings → System users → Add assets → Pages → gán page + task Manage Page, rồi đổi sang Page token qua `/me/accounts`. Token cũ hơn là USER token ngắn hạn (hết hạn trong ngày) nên nút Test vẫn báo đỏ đúng nghiệp vụ. Cần token **System User** (`expires_at = 0`) → dùng nó gọi `/me/accounts` lấy Page token vĩnh viễn → dán vào form. Publisher (plan 07) sẽ chết vì token hết hạn nếu bỏ qua bước này. Business đang dùng: `27820019340966159`, app `KakuCoach`, page thật `111367907895365` (Cửa hàng cây cảnh mini). |
 
+| 14 | **Lịch đăng bài chưa smoke UI thật** | Code BE+FE xong (plan 12, BE 411 test xanh), đã smoke API qua curl (lịch hôm nay đúng 2 slot × page, bài đăng tay hiện tên user "System Admin", ngày mai ra PENDING/NO_CONTENT, filter page/status, `date=25-07-2026` ⇒ 400, CONTENT ⇒ 403). **Chưa test tay UI**: `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/timeline` — kiểm 4 ô thống kê, đổi ngày (hôm qua/mai), lọc theo page và theo trạng thái job, dòng đăng tay hiện tag "Đăng tay" + tên user, tắt 1 mốc giờ ở `/auto-post` rồi quay lại xem có báo "Đang tắt"/PAUSED, bấm "Xem/sửa bài
+trong kho" ở một job ⇒ sang `/content` và Drawer sửa đúng bài mở sẵn (đóng Drawer rồi F5
+không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
 
 ---

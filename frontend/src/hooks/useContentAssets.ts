@@ -58,6 +58,20 @@ export function useContentAssets(
   });
 }
 
+/**
+ * Một bài cụ thể. Dùng cho deep-link `/content?edit=<id>` từ màn "Lịch đăng bài":
+ * bài cần mở có thể không nằm trong trang danh sách đang xem nên phải hỏi riêng.
+ */
+export function useContentAsset(
+  id: string | null,
+): UseQueryResult<ContentAssetResponse> {
+  return useQuery({
+    queryKey: [CONTENT_ASSETS_KEY, id],
+    queryFn: () => contentAssetsApi.getById(id as string),
+    enabled: id !== null,
+  });
+}
+
 export function useCreateContentAsset() {
   const queryClient = useQueryClient();
   return useMutation({

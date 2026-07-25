@@ -40,7 +40,7 @@ phải chỉ qua curl/Swagger.
 | M3 | Content assets + duyệt + phân bổ page | [plans/04-content-assets.md](./plans/04-content-assets.md) | M1, M2, M2.5 | ContentManagementPage |
 | M4 | Facebook Pages + mã hóa token | [plans/05-facebook-pages.md](./plans/05-facebook-pages.md) | M1, M2.5 | PageManagementPage |
 | M5 | Cài đặt đăng bài tự động (slots) | [plans/06-auto-post-slots.md](./plans/06-auto-post-slots.md) | M4 | AutoPostSettingsPage |
-| M6 | Cron picker + BullMQ + publisher | [plans/07-autopost-engine.md](./plans/07-autopost-engine.md) | M3, M5 | TimelinePage |
+| M6 | Cron picker + BullMQ + publisher | [plans/07-autopost-engine.md](./plans/07-autopost-engine.md) | M3, M5 | TimelinePage — màn lịch/tracking đã làm trước ở [plans/12-publish-schedule-tracking.md](./plans/12-publish-schedule-tracking.md) |
 | M7 | Dọn dẹp FE còn lại + nghiệm thu MVP end-to-end | [plans/08-frontend-integration.md](./plans/08-frontend-integration.md) | M1–M6 | UserManagementPage, phần còn sót |
 
 Thứ tự bắt buộc: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7.

@@ -27,7 +27,8 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { mediaApi } from '../api/media.api';
 import { getPageName, getUserDisplayName, mockPages, mockUsers } from '../api/mock/data';
@@ -40,6 +41,7 @@ import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import {
   useCategorySuggestions,
+  useContentAsset,
   useContentAssets,
   useCreateContentAsset,
   useDeleteContentAsset,
@@ -639,6 +641,7 @@ function MockContentManagementPage() {
  */
 function RealContentManagementPage() {
   const user = useAuthUser();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | undefined>();
@@ -682,20 +685,42 @@ function RealContentManagementPage() {
   const updateMutation = useUpdateContentAsset();
   const deleteMutation = useDeleteContentAsset();
 
-  const openEdit = (record: ContentAssetResponse) => {
-    setEditing(record);
-    editForm.setFieldsValue({
-      title: record.title,
-      description: record.description ?? '',
-      category: record.category,
-      caption: record.caption,
-      hashtags: record.hashtags ?? '',
-      assignedPageIds: record.assignedPageIds,
-      status: record.status,
-      isAds: record.isAds,
-      rejectComment: record.rejectComment ?? '',
-    });
-  };
+  const openEdit = useCallback(
+    (record: ContentAssetResponse) => {
+      setEditing(record);
+      editForm.setFieldsValue({
+        title: record.title,
+        description: record.description ?? '',
+        category: record.category,
+        caption: record.caption,
+        hashtags: record.hashtags ?? '',
+        assignedPageIds: record.assignedPageIds,
+        status: record.status,
+        isAds: record.isAds,
+        rejectComment: record.rejectComment ?? '',
+      });
+    },
+    [editForm],
+  );
+
+  // Deep-link từ màn "Lịch đăng bài": `/content?edit=<id>` mở luôn Drawer sửa bài
+  // đó. Bài có thể không nằm trong trang danh sách đang xem nên phải hỏi riêng.
+  const editIdFromUrl = searchParams.get('edit');
+  const { data: deepLinked, isError: deepLinkFailed } =
+    useContentAsset(editIdFromUrl);
+
+  useEffect(() => {
+    if (deepLinked === undefined) return;
+    openEdit(deepLinked);
+    // Xoá param ngay để đóng Drawer rồi F5 không bị mở lại.
+    setSearchParams({}, { replace: true });
+  }, [deepLinked, openEdit, setSearchParams]);
+
+  useEffect(() => {
+    if (!deepLinkFailed) return;
+    message.error('Không tìm thấy bài này trong kho (có thể đã bị xoá)');
+    setSearchParams({}, { replace: true });
+  }, [deepLinkFailed, setSearchParams]);
 
   const handleEditSubmit = async (values: {
     title: string;

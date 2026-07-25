@@ -14,6 +14,7 @@ import { FacebookPagesModule } from './modules/facebook-pages/facebook-pages.mod
 import { HealthModule } from './modules/health/health.module';
 import { ManualPostModule } from './modules/manual-post/manual-post.module';
 import { MediaModule } from './modules/media/media.module';
+import { PublishScheduleModule } from './modules/publish-schedule/publish-schedule.module';
 import { SettingsHttpModule } from './modules/settings/settings-http.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -31,6 +32,7 @@ import { UsersModule } from './modules/users/users.module';
     FacebookPagesModule,
     AutoPostConfigsModule,
     ManualPostModule,
+    PublishScheduleModule,
     HealthModule,
   ],
   providers: [
