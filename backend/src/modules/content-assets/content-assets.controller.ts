@@ -17,6 +17,8 @@ import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import type { ContentAssetResponse } from './content-asset.mapper';
 import {
   ContentAssetsService,
+  type CategorySuggestion,
+  type HashtagSuggestion,
   type PaginatedContentAssets,
 } from './content-assets.service';
 import { CreateContentAssetDto } from './dto/create-content-asset.dto';
@@ -38,6 +40,24 @@ export class ContentAssetsController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<PaginatedContentAssets> {
     return this.service.findAll(query, actor);
+  }
+
+  // Khai báo TRƯỚC `:id` — nếu không `ParseUUIDPipe` của route dưới sẽ nuốt mất.
+  @Get('hashtags')
+  @ApiOperation({
+    summary: 'Hashtag đã dùng trong kho — gợi ý cho ô nhập nhanh trên UI',
+  })
+  findHashtags(): Promise<HashtagSuggestion[]> {
+    return this.service.findHashtagSuggestions();
+  }
+
+  @Get('categories')
+  @ApiOperation({
+    summary:
+      'Danh mục ("Dạng") đang dùng — gợi ý cho ô chọn/thêm nhanh trên UI',
+  })
+  findCategories(): Promise<CategorySuggestion[]> {
+    return this.service.findCategorySuggestions();
   }
 
   @Get(':id')
@@ -63,7 +83,10 @@ export class ContentAssetsController {
 
   @Patch(':id')
   @RequirePermission('content:edit')
-  @ApiOperation({ summary: 'Sửa content (field mô tả — giai đoạn 1)' })
+  @ApiOperation({
+    summary:
+      'Sửa content — kèm duyệt/ADS/phân bổ page (quyền field-level ở service)',
+  })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateContentAssetDto,

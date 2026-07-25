@@ -1,6 +1,8 @@
 import type {
+  CategorySuggestion,
   ContentAssetResponse,
   CreateContentAssetBody,
+  HashtagSuggestion,
   PaginatedContentAssets,
   QueryContentAssetsParams,
   UpdateContentAssetBody,
@@ -22,6 +24,16 @@ export const contentAssetsApi = {
     return apiRequest<PaginatedContentAssets>(
       `/content-assets${toQueryString(params)}`,
     );
+  },
+
+  /** Hashtag đã dùng trong kho — gợi ý cho ô nhập nhanh. */
+  hashtags(): Promise<HashtagSuggestion[]> {
+    return apiRequest<HashtagSuggestion[]>('/content-assets/hashtags');
+  },
+
+  /** Danh mục đang dùng — gợi ý cho ô "Dạng" chọn/thêm nhanh. */
+  categories(): Promise<CategorySuggestion[]> {
+    return apiRequest<CategorySuggestion[]>('/content-assets/categories');
   },
 
   getById(id: string): Promise<ContentAssetResponse> {

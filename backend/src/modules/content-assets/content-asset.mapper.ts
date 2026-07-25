@@ -1,4 +1,16 @@
 import type { ContentAsset } from '../../../generated/prisma/client';
+import type {
+  ContentActor,
+  ContentAssetWithActors,
+} from './content-assets.repository';
+
+/** Một page mà bài được phân bổ, kèm trạng thái đã đăng hay chưa. */
+export interface ContentAssignmentResponse {
+  pageId: string;
+  pageName: string;
+  publishedAt: Date | null;
+  facebookPostId: string | null;
+}
 
 export interface ContentAssetResponse {
   id: string;
@@ -18,13 +30,24 @@ export interface ContentAssetResponse {
   rejectComment: string | null;
   createdById: string;
   approvedById: string | null;
+  updatedById: string | null;
+  /** Người upload bài. */
+  createdBy: ContentActor;
+  /** Người sửa gần nhất — null với bài cũ có trước khi bật tracking. */
+  updatedBy: ContentActor | null;
+  /** Page đã phân bổ (kể cả đã đăng) — nguồn cho ô "Phân bổ page" trên UI. */
+  assignedPageIds: string[];
+  /** Tập con của `assignedPageIds` đã đăng thành công — không gỡ được nữa. */
+  publishedPageIds: string[];
+  assignments: ContentAssignmentResponse[];
   createdAt: Date;
   updatedAt: Date;
 }
 
 export function toContentAssetResponse(
-  asset: ContentAsset,
+  asset: ContentAssetWithActors,
 ): ContentAssetResponse {
+  const assignments = asset.assignments;
   return {
     id: asset.id,
     title: asset.title,
@@ -43,7 +66,25 @@ export function toContentAssetResponse(
     rejectComment: asset.rejectComment,
     createdById: asset.createdById,
     approvedById: asset.approvedById,
+    updatedById: asset.updatedById,
+    createdBy: toActor(asset.createdBy),
+    updatedBy: asset.updatedBy === null ? null : toActor(asset.updatedBy),
+    assignedPageIds: assignments.map((a) => a.facebookPageId),
+    publishedPageIds: assignments
+      .filter((a) => a.publishedAt !== null)
+      .map((a) => a.facebookPageId),
+    assignments: assignments.map((a) => ({
+      pageId: a.facebookPageId,
+      pageName: a.facebookPage.pageName,
+      publishedAt: a.publishedAt,
+      facebookPostId: a.facebookPostId,
+    })),
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
   };
+}
+
+/** Chỉ copy 3 field — chặn mọi field user khác lọt ra API. */
+function toActor(actor: ContentActor): ContentActor {
+  return { id: actor.id, name: actor.name, email: actor.email };
 }

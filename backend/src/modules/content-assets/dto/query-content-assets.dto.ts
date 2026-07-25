@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -9,13 +10,31 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { MediaType } from '../../../../generated/prisma/client';
+import { ContentStatus, MediaType } from '../../../../generated/prisma/client';
+
+/** Query string luôn là chuỗi — đổi 'true'/'false' về boolean cho `@IsBoolean`. */
+function toBoolean(value: unknown): unknown {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}
 
 export class QueryContentAssetsDto {
   @ApiPropertyOptional({ enum: MediaType })
   @IsOptional()
   @IsEnum(MediaType)
   mediaType?: MediaType;
+
+  @ApiPropertyOptional({ enum: ContentStatus })
+  @IsOptional()
+  @IsEnum(ContentStatus)
+  status?: ContentStatus;
+
+  @ApiPropertyOptional({ description: 'Lọc bài đã tick Đạt ADS' })
+  @IsOptional()
+  @Transform(({ value }): unknown => toBoolean(value))
+  @IsBoolean()
+  isAds?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

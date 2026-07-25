@@ -1,7 +1,8 @@
 # Plan 04 — Content Assets + duyệt + phân bổ page
 
 **Milestone:** M3
-**Trạng thái:** 🟡 (giai đoạn 1 code xong, chờ smoke test UI thật — xem `contexts.md` §6)
+**Trạng thái:** 🟡 (giai đoạn 1 + 2 code xong, chờ smoke test UI thật — giai đoạn 2
+làm ở `plans/11-content-review-assignment-hashtags.md`, xem `contexts.md` §6)
 **Phụ thuộc:** Plan 02, Plan 03
 **Spec:** `docs/04-api-spec.md` §5, `docs/03-database-design.md` §5, `docs/05-rbac.md` §3
 
@@ -81,19 +82,19 @@ Assignment **đã có `publishedAt` thì cấm xóa** ⇒ 409. Trùng (content, 
 - [x] `npm run lint && npm run build` xanh (`npm run test` 274 test xanh)
 - [ ] Cập nhật `contexts.md`
 
-### Giai đoạn 2 — Duyệt + isAds + phân bổ page (làm sau)
+### Giai đoạn 2 — Duyệt + isAds + phân bổ page (đã làm ở plan 11, 2026-07-25)
 
-- [ ] `ContentAssetsService.update` mở rộng — kiểm quyền field-level (`status`/`isAds`
+- [x] `ContentAssetsService.update` mở rộng — kiểm quyền field-level (`status`/`isAds`
       đòi `content:review`), `transitionStatus`, diff `assignedPageIds`
-- [ ] `transitionStatus()` tách riêng, thuần hàm, dễ test toàn bộ ma trận
-- [ ] `remove()` — chặn xóa bài đã có assignment `publishedAt != null`
-- [ ] Audit `CONTENT_STATUS_CHANGE`, `CONTENT_ADS_MARK`
-- [ ] Unit test **cho logic phức tạp/dễ sai** (không bắt buộc 100%): `transitionStatus()`
+- [x] `transitionStatus()` tách riêng, thuần hàm, dễ test toàn bộ ma trận
+- [x] `remove()` — chặn xóa bài đã có assignment `publishedAt != null`
+- [x] Audit `CONTENT_STATUS_CHANGE`, `CONTENT_ADS_MARK`
+- [x] Unit test **cho logic phức tạp/dễ sai** (không bắt buộc 100%): `transitionStatus()`
       (ma trận hợp lệ/không, reject thiếu lý do, client set PUBLISHED ⇒ 422), RBAC
       field-level, `diffAssignments` (409 khi trùng / xóa bài đã published), CONTENT
       sửa bài REJECTED → PENDING_REVIEW. CRUD thuần/mapper không cần test riêng.
-- [ ] `npm run lint && npm run build` xanh
-- [ ] Cập nhật `contexts.md`
+- [x] `npm run lint && npm run build` xanh
+- [x] Cập nhật `contexts.md`
 
 ## 4b. Nối frontend — ContentManagementPage
 
@@ -117,17 +118,17 @@ song song). Hạ tầng dùng chung đã có ở Plan 03b (`api/client.ts`, `Aut
 
 ### Giai đoạn 2
 
-- [ ] Thêm lại UI trạng thái duyệt / `isAds` / phân bổ page, gọi `PATCH` mở rộng
-- [ ] `npm run lint && npm run build` (frontend) xanh
+- [x] Thêm lại UI trạng thái duyệt / `isAds` / phân bổ page, gọi `PATCH` mở rộng
+- [x] `npm run lint && npm run build` (frontend) xanh
 
 ## 5. Điều kiện nghiệm thu
 
-- [ ] CONTENT tạo bài → `PENDING_REVIEW`, gán 2 page
-- [ ] CONTENT gửi `{status:'APPROVED'}` ⇒ 403
-- [ ] EDITOR gửi `{status:'APPROVED', isAds:true}` ⇒ 200, `approvedBy` đúng, `updatedAt` mới
-- [ ] EDITOR gửi `{status:'REJECTED'}` không kèm lý do ⇒ 400
-- [ ] Bất kỳ ai gửi `{status:'PUBLISHED'}` ⇒ 422
-- [ ] Gán trùng page ⇒ 409
+- [x] CONTENT tạo bài → `PENDING_REVIEW`, gán page (smoke curl 2026-07-25)
+- [x] CONTENT gửi `{status:'APPROVED'}` ⇒ 403
+- [x] EDITOR/ADMIN gửi `{status:'APPROVED', isAds:true}` ⇒ 200, `approvedBy` đúng, `updatedAt` mới
+- [x] Gửi `{status:'REJECTED'}` không kèm lý do ⇒ 400
+- [x] Bất kỳ ai gửi `{status:'PUBLISHED'}` ⇒ 422
+- [x] Gán trùng page ⇒ 409 (unique P2002 đổi thành ConflictException)
 - [ ] **Trên UI thật** (`VITE_USE_MOCK=false`): CONTENT tạo bài + upload → thấy trong
       danh sách; EDITOR duyệt → trạng thái đổi; lỗi 403/409 hiển thị đúng
 

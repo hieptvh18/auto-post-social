@@ -32,22 +32,34 @@ import { ApiError } from '../api/client';
 import { mediaApi } from '../api/media.api';
 import { getPageName, getUserDisplayName, mockPages, mockUsers } from '../api/mock/data';
 import { env } from '../config/env';
+import { CategorySelect } from '../components/common/CategorySelect';
+import { HashtagInput } from '../components/common/HashtagInput';
 import { PageHeader } from '../components/common/PageHeader';
 import { ContentStatusTag } from '../components/common/StatusTag';
 import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import {
+  useCategorySuggestions,
   useContentAssets,
   useCreateContentAsset,
   useDeleteContentAsset,
   useUpdateContentAsset,
 } from '../hooks/useContentAssets';
-import type { ContentAsset, ContentAssetResponse, ContentStatus, MediaType } from '../types';
+import { usePages } from '../hooks/usePages';
+import { useUsers } from '../hooks/useUsers';
+import type {
+  ContentActor,
+  ContentAsset,
+  ContentAssetResponse,
+  ContentStatus,
+  MediaType,
+} from '../types';
 import {
   CONTENT_CATEGORIES,
   CONTENT_STATUS_LABELS,
   MEDIA_TYPE_LABELS,
 } from '../utils/constants';
+import { mergeCategoryOptions } from '../utils/categories';
 import { can } from '../utils/permissions';
 
 const { Text } = Typography;
@@ -56,6 +68,20 @@ function detectMediaType(file: UploadFile): MediaType {
   const mime = file.type ?? '';
   if (mime.startsWith('video/')) return 'video';
   return 'image';
+}
+
+/** Ô hiển thị người thao tác: tên + mốc thời gian (email ở tooltip cho khỏi chật). */
+function ActorCell({ actor, at }: { actor: ContentActor; at: string }) {
+  return (
+    <Space direction="vertical" size={0}>
+      <Text ellipsis title={actor.email}>
+        {actor.name}
+      </Text>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {dayjs(at).format('DD/MM/YYYY HH:mm')}
+      </Text>
+    </Space>
+  );
 }
 
 const STATUS_OPTIONS = (Object.keys(CONTENT_STATUS_LABELS) as ContentStatus[]).map(
@@ -608,14 +634,16 @@ function MockContentManagementPage() {
 }
 
 /**
- * Giai đoạn 1 (plan 04): CRUD cơ bản qua API thật — không có duyệt/isAds/phân bổ
- * page (giai đoạn 2). `status` chỉ hiển thị (luôn `PENDING_REVIEW` lúc tạo).
+ * Bản chạy API thật (plan 11 = giai đoạn 2 của plan 04): CRUD + duyệt bài +
+ * Đạt ADS + phân bổ page. Quyền field-level do backend chốt, FE chỉ ẩn UI cho gọn.
  */
 function RealContentManagementPage() {
   const user = useAuthUser();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | undefined>();
+  const [statusFilter, setStatusFilter] = useState<ContentStatus | undefined>();
+  const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [editing, setEditing] = useState<ContentAssetResponse | null>(null);
@@ -625,13 +653,31 @@ function RealContentManagementPage() {
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
 
+  const canFilterByUploader = can(user.role, 'users:manage');
+  const canReview = can(user.role, 'content:review');
   const { data, isLoading } = useContentAssets({
     search: search || undefined,
     category: categoryFilter,
     mediaType: mediaTypeFilter,
+    status: statusFilter,
+    createdBy: uploaderFilter,
     page,
     limit: pageSize,
   });
+  const { data: categorySuggestions } = useCategorySuggestions();
+  const categoryOptions = mergeCategoryOptions(categorySuggestions);
+  // `GET /pages` mọi role đọc được (token đã mask) ⇒ CONTENT cũng phân bổ page được.
+  const { data: pages } = usePages();
+  const activePages = (pages ?? []).filter((p) => p.isActive);
+  const pageOptions = activePages.map((p) => ({
+    value: p.id,
+    label: p.pageName,
+  }));
+  // `GET /users` gác `users:manage` ⇒ chỉ ADMIN mới lấy được danh sách để lọc.
+  const { data: usersData } = useUsers(
+    { limit: 100 },
+    { enabled: canFilterByUploader },
+  );
   const createMutation = useCreateContentAsset();
   const updateMutation = useUpdateContentAsset();
   const deleteMutation = useDeleteContentAsset();
@@ -644,6 +690,10 @@ function RealContentManagementPage() {
       category: record.category,
       caption: record.caption,
       hashtags: record.hashtags ?? '',
+      assignedPageIds: record.assignedPageIds,
+      status: record.status,
+      isAds: record.isAds,
+      rejectComment: record.rejectComment ?? '',
     });
   };
 
@@ -653,10 +703,32 @@ function RealContentManagementPage() {
     category: string;
     caption: string;
     hashtags?: string;
+    assignedPageIds?: string[];
+    status: ContentStatus;
+    isAds: boolean;
+    rejectComment?: string;
   }) => {
     if (!editing) return;
+    // Chỉ gửi field duyệt khi thực sự có quyền — CONTENT gửi lên sẽ bị 403.
+    const body = {
+      title: values.title,
+      description: values.description,
+      category: values.category,
+      caption: values.caption,
+      hashtags: values.hashtags,
+      assignedPageIds: values.assignedPageIds ?? [],
+      ...(canReview
+        ? {
+            status: values.status,
+            isAds: values.isAds,
+            ...(values.status === 'REJECTED'
+              ? { rejectComment: values.rejectComment }
+              : {}),
+          }
+        : {}),
+    };
     try {
-      await updateMutation.mutateAsync({ id: editing.id, body: values });
+      await updateMutation.mutateAsync({ id: editing.id, body });
       message.success(`Đã cập nhật "${editing.title}"`);
       setEditing(null);
     } catch (err) {
@@ -679,6 +751,7 @@ function RealContentManagementPage() {
     category: string;
     caption: string;
     hashtags?: string;
+    assignedPageIds?: string[];
   }) => {
     const pickedFile = fileList[0];
     if (!pickedFile) {
@@ -696,6 +769,7 @@ function RealContentManagementPage() {
         category: values.category,
         caption: values.caption,
         hashtags: values.hashtags,
+        assignedPageIds: values.assignedPageIds ?? [],
         mediaType: uploaded.mediaType,
         driveFileId: uploaded.fileId,
         driveUrl: uploaded.driveUrl ?? undefined,
@@ -747,8 +821,17 @@ function RealContentManagementPage() {
     {
       title: 'Trạng thái',
       dataIndex: 'status',
-      width: 140,
-      render: (_, record) => <ContentStatusTag status={record.status} />,
+      width: 150,
+      render: (_, record) => (
+        <Space direction="vertical" size={2}>
+          <ContentStatusTag
+            status={record.status}
+            publishedCount={record.publishedPageIds.length}
+            assignedCount={record.assignedPageIds.length}
+          />
+          {record.isAds && <Tag color="gold">Đạt ADS</Tag>}
+        </Space>
+      ),
     },
     {
       title: 'Dạng',
@@ -778,10 +861,35 @@ function RealContentManagementPage() {
         ),
     },
     {
-      title: 'Ngày cập nhật',
-      dataIndex: 'updatedAt',
-      width: 150,
-      render: (v) => dayjs(v as string).format('DD/MM/YYYY HH:mm'),
+      title: 'Người upload',
+      dataIndex: ['createdBy', 'name'],
+      width: 170,
+      render: (_, record) => <ActorCell actor={record.createdBy} at={record.createdAt} />,
+    },
+    {
+      title: 'Phân bổ page',
+      dataIndex: 'assignments',
+      width: 220,
+      render: (_, record) =>
+        record.assignments.length === 0 ? (
+          <Text type="secondary">Chưa phân bổ</Text>
+        ) : (
+          <Space size={4} wrap>
+            {record.assignments.map((a) => (
+              <Tag
+                key={a.pageId}
+                color={a.publishedAt === null ? 'geekblue' : 'green'}
+                title={
+                  a.publishedAt === null
+                    ? 'Chưa đăng'
+                    : `Đã đăng ${dayjs(a.publishedAt).format('DD/MM/YYYY HH:mm')}`
+                }
+              >
+                {a.pageName}
+              </Tag>
+            ))}
+          </Space>
+        ),
     },
     {
       title: '',
@@ -807,11 +915,15 @@ function RealContentManagementPage() {
     },
   ];
 
+  // PUBLISHING/PUBLISHED là địa hạt của bot — khoá luôn ô trạng thái ở UI.
+  const editStatusLocked =
+    editing !== null && ['PUBLISHING', 'PUBLISHED'].includes(editing.status);
+
   return (
     <div>
       <PageHeader
         title="Quản lý Ảnh/Video Edit"
-        description="Upload lên Google Drive và quản lý metadata — duyệt bài và phân bổ page sẽ mở ở bản tiếp theo"
+        description="Upload lên Google Drive, duyệt bài, tick Đạt ADS và phân bổ fanpage cho bot đăng"
         extra={
           can(user.role, 'content:create') && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
@@ -825,8 +937,9 @@ function RealContentManagementPage() {
         <Select
           placeholder="Dạng (danh mục)"
           allowClear
+          showSearch
           style={{ width: 180 }}
-          options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+          options={categoryOptions.map((c) => ({ value: c, label: c }))}
           onChange={(v) => {
             setCategoryFilter(v);
             setPage(1);
@@ -845,6 +958,31 @@ function RealContentManagementPage() {
             setPage(1);
           }}
         />
+        <Select
+          placeholder="Trạng thái duyệt"
+          allowClear
+          style={{ width: 170 }}
+          options={STATUS_OPTIONS}
+          onChange={(v: ContentStatus | undefined) => {
+            setStatusFilter(v);
+            setPage(1);
+          }}
+        />
+        {canFilterByUploader && (
+          <Select
+            placeholder="Người upload"
+            allowClear
+            style={{ width: 200 }}
+            options={(usersData?.data ?? []).map((u) => ({
+              value: u.id,
+              label: u.name,
+            }))}
+            onChange={(v: string | undefined) => {
+              setUploaderFilter(v);
+              setPage(1);
+            }}
+          />
+        )}
         <Input.Search
           placeholder="Tìm theo tiêu đề..."
           allowClear
@@ -871,7 +1009,7 @@ function RealContentManagementPage() {
             setPageSize(ps);
           },
         }}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1500 }}
       />
 
       <Drawer
@@ -917,7 +1055,7 @@ function RealContentManagementPage() {
               <Input.TextArea rows={2} />
             </Form.Item>
             <Form.Item name="category" label="Dạng (danh mục)" rules={[{ required: true }]}>
-              <Select options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))} />
+              <CategorySelect />
             </Form.Item>
             <Form.Item
               name="caption"
@@ -928,8 +1066,88 @@ function RealContentManagementPage() {
               <Input.TextArea rows={3} />
             </Form.Item>
             <Form.Item name="hashtags" label="Hashtags">
-              <Input placeholder="#cơxươngkhớp #phucancxk" />
+              <HashtagInput />
             </Form.Item>
+            <Form.Item
+              name="assignedPageIds"
+              label="Phân bổ page"
+              tooltip="Bài được bot đăng lên các page này — mỗi bài chỉ đăng 1 lần / 1 page"
+            >
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Chọn một hoặc nhiều fanpage"
+                options={pageOptions.map((option) => ({
+                  ...option,
+                  // Page đã đăng bài thì không gỡ ra được nữa (backend trả 409).
+                  disabled: editing.publishedPageIds.includes(option.value),
+                  label: editing.publishedPageIds.includes(option.value)
+                    ? `${option.label} (đã đăng)`
+                    : option.label,
+                }))}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+
+            {canReview && (
+              <>
+                <Form.Item name="status" label="Trạng thái duyệt">
+                  <Select
+                    disabled={editStatusLocked}
+                    options={STATUS_OPTIONS.map((o) => ({
+                      ...o,
+                      // Đang đăng / Đã đăng do bot cập nhật, không set tay
+                      disabled: ['PUBLISHING', 'PUBLISHED'].includes(o.value),
+                    }))}
+                  />
+                </Form.Item>
+                <Form.Item noStyle shouldUpdate={(p, c) => p.status !== c.status}>
+                  {({ getFieldValue }) =>
+                    getFieldValue('status') === 'REJECTED' && (
+                      <Form.Item
+                        name="rejectComment"
+                        label="Lý do không duyệt"
+                        rules={[{ required: true, message: 'Nhập lý do không duyệt' }]}
+                      >
+                        <Input.TextArea rows={2} />
+                      </Form.Item>
+                    )
+                  }
+                </Form.Item>
+                <Form.Item name="isAds" valuePropName="checked">
+                  <Checkbox>Đạt ADS (video/bài chạy quảng cáo đạt chuẩn)</Checkbox>
+                </Form.Item>
+              </>
+            )}
+
+            {editing.rejectComment && editing.status === 'REJECTED' && (
+              <Alert
+                type="error"
+                message="Lý do không duyệt"
+                description={editing.rejectComment}
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            {editStatusLocked && (
+              <Alert
+                type="info"
+                message="Bot đang xử lý bài này"
+                description="Trạng thái Đang đăng/Đã đăng do bot cập nhật — không sửa tay được."
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Upload bởi <strong>{editing.createdBy.name}</strong> lúc{' '}
+              {dayjs(editing.createdAt).format('DD/MM/YYYY HH:mm')}
+              {editing.updatedBy && (
+                <>
+                  {' · '}sửa gần nhất bởi <strong>{editing.updatedBy.name}</strong> lúc{' '}
+                  {dayjs(editing.updatedAt).format('DD/MM/YYYY HH:mm')}
+                </>
+              )}
+            </Text>
           </Form>
         )}
       </Drawer>
@@ -964,11 +1182,13 @@ function RealContentManagementPage() {
             </Upload>
           </Form.Item>
 
-          <Form.Item name="category" label="Dạng (danh mục)" rules={[{ required: true }]}>
-            <Select
-              placeholder="Chọn dạng bài"
-              options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
-            />
+          <Form.Item
+            name="category"
+            label="Dạng (danh mục)"
+            rules={[{ required: true, message: 'Chọn hoặc gõ tên dạng bài' }]}
+            tooltip="Gõ tên chưa có trong danh sách để tạo dạng bài mới ngay tại đây"
+          >
+            <CategorySelect />
           </Form.Item>
 
           <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
@@ -988,7 +1208,17 @@ function RealContentManagementPage() {
           </Form.Item>
 
           <Form.Item name="hashtags" label="Hashtags">
-            <Input placeholder="#cơxươngkhớp #phucancxk" />
+            <HashtagInput />
+          </Form.Item>
+
+          <Form.Item name="assignedPageIds" label="Phân bổ page (có thể bổ sung sau)">
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="Chọn fanpage sẽ đăng bài này"
+              options={pageOptions}
+              maxTagCount="responsive"
+            />
           </Form.Item>
         </Form>
       </Modal>

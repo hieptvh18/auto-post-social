@@ -51,7 +51,9 @@ import type {
   AutoPostSlotResponse,
   SlotMediaType,
 } from '../types';
-import { CONTENT_CATEGORIES, SLOT_MEDIA_TYPE_LABELS } from '../utils/constants';
+import { SLOT_MEDIA_TYPE_LABELS } from '../utils/constants';
+import { mergeCategoryOptions } from '../utils/categories';
+import { useCategorySuggestions } from '../hooks/useContentAssets';
 import { can } from '../utils/permissions';
 
 const { Text } = Typography;
@@ -431,6 +433,12 @@ function SlotFormModal({
   onCancel,
   onFinish,
 }: SlotFormModalProps) {
+  // Danh mục lấy từ kho content (không còn hardcode); DB rỗng thì rơi về danh sách mồi.
+  const { data: categorySuggestions } = useCategorySuggestions({
+    enabled: !env.useMock,
+  });
+  const categoryOptions = mergeCategoryOptions(categorySuggestions);
+
   return (
     <Modal
       title={isEdit ? 'Sửa mốc giờ đăng' : 'Thêm mốc giờ đăng'}
@@ -460,7 +468,7 @@ function SlotFormModal({
             mode="tags"
             allowClear
             placeholder="Ví dụ: Cơ xương khớp, Thăm khám"
-            options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+            options={categoryOptions.map((c) => ({ value: c, label: c }))}
           />
         </Form.Item>
 

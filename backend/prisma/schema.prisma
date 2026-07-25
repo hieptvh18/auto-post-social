@@ -56,6 +56,7 @@ model User {
 
   contentCreated  ContentAsset[] @relation("ContentCreator")
   contentApproved ContentAsset[] @relation("ContentApprover")
+  contentUpdated  ContentAsset[] @relation("ContentUpdater")
   auditLogs       AuditLog[]
   facebookPages   FacebookPage[]
   appSettings     AppSetting[]
@@ -104,11 +105,13 @@ model ContentAsset {
   rejectComment String?       @map("reject_comment") @db.Text
   createdById   String        @map("created_by") @db.Uuid
   approvedById  String?       @map("approved_by") @db.Uuid
+  updatedById   String?       @map("updated_by") @db.Uuid // người sửa gần nhất; null = bài cũ trước khi có tracking
   createdAt     DateTime      @default(now()) @map("created_at") // Ngày upload
   updatedAt     DateTime      @updatedAt @map("updated_at") // Mốc xếp hàng cho Bot
 
   createdBy   User                    @relation("ContentCreator", fields: [createdById], references: [id])
   approvedBy  User?                   @relation("ContentApprover", fields: [approvedById], references: [id])
+  updatedBy   User?                   @relation("ContentUpdater", fields: [updatedById], references: [id])
   publishJobs PublishJob[]
   assignments ContentPageAssignment[]
 

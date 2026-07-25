@@ -1,10 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
+import { ContentStatus } from '../../../../generated/prisma/client';
 
 /**
- * Giai đoạn 1: chỉ sửa field mô tả thường. Không nhận `status`/`isAds`/
- * `assignedPageIds` — client set các field đó sẽ bị `forbidNonWhitelisted` chặn
- * (giai đoạn 2 sẽ mở endpoint PATCH này rộng ra theo plan 04 §4 giai đoạn 2).
+ * Endpoint PATCH duy nhất cho cả sửa nội dung lẫn duyệt bài (plan 04 §3).
+ *
+ * `status`/`isAds`/`rejectComment` đòi permission `content:review` — kiểm ở
+ * **service** chứ không phải DTO vì cần biết role của actor. Ràng buộc chéo
+ * field (REJECTED bắt buộc có lý do) cũng ở service vì phải đọc state trong DB.
  */
 export class UpdateContentAssetDto {
   @ApiPropertyOptional()
@@ -31,4 +41,33 @@ export class UpdateContentAssetDto {
   @IsOptional()
   @IsString()
   hashtags?: string;
+
+  @ApiPropertyOptional({
+    enum: ContentStatus,
+    description:
+      'Chỉ EDITOR/ADMIN. PUBLISHING/PUBLISHED chỉ Bot set ⇒ client gửi lên nhận 422',
+  })
+  @IsOptional()
+  @IsEnum(ContentStatus)
+  status?: ContentStatus;
+
+  @ApiPropertyOptional({ description: 'Đạt ADS — chỉ EDITOR/ADMIN' })
+  @IsOptional()
+  @IsBoolean()
+  isAds?: boolean;
+
+  @ApiPropertyOptional({ description: 'Bắt buộc khi chuyển sang REJECTED' })
+  @IsOptional()
+  @IsString()
+  rejectComment?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Page bài sẽ được đăng lên — gửi lên là thay thế toàn bộ, service tự diff',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  assignedPageIds?: string[];
 }

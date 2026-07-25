@@ -15,10 +15,14 @@ import {
 } from 'antd';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
-import { useContentAssets } from '../../hooks/useContentAssets';
+import {
+  useCategorySuggestions,
+  useContentAssets,
+} from '../../hooks/useContentAssets';
 import { useManualPost } from '../../hooks/useManualPost';
 import type { ContentAssetResponse, MediaType } from '../../types';
-import { CONTENT_CATEGORIES, MEDIA_TYPE_LABELS } from '../../utils/constants';
+import { MEDIA_TYPE_LABELS } from '../../utils/constants';
+import { mergeCategoryOptions } from '../../utils/categories';
 
 const { Text } = Typography;
 
@@ -62,6 +66,8 @@ export function ManualPostModal({
   const [selected, setSelected] = useState<ContentAssetResponse | null>(null);
 
   const publishMutation = useManualPost();
+  const { data: categorySuggestions } = useCategorySuggestions();
+  const categoryOptions = mergeCategoryOptions(categorySuggestions);
 
   const { data: contents, isLoading } = useContentAssets({
     category,
@@ -158,7 +164,7 @@ export function ManualPostModal({
               setCategory(value);
               setSelected(null);
             }}
-            options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
+            options={categoryOptions.map((c) => ({ value: c, label: c }))}
           />
           <Radio.Group
             value={mediaType}

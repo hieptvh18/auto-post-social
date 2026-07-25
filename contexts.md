@@ -5,7 +5,30 @@
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
 **Cập nhật lần cuối:** 2026-07-25
-**Session gần nhất (mới nhất):** Bổ sung theo yêu cầu user cho trang **Cài đặt đăng bài
+**Session gần nhất (mới nhất):** Theo yêu cầu user: (1) **Content giai đoạn 2** (plan 11,
+tiếp plan 04) — mở lại 3 khối UI đang bị ẩn ở "Quản lý Ảnh/Video Edit": **Phân bổ page**,
+**Trạng thái duyệt**, checkbox **Đạt ADS**, kèm backend thật: `PATCH /content-assets/:id`
+nhận `status`/`isAds`/`rejectComment`/`assignedPageIds`, transition tách ra hàm thuần
+`content-status.transition.ts` (client set PUBLISHING/PUBLISHED ⇒ 422, REJECTED thiếu lý
+do ⇒ 400, APPROVED ⇒ ghi `approvedById`), RBAC field-level (CONTENT chạm `status`/`isAds`
+⇒ 403; CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW), diff assignment trong 1
+transaction (gỡ page đã đăng ⇒ 409, xoá bài đã đăng ⇒ 409, page lạ ⇒ 400). Audit thêm
+`CONTENT_STATUS_CHANGE`/`CONTENT_ADS_MARK`/`CONTENT_ASSIGN_PAGE`. (2) **Hashtag quick
+update** — `GET /content-assets/hashtags` gom tag đã dùng từ chính cột `hashtags` (không
+thêm bảng, **schema không đổi** ⇒ `erd.md` giữ nguyên) + component FE `HashtagInput`
+(`Select mode="tags"`): vừa gõ vừa gợi ý, tag chưa có thì Enter là tạo mới, không popup
+riêng. (3) **Danh mục ("Dạng") cũng vậy** — `GET /content-assets/categories` (groupBy
+category) + `CategorySelect` (select-1 `showSearch`, gõ tên chưa có ⇒ dòng "＋ Thêm ..."),
+`category` được `trim()` ở service; **bỏ hardcode `CONTENT_CATEGORIES`** khỏi mọi ô chọn
+(ContentManagementPage, AutoPostSettingsPage, ManualPostModal) — nó chỉ còn là danh sách
+mồi khi DB rỗng. Bảng danh sách **bỏ cột "Người sửa gần nhất"**, thay bằng cột **"Phân bổ page"**
+(tag xanh = đã đăng) theo yêu cầu user; thông tin người sửa vẫn ở chân Drawer. BE 383 test
+xanh (+22), FE 32 test (+9 `utils/hashtags.ts`, +6 `utils/categories.ts`), lint/build 2
+phía xanh. **Đã smoke API
+qua curl** đủ các case 403/400/422/409 + gợi ý hashtag — **chưa smoke UI thật**, xem plan
+11 + §6 mục 13.
+
+**Session trước:** Bổ sung theo yêu cầu user cho trang **Cài đặt đăng bài
 tự động** (plan 09): **filter theo FB Page** + **nút "Đăng bài thủ công"** — popup chọn
 page, lọc danh mục/loại media, chọn 1 bài ảnh/video trong kho, sửa caption/hashtag lấy
 sẵn từ bài rồi **đăng ngay lập tức** qua Graph API. Backend thêm module `manual-post`
@@ -16,7 +39,7 @@ sẵn từ bài rồi **đăng ngay lập tức** qua Graph API. Backend thêm m
 + 502 kèm message tiếng Việt. Không đụng schema ⇒ `erd.md` không đổi. BE 357 test xanh
 (11 test mới), lint/build 2 phía xanh, FE 16 test cũ vẫn xanh. **Chưa đăng thật lên page**
 — vẫn kẹt ở nợ §6 mục 10 (chưa có Page token).
-**Session trước:** Bổ sung theo yêu cầu user cho trang **Facebook Pages**:
+**Trước đó:** Bổ sung theo yêu cầu user cho trang **Facebook Pages**:
 nút **"Test kết nối"** trong popup thêm/sửa Page + **ô search** trên bảng danh sách.
 Tạo adapter Meta Graph đầu tiên của dự án `backend/src/infra/facebook/` (interface +
 `FacebookGraphClient` dùng fetch + map lỗi Graph sang message tiếng Việt), 2 endpoint
@@ -69,10 +92,10 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | 9 file plan feature + `_TEMPLATE.md` |
+| `plans/` | ✅ Hoàn thiện | 11 file plan feature + `_TEMPLATE.md` (2 file đã xong ở `plans/DONE/`) |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
-| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` giai đoạn 1 đã nối API thật** (upload+CRUD, chưa duyệt/phân bổ page). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). Các trang còn lại vẫn mock. |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets giai đoạn 1 (CRUD)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** xong. Còn duyệt/phân bổ page (content giai đoạn 2), **auto-post engine** (cron+queue+publisher, plan 07) |
+| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). Các trang còn lại vẫn mock (`SettingsPage`, dashboard/timeline/audit...). |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** xong. Còn **auto-post engine** (cron+queue+publisher, plan 07) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -133,11 +156,11 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M1 — Auth + RBAC + Users | ✅ | 2026-07-22 |
 | M2 — Google Drive + Media upload | ✅ | 2026-07-23 |
 | M2.5 — FE core (api client + AuthContext + Login) | 🟡 | code+test xong 2026-07-23, chờ smoke test BE thật |
-| M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) code xong 2026-07-24, chờ smoke test UI thật; giai đoạn 2 (duyệt/isAds/phân bổ page) chưa làm |
+| M3 — Content Assets + assignments (+ nối FE ContentPage) | 🟡 | giai đoạn 1 (CRUD) 2026-07-24 + giai đoạn 2 (duyệt/isAds/phân bổ page/hashtag, plan 11) 2026-07-25 — code+test+smoke API xong, chờ smoke UI thật |
 | M4 — Facebook Pages + token crypto (+ nối FE PagePage) | 🟡 | code+test xong 2026-07-24, chờ smoke test UI thật |
 | M5 — Auto-post slots CRUD (+ nối FE AutoPostPage) | 🟡 | code+test+smoke API xong 2026-07-25, chờ smoke UI thật |
 | M6 — Cron picker + BullMQ + publisher (+ nối FE Timeline) | ⬜ | |
-| M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | ⬜ | |
+| M7 — Dọn FE còn sót (Users, Settings) + nghiệm thu end-to-end | 🟡 | Users xong 2026-07-25 (chờ smoke UI); Settings + nghiệm thu end-to-end chưa làm |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
@@ -363,7 +386,48 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Còn nợ:** **chưa đăng thật lên Facebook** (thiếu Page token — §6 mục 10); chưa smoke
   UI thật. Video lớn chưa có resumable upload.
 
+### User Management CRUD + tracking người upload/sửa (Plan 10) — 🟡 2026-07-25
+
+- **Phạm vi:** (1) FE `/users` chạy API thật — list có filter role + search + phân trang,
+  tạo/sửa (đổi tên, email, quyền, mật khẩu, bật/tắt hoạt động), vô hiệu hóa (soft delete).
+  Backend không phải sửa gì (đã đủ từ M1). (2) `content_assets` tracking **ai sửa gần nhất**:
+  cột mới `updated_by`, API trả `createdBy`/`updatedBy` dạng `{id,name,email}`; trang
+  "Quản lý Ảnh/Video Edit" thêm 2 cột + filter theo người upload (ADMIN).
+- **File chính:** `frontend/src/api/users.api.ts`, `frontend/src/hooks/useUsers.ts`,
+  `frontend/src/pages/UserManagementPage.tsx`, `frontend/src/pages/ContentManagementPage.tsx`,
+  `backend/prisma/schema.prisma`, `backend/src/modules/content-assets/{content-assets.repository,
+  content-asset.mapper,content-assets.service}.ts`
+- **Quyết định:** join user chỉ `select {id,name,email}` ở **repository** (không để service
+  tự lọc) ⇒ `passwordHash` không có đường lọt ra API. `create()` cũng set
+  `updatedById = actor.id` nên bài mới không trống cột "Người sửa". Bản Real của `/content`
+  bỏ cột "Ngày cập nhật" riêng vì mốc thời gian đã nằm trong ô "Người sửa gần nhất".
+  Nút ở `/users` là "Vô hiệu hóa" (DELETE = soft delete), không gọi là "Xoá".
+- **Schema:** migration `20260725062013_content_assets_updated_by` (uuid nullable, FK
+  `users.id`, không index). `erd.md` đã cập nhật (cột + quan hệ + ràng buộc + lịch sử).
+- **Test:** BE 361 test / 30 suite xanh (+4 cho tracking). FE 16 test cũ xanh, lint/build
+  2 phía xanh. Smoke API qua curl với backend thật (dữ liệu smoke đã dọn khỏi DB dev).
+- **Còn nợ:** chưa smoke UI thật — xem §6 mục 12.
+
 ---
+
+### Content giai đoạn 2 — duyệt / ADS / phân bổ page + hashtag & danh mục quick-update (Plan 11) — 🟡 2026-07-25
+
+- **Phạm vi:** `PATCH /content-assets/:id` nhận thêm `status`/`isAds`/`rejectComment`/
+  `assignedPageIds`; `POST` nhận `assignedPageIds`; `GET` thêm filter `status`/`isAds`;
+  `GET /content-assets/hashtags` + `GET /content-assets/categories` trả gợi ý. FE mở lại
+  3 khối UI bị ẩn từ giai đoạn 1 + ô hashtag dạng tag và ô "Dạng" select-1 gõ được (gõ là
+  gợi ý, chưa có thì tạo mới ngay) — hết hardcode danh mục.
+- **File chính:** `backend/src/modules/content-assets/content-status.transition.ts` (mới),
+  `content-assets.{service,repository}.ts`, `frontend/src/components/common/HashtagInput.tsx`
+  (mới), `frontend/src/utils/hashtags.ts` (mới), `frontend/src/pages/ContentManagementPage.tsx`
+- **Quyết định:** không thêm bảng `hashtags`/`categories` — gợi ý quét thẳng cột
+  `content_assets.hashtags` và groupBy `content_assets.category`
+  (MVP vài trăm bài; có bảng riêng lại phải đồng bộ 2 nguồn) ⇒ **schema không đổi, `erd.md`
+  giữ nguyên**. Bảng danh sách bỏ cột "Người sửa gần nhất" để nhường chỗ cột "Phân bổ page"
+  (yêu cầu user); thông tin người sửa vẫn hiện ở chân Drawer sửa. Validate page tồn tại đặt
+  ở `ContentAssetsRepository.findExistingPageIds` thay vì kéo `FacebookPagesRepository` vào.
+- **Test:** BE 383 test / 30 suite xanh (+22). FE 32 test (+15). Smoke curl đủ §5 plan 11.
+- **Còn nợ:** chưa smoke UI thật (§6 mục 13).
 
 ## 6. Việc đang dở / nợ kỹ thuật
 
@@ -379,7 +443,10 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 | 8 | **Facebook Pages chưa smoke test UI thật** | Code BE+FE xong (286 test BE, lint/build 2 phía xanh), đã smoke test API qua curl (tạo/sửa/xoá page, mask đúng, 409 trùng pageId, EDITOR bị 403) nhưng **chưa test tay trên UI thật**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/pages` — thêm/sửa/xoá page qua form, kiểm token hiện dạng mask trong bảng, đăng nhập EDITOR kiểm không thấy nút sửa/xoá. |
 | 9 | **Auto-post configs chưa smoke test UI thật** | Code BE+FE xong (318 test BE, lint/build 2 phía xanh), đã smoke API qua curl đủ các case nghiệm thu (3 slot sắp theo giờ, trùng giờ ⇒ 409, `time='25:00'` ⇒ 400, `postCount=21` ⇒ 400, warning khi bật auto lúc chưa có slot, CONTENT ⇒ 403) nhưng **chưa test tay trên UI**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN, vào `/auto-post` — thêm 3 mốc giờ, kiểm sắp xếp, thêm trùng giờ xem báo lỗi 409, bật/tắt switch Auto ON, xoá mốc giờ. Đăng nhập CONTENT kiểm không vào được trang. |
 | 11 | **Đăng bài thủ công chưa chạy thật** | Code BE+FE xong (plan 09, BE 357 test xanh) nhưng đường publish **chưa từng gọi Graph thật** — chặn bởi mục 10 (chưa có Page token). Khi có token: vào `/auto-post` → "Đăng bài thủ công" → chọn 1 **ảnh** trước (nhẹ, nhanh) → kiểm bài lên Page thật, `publish_jobs` SUCCESS + `facebookPostId`, assignment có `published_at`, content chuyển `PUBLISHED`; đăng lại chính bài đó ⇒ 409. Sau đó thử 1 video (đường `graph-video`, timeout 180s). |
+| 12 | **User Management + tracking content chưa smoke UI thật** | Code BE+FE xong (plan 10, BE 361 test xanh), đã smoke API qua curl đủ case (tạo/sửa/vô hiệu hóa user, 409 email trùng, 400 tự khóa mình, `PATCH /content-assets` ⇒ `updatedBy` đúng actor) nhưng **chưa test tay trên UI**. Cần `VITE_USE_MOCK=false`, đăng nhập ADMIN: `/users` tạo user mới (có tên) → sửa quyền → vô hiệu hóa; `/content` kiểm 2 cột "Người upload"/"Người sửa gần nhất" đổi đúng sau khi sửa bài; đăng nhập CONTENT gõ `/users` phải bị chặn. |
 | 10 | **Chưa có Page token dùng được cho Page thật** | Đã gọi Graph thật 2026-07-25 và sửa xong adapter (xem §7). Token hiện lưu là **SYSTEM_USER token** (hết hạn 23/09/2026) nhưng system user `toolfbtest` **chưa được gán Page nào** (`/me/accounts` rỗng) nên vẫn không đọc được page. Bước còn lại: Business settings → System users → Add assets → Pages → gán page + task Manage Page, rồi đổi sang Page token qua `/me/accounts`. Token cũ hơn là USER token ngắn hạn (hết hạn trong ngày) nên nút Test vẫn báo đỏ đúng nghiệp vụ. Cần token **System User** (`expires_at = 0`) → dùng nó gọi `/me/accounts` lấy Page token vĩnh viễn → dán vào form. Publisher (plan 07) sẽ chết vì token hết hạn nếu bỏ qua bước này. Business đang dùng: `27820019340966159`, app `KakuCoach`, page thật `111367907895365` (Cửa hàng cây cảnh mini). |
+
+| 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
 
 ---
 

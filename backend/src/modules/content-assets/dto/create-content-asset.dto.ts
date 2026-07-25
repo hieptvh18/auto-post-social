@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+} from 'class-validator';
 import { MediaType } from '../../../../generated/prisma/client';
 
 export class CreateContentAssetDto {
@@ -57,4 +65,14 @@ export class CreateContentAssetDto {
   @IsInt()
   @Min(0)
   fileSize?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Phân bổ page ngay lúc upload — bổ sung sau qua PATCH cũng được',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  assignedPageIds?: string[];
 }

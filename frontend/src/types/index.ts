@@ -26,6 +26,47 @@ export interface User {
   createdAt: string;
 }
 
+/** Response `/users` (backend `UserResponse`) — không bao giờ chứa passwordHash. */
+export interface UserResponse {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedUsers {
+  data: UserResponse[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
+/** Query `GET /users`. */
+export interface QueryUsersParams {
+  role?: UserRole;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+/** Body `POST /users` — `name` bắt buộc, password 8–72 ký tự. */
+export interface CreateUserBody {
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+}
+
+/** Body `PUT /users/:id` — mọi field optional, chỉ gửi field đổi. */
+export interface UpdateUserBody {
+  name?: string;
+  email?: string;
+  password?: string;
+  role?: UserRole;
+  isActive?: boolean;
+}
+
 export interface FacebookPage {
   id: string;
   pageName: string;
@@ -306,6 +347,13 @@ export interface DriveConnectionResult {
  * Response `/content-assets` (backend `ContentAssetResponse`) — giai đoạn 1: chưa
  * có `assignedPageIds`/`publishedPageIds` (chờ giai đoạn 2, xem plan 04).
  */
+/** Người liên quan tới content (upload/sửa) — subset an toàn của user. */
+export interface ContentActor {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface ContentAssetResponse {
   id: string;
   title: string;
@@ -324,8 +372,37 @@ export interface ContentAssetResponse {
   rejectComment: string | null;
   createdById: string;
   approvedById: string | null;
+  /** Người upload bài. */
+  createdBy: ContentActor;
+  /** Người sửa gần nhất — `null` với bài cũ trước khi có tracking. */
+  updatedBy: ContentActor | null;
+  /** Page bài được phân bổ (kể cả đã đăng). */
+  assignedPageIds: string[];
+  /** Tập con đã đăng thành công — UI khoá không cho gỡ. */
+  publishedPageIds: string[];
+  assignments: ContentAssignmentResponse[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Một page bài được phân bổ, kèm trạng thái đã đăng hay chưa. */
+export interface ContentAssignmentResponse {
+  pageId: string;
+  pageName: string;
+  publishedAt: string | null;
+  facebookPostId: string | null;
+}
+
+/** `GET /content-assets/hashtags` — gợi ý cho ô nhập nhanh hashtag. */
+export interface HashtagSuggestion {
+  tag: string;
+  count: number;
+}
+
+/** `GET /content-assets/categories` — danh mục ("Dạng") đang dùng trong kho. */
+export interface CategorySuggestion {
+  category: string;
+  count: number;
 }
 
 export interface PaginatedContentAssets {
@@ -337,6 +414,8 @@ export interface PaginatedContentAssets {
 export interface QueryContentAssetsParams {
   mediaType?: MediaType;
   category?: string;
+  status?: ContentStatus;
+  isAds?: boolean;
   search?: string;
   createdBy?: string;
   page?: number;
@@ -356,13 +435,22 @@ export interface CreateContentAssetBody {
   thumbnailUrl?: string;
   mimeType?: string;
   fileSize?: number;
+  assignedPageIds?: string[];
 }
 
-/** Body `PATCH /content-assets/:id` — giai đoạn 1 chỉ field mô tả thường. */
+/**
+ * Body `PATCH /content-assets/:id`. `status`/`isAds`/`rejectComment` đòi quyền
+ * `content:review` — backend trả 403 nếu CONTENT gửi lên.
+ */
 export interface UpdateContentAssetBody {
   title?: string;
   description?: string;
   category?: string;
   caption?: string;
   hashtags?: string;
+  status?: ContentStatus;
+  isAds?: boolean;
+  rejectComment?: string;
+  /** Gửi lên là thay thế toàn bộ phân bổ — backend tự diff. */
+  assignedPageIds?: string[];
 }

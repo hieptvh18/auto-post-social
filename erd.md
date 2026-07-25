@@ -4,7 +4,7 @@
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
 **Cập nhật:** 2026-07-25
-**Migration tương ứng:** `20260725033247_facebook_pages_deleted_at` (đã apply)
+**Migration tương ứng:** `20260725062013_content_assets_updated_by` (đã apply)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -15,6 +15,7 @@
 erDiagram
     users ||--o{ content_assets : "creates (created_by)"
     users ||--o{ content_assets : "approves (approved_by)"
+    users ||--o{ content_assets : "last edits (updated_by)"
     users ||--o{ facebook_pages : creates
     users ||--o{ audit_logs : performs
     users ||--o{ app_settings : "last updated by"
@@ -68,6 +69,7 @@ erDiagram
         text reject_comment
         uuid created_by FK
         uuid approved_by FK
+        uuid updated_by FK
         timestamp created_at
         timestamp updated_at
     }
@@ -187,6 +189,7 @@ erDiagram
 | `access_token_enc` luôn là ciphertext AES-256-GCM | `crypto.util.ts`; API trả bản mask |
 | Mọi timestamp lưu **UTC** | Prisma mặc định; UI convert sang `Asia/Ho_Chi_Minh` |
 | `content_assets.updated_at` = mốc xếp hàng cho Bot (thời điểm duyệt gần nhất) | `@updatedAt` |
+| `content_assets.updated_by` = người **sửa gần nhất** (không phải người duyệt — đó là `approved_by`). `null` = bài cũ có trước khi bật tracking | `ContentAssetsService.create()/update()` set `= actor.id` |
 | Xóa page = soft delete (`deleted_at = now()`, kèm `is_active=false`) | Service — vì `publish_jobs` còn tham chiếu. **`deleted_at` (đã xoá, ẩn khỏi UI) khác `is_active` (tạm dừng, vẫn hiện ở UI)** — không dùng lẫn |
 | Page có `deleted_at != null` coi như không tồn tại (list ẩn, GET/PUT/DELETE ⇒ 404, publisher không lấy được token) | `FacebookPagesRepository` lọc `deleted_at: null` ở `findMany`/`findById` |
 | Thêm lại page có `page_id` đã bị xoá mềm ⇒ **hồi sinh** bản ghi cũ (không 409, không tạo dòng mới) | `FacebookPagesService.create()` — vì UNIQUE `page_id` áp cả trên dòng đã xoá |
@@ -204,6 +207,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-07-25 | `20260725062013_content_assets_updated_by` | Thêm cột `content_assets.updated_by` (uuid, nullable, FK → `users.id`) + quan hệ `ContentUpdater`. Lý do: trang "Quản lý Ảnh/Video Edit" cần tracking **ai sửa gần nhất** bên cạnh `created_by` (ai upload). Nullable vì dòng cũ không biết ai sửa; không index vì chưa có truy vấn lọc theo cột này. |
 | 2026-07-25 | `20260725033247_facebook_pages_deleted_at` | Thêm cột `facebook_pages.deleted_at` + index. Lý do: `remove()` trước đây chỉ set `is_active=false` mà `findMany()` không lọc ⇒ page bị xoá vẫn hiện trên UI; mà không thể lọc theo `is_active` vì cột đó mang nghĩa "tạm dừng". Tách hẳn 2 khái niệm. |
 | 2026-07-24 | (không migration) | Plan 03c: mở rộng **shape JSONB** `app_settings['google_drive']` thêm `authMode` + field OAuth2 (`oauthClientId/oauthClientSecretEnc/oauthRefreshTokenEnc/oauthAccountEmail`). Không đổi cột/bảng nên không tạo migration. |
 | 2026-07-22 | `20260722153213_app_settings` | Thêm bảng `app_settings` (key/value JSONB) cho cấu hình động sửa từ UI "Cài đặt chung" — bắt đầu với nhóm `google_drive` (ADR-014). Thêm quan hệ `users ||--o{ app_settings`. |
