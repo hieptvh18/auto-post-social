@@ -36,6 +36,13 @@ export interface UpdateAutoPostConfigResponse extends AutoPostConfigResponse {
   warning: string | null;
 }
 
+/** Số bài Bot còn đăng được cho page này, theo từng danh mục. */
+export interface CategoryAvailability {
+  category: string;
+  imageCount: number;
+  videoCount: number;
+}
+
 /**
  * CRUD cấu hình đăng tự động. **Chỉ cấu hình** — việc chọn bài và đăng thật nằm ở
  * module auto-post engine riêng (plan 07); ở đây không có logic cron/queue nào.
@@ -92,6 +99,43 @@ export class AutoPostConfigsService {
       configs.push(toAutoPostConfigResponse(page, enrichments));
     }
     return configs;
+  }
+
+  /**
+   * Kho bài của page tách theo danh mục — nguồn cho form "Thêm mốc giờ đăng".
+   * Gộp các biến thể chỉ khác hoa/thường hoặc khoảng trắng thừa, y như
+   * `ContentAssetsService.findCategorySuggestions`, để một danh mục không hiện
+   * hai dòng với hai con số.
+   */
+  async findCategoryAvailability(
+    pageId: string,
+  ): Promise<CategoryAvailability[]> {
+    await this.getPageOrFail(pageId);
+    const rows = await this.picker.countByCategoryForPage(pageId);
+    const merged = new Map<string, CategoryAvailability>();
+
+    for (const row of rows) {
+      const category = row.category.trim();
+      if (category === '') continue;
+      const key = category.toLowerCase();
+      const entry = merged.get(key);
+      if (entry === undefined) {
+        merged.set(key, {
+          category,
+          imageCount: row.imageCount,
+          videoCount: row.videoCount,
+        });
+      } else {
+        entry.imageCount += row.imageCount;
+        entry.videoCount += row.videoCount;
+      }
+    }
+
+    return [...merged.values()].sort(
+      (a, b) =>
+        b.imageCount + b.videoCount - (a.imageCount + a.videoCount) ||
+        a.category.localeCompare(b.category),
+    );
   }
 
   async setEnabled(

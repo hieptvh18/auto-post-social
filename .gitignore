@@ -7,6 +7,14 @@ coverage/
 .env.local
 .env.*.local
 
+# Backend có secret ⇒ mọi biến thể .env.production đều KHÔNG commit,
+# chỉ commit backend/.env.production.example làm mẫu.
+backend/.env.production
+
+# Ngoại lệ: frontend/.env.production ĐƯỢC commit — env frontend không chứa
+# secret (biến VITE_* nằm public trong bundle), Vercel build đọc thẳng file này.
+!frontend/.env.production
+
 # Docker
 docker/.env
 

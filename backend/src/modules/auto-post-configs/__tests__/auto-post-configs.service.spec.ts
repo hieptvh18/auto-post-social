@@ -15,7 +15,10 @@ import {
 import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 import type { AppConfigService } from '../../../config/app-config.service';
 import type { ClockService } from '../../../infra/clock/clock.service';
-import type { ContentPickerRepository } from '../../auto-post/content-picker.repository';
+import type {
+  CategoryAvailabilityRow,
+  ContentPickerRepository,
+} from '../../auto-post/content-picker.repository';
 import type { SlotRunService } from '../../auto-post/slot-run.service';
 import type { CreateAuditLogData } from '../../audit/audit.repository';
 import type { AuditService } from '../../audit/audit.service';
@@ -82,6 +85,10 @@ describe('AutoPostConfigsService', () => {
   let picker: {
     countForSlot: jest.Mock<Promise<number>, [unknown]>;
     countAssignedPending: jest.Mock<Promise<number>, [string]>;
+    countByCategoryForPage: jest.Mock<
+      Promise<CategoryAvailabilityRow[]>,
+      [string]
+    >;
   };
   let slotRuns: { findByRunDate: jest.Mock<Promise<SlotRun[]>, [string]> };
   let service: AutoPostConfigsService;
@@ -109,6 +116,9 @@ describe('AutoPostConfigsService', () => {
       countAssignedPending: jest
         .fn<Promise<number>, [string]>()
         .mockResolvedValue(3),
+      countByCategoryForPage: jest
+        .fn<Promise<CategoryAvailabilityRow[]>, [string]>()
+        .mockResolvedValue([]),
     };
     slotRuns = {
       findByRunDate: jest
@@ -215,6 +225,34 @@ describe('AutoPostConfigsService', () => {
       expect(result[0].enabled).toBe(true);
       expect(result[0].slots[0].time).toBe('08:00');
       expect(JSON.stringify(result)).not.toContain('enc');
+    });
+  });
+
+  describe('findCategoryAvailability', () => {
+    it('gộp biến thể hoa/thường của cùng danh mục và xếp theo tổng bài giảm dần', async () => {
+      repository.findPageById.mockResolvedValue(makePage());
+      picker.countByCategoryForPage.mockResolvedValue([
+        { category: 'Marketing', imageCount: 1, videoCount: 0 },
+        { category: ' marketing ', imageCount: 2, videoCount: 1 },
+        { category: 'Thăm khám', imageCount: 0, videoCount: 7 },
+      ]);
+
+      const result = await service.findCategoryAvailability('page-1');
+
+      expect(result).toEqual([
+        { category: 'Thăm khám', imageCount: 0, videoCount: 7 },
+        { category: 'Marketing', imageCount: 3, videoCount: 1 },
+      ]);
+      expect(picker.countByCategoryForPage).toHaveBeenCalledWith('page-1');
+    });
+
+    it('ném 404 khi page không tồn tại', async () => {
+      repository.findPageById.mockResolvedValue(null);
+
+      await expect(
+        service.findCategoryAvailability('page-9'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(picker.countByCategoryForPage).not.toHaveBeenCalled();
     });
   });
 

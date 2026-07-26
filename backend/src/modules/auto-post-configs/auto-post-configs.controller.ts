@@ -17,6 +17,7 @@ import type {
 } from './auto-post-config.mapper';
 import {
   AutoPostConfigsService,
+  type CategoryAvailability,
   type UpdateAutoPostConfigResponse,
 } from './auto-post-configs.service';
 import { CreateAutoPostSlotDto } from './dto/create-auto-post-slot.dto';
@@ -35,6 +36,17 @@ export class AutoPostConfigsController {
   })
   findAll(): Promise<AutoPostConfigResponse[]> {
     return this.service.findAllConfigs();
+  }
+
+  @Get(':pageId/category-availability')
+  @ApiOperation({
+    summary:
+      'Kho bài còn đăng được của page, tách theo danh mục và loại media (ảnh/video)',
+  })
+  findCategoryAvailability(
+    @Param('pageId', ParseUUIDPipe) pageId: string,
+  ): Promise<CategoryAvailability[]> {
+    return this.service.findCategoryAvailability(pageId);
   }
 
   @Patch(':pageId')

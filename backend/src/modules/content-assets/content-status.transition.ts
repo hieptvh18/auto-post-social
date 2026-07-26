@@ -40,6 +40,11 @@ export function planStatusChange(
 ): StatusChangePatch | null {
   const { from, to, actorId } = input;
 
+  // Gửi lại đúng trạng thái đang có = no-op, không phải "client tự set". Phải xét
+  // trước hai guard dưới, nếu không việc sửa field khác (vd thêm page phân bổ) của
+  // bài đã PUBLISHED sẽ ăn 422 oan vì form gửi kèm status hiện tại.
+  if (from === to) return null;
+
   if (BOT_ONLY_STATUSES.includes(to)) {
     throw new UnprocessableEntityException(
       'Trạng thái "Đang đăng"/"Đã đăng" chỉ Bot được đặt',
@@ -50,7 +55,6 @@ export function planStatusChange(
       'Bài đang đăng hoặc đã đăng — không đổi trạng thái duyệt được nữa',
     );
   }
-  if (from === to) return null;
 
   if (to === ContentStatus.REJECTED) {
     const comment = input.rejectComment ?? input.currentRejectComment ?? '';

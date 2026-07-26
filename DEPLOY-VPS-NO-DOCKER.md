@@ -8,7 +8,26 @@
 
 ---
 
-## 0. Kiến trúc mục tiêu
+## 0. Các file cấu hình trong repo
+
+| File | Commit? | Vai trò |
+|------|---------|---------|
+| `backend/.env` | ❌ | env thật đang chạy (dev hoặc VPS) |
+| `backend/.env.example` | ✅ | mẫu cho máy dev |
+| **`backend/.env.production.example`** | ✅ | **mẫu cho VPS** — `cp` thành `.env` rồi điền `CHANGE-ME` |
+| `frontend/.env` | ❌ | env máy dev |
+| `frontend/.env.example` | ✅ | mẫu cho máy dev |
+| **`frontend/.env.production`** | ✅ | **build production** — commit được vì không có secret |
+| `frontend/vercel.json` | ✅ | cấu hình Vercel (SPA rewrite, build command) |
+
+Vì sao `frontend/.env.production` commit được mà backend thì không: mọi biến
+`VITE_*` bị nhúng thẳng vào bundle JS công khai sau khi build (rule 04) — nó vốn
+đã là thông tin public. Backend `.env` chứa mật khẩu DB, JWT secret,
+`TOKEN_ENCRYPTION_KEY` ⇒ không bao giờ commit. `.gitignore` đã chốt đúng luật này.
+
+---
+
+## 0b. Kiến trúc mục tiêu
 
 ```text
 Internet
@@ -268,14 +287,16 @@ git clone <repo-url> .
 
 ## 6. Env backend (production)
 
+Dùng mẫu production có sẵn (**không** dùng `.env.example` — đó là mẫu cho máy dev):
+
 ```bash
 cd /var/www/tool-auto-fb/backend
-cp .env.example .env
+cp .env.production.example .env      # tên file thật phải là .env
 chmod 600 .env
-nano .env
+nano .env                            # điền hết chỗ CHANGE-ME
 ```
 
-Nội dung production (khác dev ở các dòng đánh dấu ★):
+File mẫu đã kèm chú thích từng biến. Nội dung sau khi điền (khác dev ở các dòng ★):
 
 ```dotenv
 # ── App ──
@@ -415,29 +436,39 @@ Nếu env thiếu/sai, app **crash ngay lúc boot** kèm log liệt kê biến l
 
 ## 9. Build frontend
 
+Không cần tạo `.env` — build production đọc **`frontend/.env.production`** đã có
+sẵn trong repo. Chỉ cần sửa 1 dòng cho khớp domain:
+
 ```bash
 cd /var/www/tool-auto-fb/frontend
-cp .env.example .env
-nano .env
+nano .env.production
 ```
 
 ```dotenv
-# FE và BE cùng domain, Nginx proxy /api → backend ⇒ để đường dẫn tương đối.
+# Phương án A — FE + BE cùng domain, Nginx proxy /api → để đường dẫn tương đối
 VITE_API_BASE_URL=/api
 VITE_USE_MOCK=false
 ```
-
-> Nếu BE ở domain khác: `VITE_API_BASE_URL=https://api.example.com/api`.
-> **Tuyệt đối không đặt secret trong `frontend/.env`** — mọi biến `VITE_*` bị nhúng
-> vào bundle công khai (rule 04).
 
 ```bash
 npm ci
 npm run build      # ra frontend/dist/
 ```
 
-Biến `VITE_*` được **nhúng lúc build**. Đổi `.env` frontend ⇒ **phải build lại**,
-restart Nginx không có tác dụng.
+Ba điều dễ sai:
+
+- Vite chọn file env theo **mode**: `vite build` → `.env.production`,
+  `vite dev` → `.env`. Sửa nhầm file thì build ra vẫn giá trị cũ.
+- Biến `VITE_*` nhúng **lúc build**. Đổi giá trị ⇒ **phải build lại**; reload
+  Nginx / redeploy Vercel mà không build lại thì không có tác dụng.
+- **Không đặt secret** trong bất kỳ file env nào của frontend — chúng nằm public
+  trong bundle (rule 04).
+
+Kiểm tra giá trị đã vào bundle đúng chưa:
+
+```bash
+grep -o 'https://[^"]*api' dist/assets/index-*.js | head
+```
 
 ---
 
@@ -685,45 +716,60 @@ server {
 }
 ```
 
-### 17.2 Một file `.env` cho FE — được, commit thẳng vào repo
+### 17.2 Một file `.env` cho FE — đã dựng sẵn, chỉ sửa 1 dòng
 
-Env của frontend **không chứa secret** (rule 04 — mọi biến `VITE_*` bị nhúng vào
-bundle công khai). Vì vậy không cần khai báo Environment Variables trên dashboard
-Vercel: tạo **`frontend/.env.production`** và commit nó. Vite tự đọc file này khi
-chạy `vite build` (mode = `production`), Vercel build là ăn ngay.
+**Không cần khai Environment Variables trên dashboard Vercel.** Repo đã có
+**`frontend/.env.production`** (được commit) — Vite tự đọc nó khi chạy
+`vite build` (mode = `production`), nên Vercel build là ăn ngay.
 
-`.gitignore` hiện chỉ bỏ qua `.env`, `.env.local`, `.env.*.local` — nên
-`.env.production` **được commit bình thường**, không cần sửa gì.
+Commit file này là hợp lệ vì env frontend **không chứa secret** (rule 04 — mọi
+biến `VITE_*` nằm public trong bundle). `.gitignore` đã có ngoại lệ
+`!frontend/.env.production` để nó không bị `.env` rule nuốt mất.
+
+Sửa đúng 1 dòng:
 
 ```dotenv
-# frontend/.env.production — commit file này (không có secret)
-# FE ở Vercel, BE ở VPS ⇒ phải là URL tuyệt đối, https, có sẵn /api
+# frontend/.env.production
+# FE ở Vercel, BE ở VPS ⇒ URL TUYỆT ĐỐI, https, kết thúc bằng /api
 VITE_API_BASE_URL=https://toolautofb.duckdns.org/api
 VITE_USE_MOCK=false
 ```
 
-Giữ nguyên `frontend/.env` (gitignored) cho máy dev với `VITE_API_BASE_URL=/api` —
-dev vẫn đi qua proxy Vite như cũ, hai môi trường không đụng nhau.
+Ba file env của FE, không đụng nhau:
 
-> Nhớ: biến `VITE_*` nhúng lúc **build**. Đổi URL backend ⇒ phải **redeploy** Vercel,
-> không phải chỉ restart.
+| File | Khi nào Vite đọc | Giá trị `VITE_API_BASE_URL` |
+|------|------------------|-----------------------------|
+| `.env` | `npm run dev` | `/api` → dev server proxy sang `VITE_DEV_PROXY_TARGET` |
+| `.env.production` | `npm run build` | URL tuyệt đối tới backend VPS |
+| `.env.example` | không bao giờ | mẫu tài liệu |
+
+> `VITE_DEV_PROXY_TARGET` chỉ dùng cho `server.proxy` trong
+> [vite.config.ts](frontend/vite.config.ts) — **dev server**. Build production
+> không có proxy, FE gọi thẳng `VITE_API_BASE_URL`. Vì vậy deploy Vercel
+> **không cần đụng `vite.config.ts`**.
+>
+> Biến `VITE_*` nhúng lúc **build** ⇒ đổi URL backend phải **redeploy** Vercel.
 
 ### 17.3 Cấu hình dự án trên Vercel
 
-Repo có `backend/` và `frontend/` cùng cấp nên phải chỉ đúng thư mục:
+Repo có `backend/` và `frontend/` cùng cấp nên phải chỉ đúng thư mục. Trên
+dashboard Vercel khi import repo:
 
 | Mục | Giá trị |
 |-----|---------|
-| Root Directory | `frontend` |
-| Framework Preset | Vite |
-| Build Command | `npm run build` |
-| Output Directory | `dist` |
-| Install Command | `npm ci` |
+| **Root Directory** | **`frontend`** ← bắt buộc đổi, mặc định là root repo |
+| Framework Preset | Vite (tự nhận) |
+| Build / Output / Install | đã khai trong `frontend/vercel.json`, để mặc định |
 
-Thêm `frontend/vercel.json` để react-router (SPA) không 404 khi F5 ở route con:
+`frontend/vercel.json` đã có sẵn trong repo, gồm cả rewrite để react-router không
+404 khi F5 ở route con:
 
 ```json
 {
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm ci",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
 ```
@@ -806,5 +852,6 @@ Vercel giảm khá nhiều — chỉ còn tiện ở khâu auto-deploy FE.
    hay tách instance.
 3. Sinh và cất giữ `TOKEN_ENCRYPTION_KEY` production.
 4. Đăng ký redirect URI Google Drive cho domain thật.
-5. Nếu đi phương án Vercel (mục 17): siết CORS theo `WEB_BASE_URL`, tạo
-   `frontend/vercel.json` và `frontend/.env.production`.
+5. Điền domain thật vào `frontend/.env.production` (đang là `CHANGE-ME.duckdns.org`).
+6. Nếu đi phương án Vercel (mục 17): siết CORS theo `WEB_BASE_URL`, đặt Root
+   Directory = `frontend` trên Vercel.

@@ -1,6 +1,7 @@
 import type {
   AutoPostConfigResponse,
   AutoPostSlotResponse,
+  CategoryAvailability,
   CreateAutoPostSlotBody,
   RunSlotResult,
   UpdateAutoPostConfigResponse,
@@ -12,6 +13,13 @@ export const autoPostApi = {
   /** GET /auto-post-configs — mọi page kèm slot đã sắp theo giờ. */
   listConfigs(): Promise<AutoPostConfigResponse[]> {
     return apiRequest<AutoPostConfigResponse[]>('/auto-post-configs');
+  },
+
+  /** GET /auto-post-configs/:pageId/category-availability — kho bài theo danh mục. */
+  listCategoryAvailability(pageId: string): Promise<CategoryAvailability[]> {
+    return apiRequest<CategoryAvailability[]>(
+      `/auto-post-configs/${pageId}/category-availability`,
+    );
   },
 
   setEnabled(

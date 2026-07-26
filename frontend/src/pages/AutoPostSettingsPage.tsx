@@ -40,6 +40,7 @@ import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import {
   useAutoPostConfigs,
+  useCategoryAvailability,
   useCreateSlot,
   useDeleteSlot,
   useSetAutoPostEnabled,
@@ -53,7 +54,12 @@ import type {
   SlotMediaType,
 } from '../types';
 import { SLOT_MEDIA_TYPE_LABELS } from '../utils/constants';
-import { mergeCategoryOptions } from '../utils/categories';
+import {
+  buildCategoryOptionsWithStock,
+  mergeCategoryOptions,
+  normalizeCategory,
+  type CategoryOptionWithStock,
+} from '../utils/categories';
 import { useCategorySuggestions } from '../hooks/useContentAssets';
 import { can } from '../utils/permissions';
 
@@ -64,7 +70,11 @@ const MAX_POST_PER_SLOT = 20;
 
 interface SlotFormValues {
   time: dayjs.Dayjs;
-  categories: string[];
+  /**
+   * **Đúng 1 danh mục.** Cột DB vẫn là mảng (dữ liệu cũ có thể nhiều) nên submit
+   * bọc lại thành `[category]`; backend chặn mảng >1 phần tử.
+   */
+  category: string;
   mediaType: SlotMediaType;
   postCount: number;
 }
@@ -108,7 +118,7 @@ function RealAutoPostSettingsPage() {
     if (slot) {
       form.setFieldsValue({
         time: dayjs(slot.time, 'HH:mm'),
-        categories: slot.categories,
+        category: slot.categories[0] ?? '',
         mediaType: slot.mediaType,
         postCount: slot.postCount,
       });
@@ -127,7 +137,7 @@ function RealAutoPostSettingsPage() {
     if (!slotModal) return;
     const body = {
       time: values.time.format('HH:mm'),
-      categories: values.categories,
+      categories: [values.category],
       mediaType: values.mediaType,
       postCount: values.postCount,
     };
@@ -412,6 +422,8 @@ function RealAutoPostSettingsPage() {
       <SlotFormModal
         open={!!slotModal}
         isEdit={!!slotModal?.slot}
+        pageId={slotModal?.pageId}
+        droppedCategories={slotModal?.slot?.categories.slice(1)}
         form={form}
         confirmLoading={
           createSlotMutation.isPending || updateSlotMutation.isPending
@@ -532,9 +544,38 @@ function SlotLastRunCell({ slot }: { slot: AutoPostSlotResponse }) {
 
 /* ───────────────────────── Form modal dùng chung ───────────────────────── */
 
+/**
+ * Một dòng danh mục trong dropdown: tên bên trái, kho bài của page bên phải.
+ * Danh mục hết bài vẫn chọn được nhưng làm mờ — chọn xong Bot sẽ ra `NO_MATCH`.
+ */
+function CategoryStockOption({ item }: { item: CategoryOptionWithStock }) {
+  return (
+    <Space
+      style={{ width: '100%', justifyContent: 'space-between' }}
+      styles={{ item: { minWidth: 0 } }}
+    >
+      <Text type={item.isEmpty ? 'secondary' : undefined} ellipsis>
+        {item.category}
+      </Text>
+      <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        {item.isEmpty
+          ? 'hết bài'
+          : `${item.imageCount} ảnh · ${item.videoCount} video`}
+      </Text>
+    </Space>
+  );
+}
+
 interface SlotFormModalProps {
   open: boolean;
   isEdit: boolean;
+  /** Page đang cấu hình — dùng để đếm kho bài theo danh mục. Bản mock: bỏ trống. */
+  pageId?: string;
+  /**
+   * Danh mục thừa của mốc giờ cũ (khai từ hồi còn cho chọn nhiều). Lưu lại là
+   * mất — phải nói trước chứ không im lặng cắt bớt cấu hình của người ta.
+   */
+  droppedCategories?: string[];
   form: ReturnType<typeof Form.useForm<SlotFormValues>>[0];
   confirmLoading?: boolean;
   onCancel: () => void;
@@ -544,6 +585,8 @@ interface SlotFormModalProps {
 function SlotFormModal({
   open,
   isEdit,
+  pageId,
+  droppedCategories = [],
   form,
   confirmLoading,
   onCancel,
@@ -553,7 +596,27 @@ function SlotFormModal({
   const { data: categorySuggestions } = useCategorySuggestions({
     enabled: !env.useMock,
   });
-  const categoryOptions = mergeCategoryOptions(categorySuggestions);
+  // Kho bài **của riêng page này**: chỉ hỏi khi modal đang mở để đóng/mở lại là
+  // thấy số mới nhất, không giữ số cũ từ lần cấu hình trước.
+  const { data: availability, isFetching: loadingStock } =
+    useCategoryAvailability(open && !env.useMock ? pageId : undefined);
+  const categoryOptions = buildCategoryOptionsWithStock(
+    mergeCategoryOptions(categorySuggestions),
+    availability,
+  );
+  const showStock = availability !== undefined;
+
+  // Gõ tên chưa từng có ⇒ dòng đầu dropdown là "＋ Thêm ..." (cùng cơ chế với
+  // `CategorySelect` ở form content — danh mục không có bảng riêng, gõ là có).
+  const [search, setSearch] = useState('');
+  const typed = normalizeCategory(search);
+  const typedNewCategory =
+    typed !== null &&
+    !categoryOptions.some(
+      (c) => c.category.toLowerCase() === typed.toLowerCase(),
+    )
+      ? typed
+      : null;
 
   return (
     <Modal
@@ -565,6 +628,16 @@ function SlotFormModal({
       confirmLoading={confirmLoading}
       width={480}
     >
+      {droppedCategories.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Mốc giờ này đang khai nhiều dạng bài"
+          description={`Mỗi mốc giờ giờ chỉ giữ 1 dạng. Lưu lại sẽ bỏ: ${droppedCategories.join(', ')} — muốn giữ thì thêm mốc giờ khác (lệch phút) cho từng dạng.`}
+        />
+      )}
+
       <Form form={form} layout="vertical" onFinish={onFinish}>
         <Form.Item
           name="time"
@@ -576,15 +649,56 @@ function SlotFormModal({
         </Form.Item>
 
         <Form.Item
-          name="categories"
+          name="category"
           label="Dạng bài được đăng (danh mục)"
-          rules={[{ required: true, message: 'Chọn ít nhất 1 dạng bài' }]}
+          rules={[{ required: true, message: 'Chọn 1 dạng bài' }]}
+          extra={
+            showStock
+              ? 'Bên phải là bài đã phân bổ cho page, đã duyệt và chưa đăng.'
+              : 'Mỗi mốc giờ 1 dạng bài — muốn đăng nhiều dạng thì thêm mốc giờ khác.'
+          }
         >
           <Select
-            mode="tags"
+            showSearch
             allowClear
-            placeholder="Ví dụ: Cơ xương khớp, Thăm khám"
-            options={categoryOptions.map((c) => ({ value: c, label: c }))}
+            loading={loadingStock}
+            placeholder="Chọn hoặc gõ tên dạng bài mới"
+            searchValue={search}
+            onSearch={setSearch}
+            onSelect={() => setSearch('')}
+            onBlur={() => setSearch('')}
+            filterOption={(input, option) => {
+              const needle = normalizeCategory(input);
+              if (needle === null || option === undefined) return true;
+              // Dòng "＋ Thêm ..." luôn hiện, không bị chính chuỗi vừa gõ lọc mất.
+              return (
+                option.value === typedNewCategory ||
+                option.value.toLowerCase().includes(needle.toLowerCase())
+              );
+            }}
+            options={[
+              ...(typedNewCategory === null
+                ? []
+                : [
+                    {
+                      value: typedNewCategory,
+                      label: `＋ Thêm "${typedNewCategory}"`,
+                    },
+                  ]),
+              ...categoryOptions.map((c) => ({
+                value: c.category,
+                label: c.category,
+              })),
+            ]}
+            // Chỉ đổi cách vẽ **dòng trong dropdown** — thẻ đã chọn vẫn là tên
+            // danh mục trơn, không dính con số.
+            optionRender={(option) => {
+              const item = categoryOptions.find(
+                (c) => c.category === option.value,
+              );
+              if (item === undefined || !showStock) return option.label;
+              return <CategoryStockOption item={item} />;
+            }}
           />
         </Form.Item>
 
@@ -645,7 +759,7 @@ function MockAutoPostSettingsPage() {
     if (slot) {
       form.setFieldsValue({
         time: dayjs(slot.time, 'HH:mm'),
-        categories: slot.categories,
+        category: slot.categories[0] ?? '',
         mediaType: slot.mediaType,
         postCount: slot.postCount,
       });
@@ -659,7 +773,7 @@ function MockAutoPostSettingsPage() {
     if (!slotModal) return;
     const payload = {
       time: values.time.format('HH:mm'),
-      categories: values.categories,
+      categories: [values.category],
       mediaType: values.mediaType,
       postCount: values.postCount,
     };
@@ -861,6 +975,7 @@ function MockAutoPostSettingsPage() {
       <SlotFormModal
         open={!!slotModal}
         isEdit={!!slotModal?.slot}
+        droppedCategories={slotModal?.slot?.categories.slice(1)}
         form={form}
         onCancel={() => {
           setSlotModal(null);

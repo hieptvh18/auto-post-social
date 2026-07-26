@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
   IsBoolean,
@@ -21,10 +22,17 @@ export class UpdateAutoPostSlotDto {
   })
   time?: string;
 
-  @ApiPropertyOptional({ example: ['Khuyến mãi'] })
+  @ApiPropertyOptional({
+    example: ['Khuyến mãi'],
+    description: 'Đúng 1 danh mục — xem ghi chú ở CreateAutoPostSlotDto',
+  })
   @IsOptional()
   @IsArray()
-  @ArrayNotEmpty({ message: 'Phải chọn ít nhất 1 dạng bài' })
+  @ArrayNotEmpty({ message: 'Phải chọn 1 dạng bài' })
+  @ArrayMaxSize(1, {
+    message:
+      'Mỗi mốc giờ chỉ được 1 dạng bài — muốn đăng nhiều dạng thì thêm mốc giờ khác',
+  })
   @IsString({ each: true })
   categories?: string[];
 

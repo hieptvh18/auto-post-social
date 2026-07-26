@@ -6,6 +6,7 @@ import type {
   Prisma,
 } from '../../../generated/prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import type { AssignmentFilter } from './dto/query-content-assets.dto';
 
 /** Subset user an toàn để trả ra API — KHÔNG bao giờ kèm `passwordHash`. */
 const ACTOR_SELECT = { id: true, name: true, email: true } as const;
@@ -50,6 +51,8 @@ const ACTOR_INCLUDE = {
 
 export interface FindContentAssetsFilter {
   mediaType?: MediaType;
+  /** 'assigned' = có ≥1 page; 'unassigned' = chưa gán page nào. */
+  assignment?: AssignmentFilter;
   category?: string;
   status?: ContentStatus;
   isAds?: boolean;
@@ -74,6 +77,10 @@ export interface CreateContentAssetData {
   createdById: string;
   /** Người upload cũng là người "sửa" đầu tiên — UI không bị trống cột này. */
   updatedById: string;
+  /** Bỏ trống ⇒ dùng default PENDING_REVIEW của schema. */
+  status?: ContentStatus;
+  /** Chỉ set khi bài vào thẳng APPROVED (ADMIN tự upload). */
+  approvedById?: string;
   /** Page gán ngay lúc upload; bổ sung sau qua PATCH cũng được. */
   assignedPageIds?: string[];
 }
@@ -114,6 +121,8 @@ export class ContentAssetsRepository {
     if (filter.status !== undefined) where.status = filter.status;
     if (filter.isAds !== undefined) where.isAds = filter.isAds;
     if (filter.createdBy !== undefined) where.createdById = filter.createdBy;
+    if (filter.assignment === 'assigned') where.assignments = { some: {} };
+    if (filter.assignment === 'unassigned') where.assignments = { none: {} };
     if (filter.search !== undefined && filter.search !== '') {
       where.title = { contains: filter.search, mode: 'insensitive' };
     }
@@ -158,6 +167,8 @@ export class ContentAssetsRepository {
           data.fileSize === undefined ? undefined : BigInt(data.fileSize),
         createdById: data.createdById,
         updatedById: data.updatedById,
+        status: data.status,
+        approvedById: data.approvedById,
         assignments:
           pageIds.length === 0
             ? undefined

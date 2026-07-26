@@ -88,6 +88,13 @@ const editorUser: AuthenticatedUser = {
   role: UserRole.EDITOR,
 };
 
+const adminUser: AuthenticatedUser = {
+  id: 'admin-1',
+  email: 'admin@company.local',
+  name: 'Admin User',
+  role: UserRole.ADMIN,
+};
+
 describe('ContentAssetsService', () => {
   let repository: {
     findMany: jest.Mock;
@@ -207,6 +214,58 @@ describe('ContentAssetsService', () => {
         expect.objectContaining({ action: 'CONTENT_UPLOAD' }),
       );
     });
+
+    it('ADMIN upload thì bài vào thẳng APPROVED và ghi luôn người duyệt', async () => {
+      repository.create.mockResolvedValue(
+        makeAsset({ status: ContentStatus.APPROVED }),
+      );
+
+      await service.create(
+        {
+          title: 'Bài viết A',
+          category: 'Kiến thức',
+          caption: 'caption',
+          mediaType: MediaType.image,
+          driveFileId: 'drive-1',
+        },
+        adminUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: ContentStatus.APPROVED,
+          approvedById: 'admin-1',
+        }),
+      );
+    });
+
+    it.each([
+      ['CONTENT', contentUser],
+      ['EDITOR', editorUser],
+    ])(
+      '%s upload thì để schema set PENDING_REVIEW, không tự duyệt',
+      async (_label, actor) => {
+        repository.create.mockResolvedValue(makeAsset());
+
+        await service.create(
+          {
+            title: 'Bài viết A',
+            category: 'Kiến thức',
+            caption: 'caption',
+            mediaType: MediaType.image,
+            driveFileId: 'drive-1',
+          },
+          actor,
+        );
+
+        expect(repository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: undefined,
+            approvedById: undefined,
+          }),
+        );
+      },
+    );
 
     it('gán luôn updatedById = người upload để UI không trống cột người sửa', async () => {
       repository.create.mockResolvedValue(makeAsset());
@@ -440,6 +499,31 @@ describe('ContentAssetsService', () => {
       await expect(
         service.update('asset-1', { status: 'PENDING_REVIEW' }, editorUser),
       ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    });
+
+    it('bài đã đăng: gửi kèm status PUBLISHED (no-op) vẫn phân bổ thêm page mới được', async () => {
+      echoUpdate(
+        makeAsset({
+          status: ContentStatus.PUBLISHED,
+          assignments: [
+            makeAssignment({ publishedAt: new Date('2026-07-25') }),
+          ],
+        }),
+      );
+
+      await service.update(
+        'asset-1',
+        { status: 'PUBLISHED', assignedPageIds: ['page-1', 'page-2'] },
+        editorUser,
+      );
+
+      const [, data, diff] = repository.update.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+        unknown,
+      ];
+      expect(data).not.toHaveProperty('status');
+      expect(diff).toEqual({ addPageIds: ['page-2'], removePageIds: [] });
     });
 
     it('gửi lại đúng trạng thái hiện tại ⇒ không đụng approvedById', async () => {

@@ -25,6 +25,13 @@ export interface PickedContent {
  */
 const MAX_COUNT = 500;
 
+/** Một dòng kho bài của page, gom theo danh mục. */
+export interface CategoryAvailabilityRow {
+  category: string;
+  imageCount: number;
+  videoCount: number;
+}
+
 export interface PickForSlotParams {
   facebookPageId: string;
   categories: string[];
@@ -76,6 +83,37 @@ export class ContentPickerRepository {
         },
       },
     });
+  }
+
+  /**
+   * Kho bài sẵn sàng của **một page**, tách theo danh mục và loại media. Dùng cho
+   * form "Thêm mốc giờ đăng": chọn danh mục nào thì biết ngay page này còn bao
+   * nhiêu ảnh/video để Bot đăng.
+   *
+   * Điều kiện **giống hệt** `pickForSlot` (bỏ lọc danh mục/media vì đang gom
+   * nhóm theo chính hai chiều đó) — nếu lệch thì form hứa một đằng Bot làm một nẻo.
+   */
+  countByCategoryForPage(
+    facebookPageId: string,
+  ): Promise<CategoryAvailabilityRow[]> {
+    return this.prisma.$queryRaw<CategoryAvailabilityRow[]>`
+      SELECT c.category,
+             COUNT(*) FILTER (WHERE c.media_type = 'image')::int AS "imageCount",
+             COUNT(*) FILTER (WHERE c.media_type = 'video')::int AS "videoCount"
+        FROM content_assets c
+        JOIN content_page_assignments a
+          ON a.content_asset_id = c.id
+         AND a.facebook_page_id = ${facebookPageId}::uuid
+         AND a.published_at IS NULL
+       WHERE c.status IN ('APPROVED', 'PUBLISHING', 'PUBLISHED')
+         AND NOT EXISTS (
+           SELECT 1 FROM publish_jobs j
+            WHERE j.content_asset_id = c.id
+              AND j.facebook_page_id = ${facebookPageId}::uuid
+              AND j.status IN ('QUEUED', 'PUBLISHING')
+         )
+       GROUP BY c.category
+    `;
   }
 
   pickForSlot(params: PickForSlotParams): Promise<PickedContent[]> {

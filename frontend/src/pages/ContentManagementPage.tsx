@@ -50,6 +50,7 @@ import {
 import { usePages } from '../hooks/usePages';
 import { useUsers } from '../hooks/useUsers';
 import type {
+  AssignmentFilter,
   ContentActor,
   ContentAsset,
   ContentAssetResponse,
@@ -143,7 +144,6 @@ function MockContentManagementPage() {
     setEditing(record);
     editForm.setFieldsValue({
       title: record.title,
-      description: record.description,
       category: record.category,
       caption: record.caption,
       hashtags: record.hashtags,
@@ -156,7 +156,6 @@ function MockContentManagementPage() {
 
   const handleEditSubmit = (values: {
     title: string;
-    description: string;
     category: string;
     caption: string;
     hashtags?: string;
@@ -168,7 +167,6 @@ function MockContentManagementPage() {
     if (!editing) return;
     updateContent(editing.id, {
       title: values.title,
-      description: values.description,
       category: values.category,
       caption: values.caption,
       hashtags: values.hashtags,
@@ -188,7 +186,6 @@ function MockContentManagementPage() {
 
   const handleCreate = async (values: {
     title: string;
-    description: string;
     category: string;
     caption: string;
     hashtags?: string;
@@ -233,7 +230,8 @@ function MockContentManagementPage() {
       id: String(now.getTime()),
       code: contentCode,
       title: values.title,
-      description: values.description,
+      // FE bỏ ô "Mô tả ngắn" — type mock vẫn giữ field nên để rỗng.
+      description: '',
       category: values.category,
       caption: values.caption,
       hashtags: values.hashtags,
@@ -477,9 +475,6 @@ function MockContentManagementPage() {
             <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="description" label="Mô tả ngắn" rules={[{ required: true }]}>
-              <Input.TextArea rows={2} />
-            </Form.Item>
             <Form.Item name="category" label="Dạng (danh mục)" rules={[{ required: true }]}>
               <Select options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))} />
             </Form.Item>
@@ -601,14 +596,6 @@ function MockContentManagementPage() {
           </Form.Item>
 
           <Form.Item
-            name="description"
-            label="Mô tả ngắn"
-            rules={[{ required: true, min: 10, message: 'Mô tả tối thiểu 10 ký tự' }]}
-          >
-            <Input.TextArea rows={2} placeholder="Mô tả ngắn giúp người duyệt hiểu nội dung" />
-          </Form.Item>
-
-          <Form.Item
             name="caption"
             label="Caption đăng bài"
             rules={[{ required: true, message: 'Nhập caption để bot đăng bài' }]}
@@ -644,7 +631,9 @@ function RealContentManagementPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
-  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | undefined>();
+  const [assignmentFilter, setAssignmentFilter] = useState<
+    AssignmentFilter | undefined
+  >();
   const [statusFilter, setStatusFilter] = useState<ContentStatus | undefined>();
   const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
   const [page, setPage] = useState(1);
@@ -661,7 +650,7 @@ function RealContentManagementPage() {
   const { data, isLoading } = useContentAssets({
     search: search || undefined,
     category: categoryFilter,
-    mediaType: mediaTypeFilter,
+    assignment: assignmentFilter,
     status: statusFilter,
     createdBy: uploaderFilter,
     page,
@@ -690,7 +679,6 @@ function RealContentManagementPage() {
       setEditing(record);
       editForm.setFieldsValue({
         title: record.title,
-        description: record.description ?? '',
         category: record.category,
         caption: record.caption,
         hashtags: record.hashtags ?? '',
@@ -722,9 +710,12 @@ function RealContentManagementPage() {
     setSearchParams({}, { replace: true });
   }, [deepLinkFailed, setSearchParams]);
 
+  // PUBLISHING/PUBLISHED là địa hạt của bot — khoá luôn ô trạng thái ở UI.
+  const editStatusLocked =
+    editing !== null && ['PUBLISHING', 'PUBLISHED'].includes(editing.status);
+
   const handleEditSubmit = async (values: {
     title: string;
-    description?: string;
     category: string;
     caption: string;
     hashtags?: string;
@@ -737,16 +728,17 @@ function RealContentManagementPage() {
     // Chỉ gửi field duyệt khi thực sự có quyền — CONTENT gửi lên sẽ bị 403.
     const body = {
       title: values.title,
-      description: values.description,
       category: values.category,
       caption: values.caption,
       hashtags: values.hashtags,
       assignedPageIds: values.assignedPageIds ?? [],
       ...(canReview
         ? {
-            status: values.status,
+            // Bài do bot đang xử lý: ô trạng thái bị khoá nên không gửi `status`
+            // lên nữa — vẫn sửa được caption/hashtag/phân bổ page bình thường.
+            ...(editStatusLocked ? {} : { status: values.status }),
             isAds: values.isAds,
-            ...(values.status === 'REJECTED'
+            ...(values.status === 'REJECTED' && !editStatusLocked
               ? { rejectComment: values.rejectComment }
               : {}),
           }
@@ -772,7 +764,6 @@ function RealContentManagementPage() {
 
   const handleCreate = async (values: {
     title: string;
-    description?: string;
     category: string;
     caption: string;
     hashtags?: string;
@@ -788,9 +779,8 @@ function RealContentManagementPage() {
     setUploading(true);
     try {
       const uploaded = await mediaApi.upload(rawFile);
-      await createMutation.mutateAsync({
+      const created = await createMutation.mutateAsync({
         title: values.title,
-        description: values.description,
         category: values.category,
         caption: values.caption,
         hashtags: values.hashtags,
@@ -802,7 +792,10 @@ function RealContentManagementPage() {
         mimeType: uploaded.mimeType,
         fileSize: uploaded.size,
       });
-      message.success('Đã upload — trạng thái Chờ duyệt');
+      // ADMIN upload thì backend duyệt luôn (không tự duyệt bài của chính mình).
+      message.success(
+        `Đã upload — trạng thái ${CONTENT_STATUS_LABELS[created.status]}`,
+      );
       setCreateOpen(false);
       setFileList([]);
       createForm.resetFields();
@@ -940,10 +933,6 @@ function RealContentManagementPage() {
     },
   ];
 
-  // PUBLISHING/PUBLISHED là địa hạt của bot — khoá luôn ô trạng thái ở UI.
-  const editStatusLocked =
-    editing !== null && ['PUBLISHING', 'PUBLISHED'].includes(editing.status);
-
   return (
     <div>
       <PageHeader
@@ -971,15 +960,15 @@ function RealContentManagementPage() {
           }}
         />
         <Select
-          placeholder="Loại media"
+          placeholder="Phân bổ page"
           allowClear
-          style={{ width: 150 }}
+          style={{ width: 170 }}
           options={[
-            { value: 'image', label: 'Ảnh' },
-            { value: 'video', label: 'Video' },
+            { value: 'unassigned', label: 'Chưa phân bổ' },
+            { value: 'assigned', label: 'Đã phân bổ' },
           ]}
-          onChange={(v) => {
-            setMediaTypeFilter(v);
+          onChange={(v: AssignmentFilter | undefined) => {
+            setAssignmentFilter(v);
             setPage(1);
           }}
         />
@@ -1075,9 +1064,6 @@ function RealContentManagementPage() {
 
             <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
               <Input />
-            </Form.Item>
-            <Form.Item name="description" label="Mô tả ngắn">
-              <Input.TextArea rows={2} />
             </Form.Item>
             <Form.Item name="category" label="Dạng (danh mục)" rules={[{ required: true }]}>
               <CategorySelect />
@@ -1218,10 +1204,6 @@ function RealContentManagementPage() {
 
           <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
             <Input placeholder="Ví dụ: 5 dấu hiệu thoái hóa khớp gối" />
-          </Form.Item>
-
-          <Form.Item name="description" label="Mô tả ngắn">
-            <Input.TextArea rows={2} placeholder="Mô tả ngắn giúp người duyệt hiểu nội dung" />
           </Form.Item>
 
           <Form.Item

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mergeCategoryOptions, normalizeCategory } from '../categories';
+import {
+  buildCategoryOptionsWithStock,
+  mergeCategoryOptions,
+  normalizeCategory,
+} from '../categories';
 import { CONTENT_CATEGORIES } from '../constants';
 
 describe('mergeCategoryOptions', () => {
@@ -44,5 +48,47 @@ describe('normalizeCategory', () => {
 
   it('trả null khi chỉ có khoảng trắng', () => {
     expect(normalizeCategory('   ')).toBeNull();
+  });
+});
+
+describe('buildCategoryOptionsWithStock', () => {
+  it('ghép kho bài theo page, khớp danh mục không phân biệt hoa/thường', () => {
+    const result = buildCategoryOptionsWithStock(
+      ['Thăm khám'],
+      [{ category: ' thăm khám ', imageCount: 3, videoCount: 2 }],
+    );
+
+    expect(result).toEqual([
+      {
+        category: 'Thăm khám',
+        imageCount: 3,
+        videoCount: 2,
+        isEmpty: false,
+      },
+    ]);
+  });
+
+  it('danh mục page không còn bài ⇒ isEmpty và bị dồn xuống cuối', () => {
+    const result = buildCategoryOptionsWithStock(
+      ['Hết bài', 'Ít bài', 'Nhiều bài'],
+      [
+        { category: 'Ít bài', imageCount: 1, videoCount: 0 },
+        { category: 'Nhiều bài', imageCount: 0, videoCount: 6 },
+      ],
+    );
+
+    expect(result.map((c) => c.category)).toEqual([
+      'Nhiều bài',
+      'Ít bài',
+      'Hết bài',
+    ]);
+    expect(result[2].isEmpty).toBe(true);
+  });
+
+  it('chưa có dữ liệu kho ⇒ mọi danh mục về 0, giữ nguyên thứ tự đầu vào', () => {
+    const result = buildCategoryOptionsWithStock(['A', 'B'], undefined);
+
+    expect(result.map((c) => c.category)).toEqual(['A', 'B']);
+    expect(result.every((c) => c.isEmpty)).toBe(true);
   });
 });

@@ -7,6 +7,7 @@ import {
 import { autoPostApi } from '../api/autoPost.api';
 import type {
   AutoPostConfigResponse,
+  CategoryAvailability,
   CreateAutoPostSlotBody,
   UpdateAutoPostSlotBody,
 } from '../types';
@@ -17,6 +18,22 @@ export function useAutoPostConfigs(): UseQueryResult<AutoPostConfigResponse[]> {
   return useQuery({
     queryKey: [AUTO_POST_KEY],
     queryFn: () => autoPostApi.listConfigs(),
+  });
+}
+
+/**
+ * Kho bài của page tách theo danh mục — cho form mốc giờ. Chỉ gọi khi modal mở
+ * (`pageId` khác `undefined`); `staleTime: 0` để đóng/mở lại là thấy số mới sau
+ * khi Bot vừa đăng.
+ */
+export function useCategoryAvailability(
+  pageId: string | undefined,
+): UseQueryResult<CategoryAvailability[]> {
+  return useQuery({
+    queryKey: [AUTO_POST_KEY, 'category-availability', pageId],
+    queryFn: () => autoPostApi.listCategoryAvailability(pageId as string),
+    enabled: pageId !== undefined,
+    staleTime: 0,
   });
 }
 

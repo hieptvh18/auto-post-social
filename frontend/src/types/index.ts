@@ -244,6 +244,17 @@ export interface AutoPostConfigResponse {
   slots: AutoPostSlotResponse[];
 }
 
+/**
+ * `GET /auto-post-configs/:pageId/category-availability` — kho bài Bot còn đăng
+ * được cho page này, tách theo danh mục. Đếm đúng điều kiện picker (đã phân bổ,
+ * chưa đăng lên page này, đã duyệt, không có job đang chạy).
+ */
+export interface CategoryAvailability {
+  category: string;
+  imageCount: number;
+  videoCount: number;
+}
+
 /** Response `PATCH /auto-post-configs/:pageId` — kèm cảnh báo mềm. */
 export interface UpdateAutoPostConfigResponse extends AutoPostConfigResponse {
   warning: string | null;
@@ -618,8 +629,12 @@ export interface PaginatedContentAssets {
 }
 
 /** Query `GET /content-assets`. */
+/** Bộ lọc "Phân bổ page" ở màn Quản lý Ảnh/Video Edit. */
+export type AssignmentFilter = 'assigned' | 'unassigned';
+
 export interface QueryContentAssetsParams {
   mediaType?: MediaType;
+  assignment?: AssignmentFilter;
   category?: string;
   status?: ContentStatus;
   isAds?: boolean;

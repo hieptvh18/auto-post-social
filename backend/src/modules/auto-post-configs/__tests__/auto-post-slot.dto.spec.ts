@@ -37,6 +37,12 @@ describe('CreateAutoPostSlotDto', () => {
     );
   });
 
+  it('gửi 2 danh mục ⇒ lỗi (mỗi mốc giờ chỉ 1 dạng bài)', () => {
+    expect(
+      errorsOf({ ...validPayload, categories: ['Marketing', 'Thăm khám'] }),
+    ).toContain('categories');
+  });
+
   it('mediaType ngoài image/video/all ⇒ lỗi', () => {
     expect(errorsOf({ ...validPayload, mediaType: 'gif' })).toContain(
       'mediaType',

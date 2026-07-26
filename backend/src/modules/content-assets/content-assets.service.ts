@@ -63,6 +63,7 @@ export class ContentAssetsService {
 
     const { data, total } = await this.repository.findMany({
       mediaType: query.mediaType,
+      assignment: query.assignment,
       category: query.category,
       status: query.status,
       isAds: query.isAds,
@@ -147,6 +148,10 @@ export class ContentAssetsService {
     const assignedPageIds = dedupe(dto.assignedPageIds ?? []);
     await this.assertPagesExist(assignedPageIds);
 
+    // ADMIN tự upload thì khỏi phải tự duyệt lại bài của chính mình: vào thẳng
+    // APPROVED và ghi luôn người duyệt. Role khác vẫn qua hàng chờ duyệt.
+    const autoApproved = actor.role === UserRole.ADMIN;
+
     const created = await this.repository.create({
       title: dto.title,
       description: dto.description,
@@ -163,13 +168,19 @@ export class ContentAssetsService {
       createdById: actor.id,
       updatedById: actor.id,
       assignedPageIds,
+      status: autoApproved ? ContentStatus.APPROVED : undefined,
+      approvedById: autoApproved ? actor.id : undefined,
     });
 
     await this.auditService.log({
       userId: actor.id,
       action: AuditAction.CONTENT_UPLOAD,
       resource: `content_asset:${created.id}`,
-      afterValue: { title: created.title, driveFileId: created.driveFileId },
+      afterValue: {
+        title: created.title,
+        driveFileId: created.driveFileId,
+        status: created.status,
+      },
     });
 
     return toContentAssetResponse(created);

@@ -4,7 +4,7 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-07-26
+**Cập nhật lần cuối:** 2026-07-26 (tinh chỉnh màn Quản lý Ảnh/Video Edit)
 **Session gần nhất (mới nhất):** **M9 Dashboard (plan 14) — code xong, chưa smoke UI.**
 `/dashboard` là màn **cuối cùng** bỏ mock ⇒ toàn bộ 10 trang FE đã chạy API thật. Backend
 module mới `dashboard/` chỉ đọc: `GET /dashboard/{stats,chart/daily,posts-by-page}` theo
@@ -673,6 +673,20 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   cũ xanh · lint/build 2 phía xanh · smoke API thật đủ case RBAC/validate/timezone
   (plan 14 §7), dữ liệu smoke đã xoá.
 - **Còn nợ:** chưa bấm tay trên UI (§6 mục 18).
+
+### Tinh chỉnh màn Quản lý Ảnh/Video Edit — ✅ 2026-07-26
+
+- **Phạm vi:** (1) FE bỏ hẳn ô "Mô tả ngắn" ở popup Upload và Drawer Chỉnh sửa (cả
+  nhánh mock lẫn nhánh API thật) — không gửi `description` lên nữa. (2) Bài do **ADMIN**
+  upload vào thẳng `APPROVED` kèm `approved_by = admin`; CONTENT/EDITOR vẫn `PENDING_REVIEW`.
+- **File chính:** `frontend/src/pages/ContentManagementPage.tsx`,
+  `backend/src/modules/content-assets/content-assets.service.ts` (+ `.repository.ts`)
+- **Quyết định:** BE **giữ nguyên** cột `description` (vẫn optional trong DTO/schema) —
+  PATCH không gửi field ⇒ dữ liệu cũ không bị xoá; chỉ ẩn ở UI. Auto-duyệt gắn với role
+  `ADMIN` chứ không phải quyền `content:review` (EDITOR upload vẫn phải qua hàng chờ).
+  Không đụng schema ⇒ `erd.md` giữ nguyên.
+- **Test:** BE 548 test xanh (+6 cho nhánh auto-duyệt lúc create) · lint/build 2 phía xanh.
+- **Còn nợ:** chưa bấm tay trên UI.
 
 ---
 
