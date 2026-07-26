@@ -15,6 +15,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AutoPostConfigsModule } from './modules/auto-post-configs/auto-post-configs.module';
 import { AutoPostModule } from './modules/auto-post/auto-post.module';
 import { ContentAssetsModule } from './modules/content-assets/content-assets.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { FacebookPagesModule } from './modules/facebook-pages/facebook-pages.module';
 import { HealthModule } from './modules/health/health.module';
 import { ManualPostModule } from './modules/manual-post/manual-post.module';
@@ -58,6 +59,7 @@ import { UsersModule } from './modules/users/users.module';
     ManualPostModule,
     PublishScheduleModule,
     MonitorModule,
+    DashboardModule,
     HealthModule,
   ],
   providers: [

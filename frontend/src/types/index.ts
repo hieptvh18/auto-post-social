@@ -391,17 +391,58 @@ export interface AuditLog {
   createdAt: string;
 }
 
-export interface DashboardStats {
+/* ─────────────── Tổng quan (Dashboard) — response backend thật ─────────────── */
+
+export interface DashboardRangeInfo {
+  from: string;
+  to: string;
+}
+
+/** Tồn kho **hiện tại** — KHÔNG phụ thuộc khoảng ngày đang chọn. */
+export interface DashboardInventory {
   pendingReview: number;
   approved: number;
-  publishing: number;
+  rejected: number;
+  /** Đã duyệt nhưng chưa phân bổ page nào ⇒ Bot không lấy được. */
+  approvedUnassigned: number;
+}
+
+/** Sản lượng **trong kỳ** đang chọn. */
+export interface DashboardProduction {
+  newContent: number;
+  adsVideos: number;
   successPosts: number;
   failedPosts: number;
-  adsVideos: number;
-  postsToday: number;
-  postsThisMonth: number;
+  /** `null` = chưa có job nào đóng sổ (khác hẳn 0 = hỏng sạch). */
+  successRate: number | null;
+}
+
+/** Số liệu **ngay lúc này**. `activeUsers` = `null` khi role không được xem. */
+export interface DashboardLive {
+  publishing: number;
   activePages: number;
-  activeUsers: number;
+  autopostEnabledPages: number;
+  activeUsers: number | null;
+}
+
+export interface DashboardStats {
+  range: DashboardRangeInfo;
+  /** `true` = số liệu chỉ tính trên bài của chính người đang xem (role CONTENT). */
+  scopedToOwnContent: boolean;
+  inventory: DashboardInventory;
+  production: DashboardProduction;
+  live: DashboardLive;
+}
+
+export interface DailyChartItem {
+  date: string;
+  success: number;
+  failed: number;
+}
+
+export interface DailyChart {
+  range: DashboardRangeInfo;
+  items: DailyChartItem[];
 }
 
 export interface PagePostStats {
@@ -409,6 +450,44 @@ export interface PagePostStats {
   pageName: string;
   imagePosts: number;
   videoPosts: number;
+  failedPosts: number;
+}
+
+export interface PostsByPage {
+  range: DashboardRangeInfo;
+  items: PagePostStats[];
+}
+
+export type DashboardAlertCode =
+  | 'FAILED_JOBS'
+  | 'STUCK_JOBS'
+  | 'MISSED_SLOTS'
+  | 'EMPTY_POOL'
+  | 'TOKEN_EXPIRING';
+
+export interface DashboardAlert {
+  level: 'error' | 'warning';
+  code: DashboardAlertCode;
+  count: number;
+  message: string;
+  /** Màn xử lý được việc này — luôn có, để bấm đi tiếp ngay. */
+  link: string;
+}
+
+export interface DashboardHealth {
+  checkedAt: string;
+  /** Rỗng = hệ thống đang chạy bình thường. */
+  alerts: DashboardAlert[];
+}
+
+/** Query chung của mọi endpoint Dashboard (ngày `YYYY-MM-DD`, giờ VN). */
+export interface QueryDashboardParams {
+  from?: string;
+  to?: string;
+}
+
+export interface QueryPostsByPageParams extends QueryDashboardParams {
+  mediaType?: MediaType | 'all';
 }
 
 export interface AuthUser {

@@ -24,6 +24,8 @@ import { AutoPostSlotsController } from './auto-post-slots.controller';
   ],
   controllers: [AutoPostConfigsController, AutoPostSlotsController],
   providers: [AutoPostConfigsRepository, AutoPostConfigsService],
-  exports: [AutoPostConfigsRepository],
+  // `AutoPostConfigsService` xuất ra cho Dashboard mượn phần "tình trạng kho"
+  // (readiness) — tính lại ở chỗ khác thì hai màn ra hai con số khác nhau.
+  exports: [AutoPostConfigsRepository, AutoPostConfigsService],
 })
 export class AutoPostConfigsModule {}

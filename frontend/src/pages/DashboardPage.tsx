@@ -4,35 +4,489 @@ import {
   CloseCircleOutlined,
   FacebookOutlined,
   FileTextOutlined,
+  InboxOutlined,
+  InfoCircleOutlined,
+  RiseOutlined,
   StarOutlined,
   TeamOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
-import { Card, Col, DatePicker, Radio, Row, Space, Statistic, Typography } from 'antd';
+import {
+  Alert,
+  Card,
+  Col,
+  DatePicker,
+  Empty,
+  Radio,
+  Row,
+  Skeleton,
+  Space,
+  Statistic,
+  Tooltip,
+  Typography,
+} from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Legend,
   ResponsiveContainer,
-  Tooltip,
+  // antd cũng export `Tooltip` — đổi tên bản của recharts để không đụng nhau.
+  Tooltip as ChartTooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import { mockPages, mockUsers } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
+import { env } from '../config/env';
+import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
-import type { MediaType } from '../types';
+import {
+  useDailyChart,
+  useDashboardHealth,
+  useDashboardStats,
+  usePostsByPage,
+} from '../hooks/useDashboard';
+import type { DashboardAlert, MediaType } from '../types';
 
 const { Text } = Typography;
+
+const API_DATE = 'YYYY-MM-DD';
+
+export default function DashboardPage() {
+  return env.useMock ? <MockDashboardPage /> : <RealDashboardPage />;
+}
+
+/* ─────────────────────────── Bản chạy API thật ─────────────────────────── */
+
+function RealDashboardPage() {
+  const user = useAuthUser();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Kỳ nằm trong URL để copy link gửi người khác vẫn ra đúng số liệu.
+  const from = searchParams.get('from') ?? undefined;
+  const to = searchParams.get('to') ?? undefined;
+  const range = useMemo(() => ({ from, to }), [from, to]);
+
+  const [pageMediaFilter, setPageMediaFilter] = useState<MediaType | 'all'>('all');
+
+  const stats = useDashboardStats(range);
+  const daily = useDailyChart(range);
+  const byPage = usePostsByPage({ ...range, mediaType: pageMediaFilter });
+  // CONTENT bị 403 ở endpoint này — đừng gọi để khỏi log lỗi rác.
+  const health = useDashboardHealth(user.role !== 'CONTENT');
+
+  // Backend là nơi chốt kỳ mặc định (7 ngày); FE chỉ hiển thị lại cái nó trả về,
+  // để hai bên không tự tính ra hai khoảng khác nhau.
+  const effectiveRange = stats.data?.range;
+  const pickerValue: [Dayjs, Dayjs] | undefined =
+    effectiveRange === undefined
+      ? undefined
+      : [dayjs(effectiveRange.from), dayjs(effectiveRange.to)];
+
+  return (
+    <div>
+      <PageHeader
+        title="Tổng quan"
+        description={
+          stats.data?.scopedToOwnContent === true
+            ? 'Số liệu tính trên các bài do chính bạn tạo'
+            : 'Tình trạng kho bài, sản lượng đăng và sức khoẻ hệ thống'
+        }
+        extra={
+          <DatePicker.RangePicker
+            value={pickerValue}
+            format="DD/MM/YYYY"
+            allowClear={false}
+            presets={rangePresets()}
+            onChange={(next) => {
+              if (!next?.[0] || !next[1]) return;
+              setSearchParams({
+                from: next[0].format(API_DATE),
+                to: next[1].format(API_DATE),
+              });
+            }}
+          />
+        }
+      />
+
+      {health.data !== undefined && health.data.alerts.length > 0 && (
+        <HealthAlerts alerts={health.data.alerts} />
+      )}
+
+      {stats.isError && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Không tải được số liệu tổng quan"
+          description="Kiểm tra backend còn chạy không rồi tải lại trang."
+        />
+      )}
+
+      {stats.isLoading && <Skeleton active paragraph={{ rows: 4 }} />}
+
+      {stats.data !== undefined && (
+        <>
+          <StatStrip
+            title="Kho bài"
+            note="hiện tại"
+            items={[
+              {
+                label: 'Chờ duyệt',
+                value: stats.data.inventory.pendingReview,
+                icon: <FileTextOutlined />,
+              },
+              {
+                label: 'Đã duyệt (chờ Bot đăng)',
+                value: stats.data.inventory.approved,
+                color: '#1677ff',
+                icon: <CheckCircleOutlined />,
+              },
+              {
+                label: 'Chưa phân bổ page',
+                value: stats.data.inventory.approvedUnassigned,
+                color:
+                  stats.data.inventory.approvedUnassigned > 0
+                    ? '#faad14'
+                    : undefined,
+                icon: <InboxOutlined />,
+                hint: 'Bài đã duyệt nhưng chưa gán page nào — Bot không lấy được những bài này',
+              },
+              {
+                label: 'Không duyệt',
+                value: stats.data.inventory.rejected,
+                icon: <CloseCircleOutlined />,
+              },
+            ]}
+          />
+
+          <StatStrip
+            title="Sản lượng"
+            note={
+              effectiveRange === undefined
+                ? 'trong kỳ đã chọn'
+                : `${dayjs(effectiveRange.from).format('DD/MM')} → ${dayjs(
+                    effectiveRange.to,
+                  ).format('DD/MM/YYYY')}`
+            }
+            items={[
+              {
+                label: 'Đăng thành công',
+                value: stats.data.production.successPosts,
+                color: '#3f8600',
+                icon: <CheckCircleOutlined />,
+              },
+              {
+                label: 'Đăng thất bại',
+                value: stats.data.production.failedPosts,
+                color: '#cf1322',
+                icon: <CloseCircleOutlined />,
+              },
+              {
+                label: 'Video đạt ADS',
+                value: stats.data.production.adsVideos,
+                color: '#722ed1',
+                icon: <StarOutlined />,
+              },
+              {
+                label: 'Bài mới upload',
+                value: stats.data.production.newContent,
+                icon: <FileTextOutlined />,
+              },
+            ]}
+          />
+
+          <StatStrip
+            title="Đang chạy"
+            note="ngay lúc này"
+            items={[
+              {
+                label: 'Chờ đăng / đang đăng',
+                value: stats.data.live.publishing,
+                color: '#faad14',
+                icon: <ClockCircleOutlined />,
+              },
+              {
+                label: 'Page đang hoạt động',
+                value: stats.data.live.activePages,
+                icon: <FacebookOutlined />,
+                hint: `${stats.data.live.autopostEnabledPages} page đã bật đăng tự động`,
+              },
+              // `null` = role này không được xem — bỏ hẳn ô, không hiện số 0.
+              ...(stats.data.live.activeUsers === null
+                ? []
+                : [
+                    {
+                      label: 'Nhân sự đang hoạt động',
+                      value: stats.data.live.activeUsers,
+                      icon: <TeamOutlined />,
+                    },
+                  ]),
+              {
+                label: 'Tỷ lệ thành công',
+                // null = chưa có job nào đóng sổ ⇒ "—", khác hẳn 0% (hỏng sạch).
+                value: stats.data.production.successRate ?? '—',
+                suffix:
+                  stats.data.production.successRate === null ? undefined : '%',
+                color:
+                  stats.data.production.successRate === null
+                    ? undefined
+                    : '#3f8600',
+                icon: <RiseOutlined />,
+                hint:
+                  stats.data.production.successRate === null
+                    ? 'Chưa có bài nào đăng xong trong kỳ'
+                    : `${stats.data.production.successPosts}/${
+                        stats.data.production.successPosts +
+                        stats.data.production.failedPosts
+                      } bài`,
+              },
+            ]}
+          />
+        </>
+      )}
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} xl={12}>
+          <Card title="Bài đăng theo ngày">
+            {daily.isLoading && <Skeleton active />}
+            {daily.data !== undefined && (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                  data={daily.data.items.map((item) => ({
+                    ...item,
+                    label: dayjs(item.date).format('D/M'),
+                  }))}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="label" />
+                  <YAxis allowDecimals={false} />
+                  <ChartTooltip />
+                  <Legend />
+                  <Bar
+                    dataKey="success"
+                    name="Thành công"
+                    fill="#52c41a"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="failed"
+                    name="Thất bại"
+                    fill="#ff4d4f"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
+
+        <Col xs={24} xl={12}>
+          <Card
+            title="Bài đăng theo từng page"
+            extra={
+              <Radio.Group
+                size="small"
+                value={pageMediaFilter}
+                onChange={(e) => setPageMediaFilter(e.target.value as MediaType)}
+                options={[
+                  { value: 'all', label: 'Tất cả' },
+                  { value: 'image', label: 'Ảnh' },
+                  { value: 'video', label: 'Video' },
+                ]}
+                optionType="button"
+              />
+            }
+          >
+            {byPage.isLoading && <Skeleton active />}
+            {byPage.data !== undefined && byPage.data.items.length === 0 && (
+              <Empty description="Chưa có bài nào đăng trong kỳ này" />
+            )}
+            {byPage.data !== undefined && byPage.data.items.length > 0 && (
+              <>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={byPage.data.items}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="pageName" />
+                    <YAxis allowDecimals={false} />
+                    <ChartTooltip />
+                    <Legend />
+                    {pageMediaFilter !== 'video' && (
+                      <Bar
+                        dataKey="imagePosts"
+                        name="Ảnh"
+                        fill="#1677ff"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    )}
+                    {pageMediaFilter !== 'image' && (
+                      <Bar
+                        dataKey="videoPosts"
+                        name="Video"
+                        fill="#722ed1"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    )}
+                    <Bar
+                      dataKey="failedPosts"
+                      name="Thất bại"
+                      fill="#ff4d4f"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Cột ảnh/video chỉ đếm bài đăng thành công trong kỳ đã chọn.
+                </Text>
+              </>
+            )}
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
+}
+
+/** Khối "Cần chú ý" — mỗi cảnh báo bấm được sang đúng màn xử lý. */
+function HealthAlerts({ alerts }: { alerts: DashboardAlert[] }) {
+  return (
+    <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 16 }}>
+      {alerts.map((alert) => (
+        <Alert
+          key={alert.code}
+          type={alert.level}
+          showIcon
+          icon={<WarningOutlined />}
+          message={alert.message}
+          action={<Link to={alert.link}>Xem chi tiết</Link>}
+        />
+      ))}
+    </Space>
+  );
+}
+
+interface StatItem {
+  label: string;
+  value: number | string;
+  suffix?: string;
+  color?: string;
+  icon: React.ReactNode;
+  /** Câu giải thích — để trong tooltip thay vì chiếm thêm một dòng dưới số. */
+  hint?: string;
+}
+
+/**
+ * Một nhóm thẻ số gói trong **một** Card mỏng thay vì mỗi số một Card.
+ *
+ * Ba nhóm × 4 thẻ Card thường chiếm gần hết màn hình, đẩy hai chart xuống dưới
+ * nếp gấp — mà chart mới là thứ người ta vào Dashboard để xem. Ghi chú dài
+ * chuyển hết vào tooltip để mọi ô cao bằng nhau.
+ */
+function StatStrip({
+  title,
+  note,
+  items,
+}: {
+  title: string;
+  note: string;
+  items: StatItem[];
+}) {
+  return (
+    <Card
+      size="small"
+      style={{ marginBottom: 12 }}
+      styles={{ body: { padding: '10px 12px' } }}
+      title={
+        <Space align="baseline" size={6}>
+          <Text strong style={{ fontSize: 13 }}>
+            {title}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+            · {note}
+          </Text>
+        </Space>
+      }
+    >
+      <Row gutter={[12, 12]}>
+        {items.map((item) => (
+          <Col key={item.label} xs={12} sm={12} md={8} xl={6}>
+            <StatCell item={item} />
+          </Col>
+        ))}
+      </Row>
+    </Card>
+  );
+}
+
+function StatCell({ item }: { item: StatItem }) {
+  const body = (
+    <Space size={10} align="center">
+      <span style={{ fontSize: 18, color: item.color ?? '#8c8c8c', lineHeight: 1 }}>
+        {item.icon}
+      </span>
+      <span>
+        <div style={{ fontSize: 12, color: '#8c8c8c', lineHeight: 1.3 }}>
+          {item.label}
+          {item.hint !== undefined && (
+            <InfoCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
+          )}
+        </div>
+        <div
+          style={{
+            fontSize: 22,
+            fontWeight: 600,
+            lineHeight: 1.2,
+            color: item.color,
+          }}
+        >
+          {item.value}
+          {item.suffix !== undefined && (
+            <span style={{ fontSize: 14, marginLeft: 2 }}>{item.suffix}</span>
+          )}
+        </div>
+      </span>
+    </Space>
+  );
+
+  return item.hint === undefined ? (
+    body
+  ) : (
+    <Tooltip title={item.hint}>{body}</Tooltip>
+  );
+}
+
+function rangePresets(): { label: string; value: [Dayjs, Dayjs] }[] {
+  const today = dayjs();
+  return [
+    { label: 'Hôm nay', value: [today, today] },
+    { label: '7 ngày qua', value: [today.subtract(6, 'day'), today] },
+    { label: '30 ngày qua', value: [today.subtract(29, 'day'), today] },
+    { label: 'Tháng này', value: [today.startOf('month'), today] },
+    {
+      label: 'Tháng trước',
+      value: [
+        today.subtract(1, 'month').startOf('month'),
+        today.subtract(1, 'month').endOf('month'),
+      ],
+    },
+  ];
+}
+
+/* ──────────────────── Bản mock giữ nguyên theo ADR-005 ──────────────────── */
 
 // Ngày demo cố định của mock data
 const DEMO_TODAY = dayjs('2026-07-16');
 
 const RANGE_PRESETS = [
   { label: 'Hôm nay', value: [DEMO_TODAY.startOf('day'), DEMO_TODAY.endOf('day')] },
-  { label: '7 ngày qua', value: [DEMO_TODAY.subtract(6, 'day').startOf('day'), DEMO_TODAY.endOf('day')] },
+  {
+    label: '7 ngày qua',
+    value: [DEMO_TODAY.subtract(6, 'day').startOf('day'), DEMO_TODAY.endOf('day')],
+  },
   { label: 'Tháng này', value: [DEMO_TODAY.startOf('month'), DEMO_TODAY.endOf('month')] },
   { label: 'Năm nay', value: [DEMO_TODAY.startOf('year'), DEMO_TODAY.endOf('year')] },
 ] satisfies { label: string; value: [Dayjs, Dayjs] }[];
@@ -42,7 +496,7 @@ function inRange(date: string, range: [Dayjs, Dayjs]) {
   return !d.isBefore(range[0]) && !d.isAfter(range[1]);
 }
 
-export default function DashboardPage() {
+function MockDashboardPage() {
   const { content, publishJobs } = useMockData();
   const [range, setRange] = useState<[Dayjs, Dayjs]>([
     DEMO_TODAY.subtract(6, 'day').startOf('day'),
@@ -216,7 +670,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis allowDecimals={false} />
-                <Tooltip />
+                <ChartTooltip />
                 <Legend />
                 <Bar dataKey="success" name="Thành công" fill="#52c41a" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="failed" name="Thất bại" fill="#ff4d4f" radius={[4, 4, 0, 0]} />
@@ -247,7 +701,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="page" />
                 <YAxis allowDecimals={false} />
-                <Tooltip />
+                <ChartTooltip />
                 <Legend />
                 {pageMediaFilter !== 'video' && (
                   <Bar dataKey="image" name="Ảnh" fill="#1677ff" radius={[4, 4, 0, 0]} />

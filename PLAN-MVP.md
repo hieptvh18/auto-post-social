@@ -9,7 +9,8 @@ chuyển sang [plans/DONE/](./plans/DONE/). Phần smoke UI/đăng thật lên P
 là **nợ nghiệm thu**, theo dõi ở `contexts.md` §6 (không mở lại milestone).
 
 **Sau MVP — Phase 2 đang làm:** [M8 Monitor](./plans/13-monitor.md) (Queue Monitor ·
-Failed Jobs · Audit Logs).
+Failed Jobs · Audit Logs) → [M9 Dashboard](./plans/14-dashboard.md) (Tổng quan chạy
+số liệu thật — màn cuối cùng còn mock).
 
 ---
 
@@ -48,10 +49,13 @@ phải chỉ qua curl/Swagger.
 | M5 | Cài đặt đăng bài tự động (slots) + đăng tay | [DONE/06](./plans/DONE/06-auto-post-slots.md) · [DONE/09](./plans/DONE/09-manual-post.md) | ✅ 25/07 | AutoPostSettingsPage |
 | M6 | Cron picker + BullMQ + publisher + lịch đăng bài | [DONE/07](./plans/DONE/07-autopost-engine.md) · [DONE/12](./plans/DONE/12-publish-schedule-tracking.md) | ✅ 25/07 | TimelinePage |
 | M7 | Users + dọn FE còn lại | [DONE/08](./plans/DONE/08-frontend-integration.md) · [DONE/10](./plans/DONE/10-user-management-content-tracking.md) | ✅ 25/07 | UserManagementPage |
-| **M8** | **Monitor: Queue · Failed Jobs · Audit Logs** | [plans/13-monitor.md](./plans/13-monitor.md) | ⬜ đang thiết kế | QueueMonitorPage, FailedJobsPage, AuditLogsPage |
+| **M8** | **Monitor: Queue · Failed Jobs · Audit Logs** | [plans/13-monitor.md](./plans/13-monitor.md) | 🟡 code+test+smoke API xong, chưa smoke UI | QueueMonitorPage, FailedJobsPage, AuditLogsPage |
+| **M9** | **Tổng quan (Dashboard) chạy số liệu thật** | [plans/14-dashboard.md](./plans/14-dashboard.md) | 🟡 code+test+smoke API xong, chưa smoke UI | DashboardPage (màn cuối còn mock) |
 
-Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8**.
+Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8** → **M9**.
 M8 phụ thuộc M6 (dữ liệu `publish_jobs` + `publish_job_events`) và M1 (`audit_logs`).
+M9 phụ thuộc M3 (`content_assets`), M6 (`publish_jobs`, `slot_runs`) và M8 (dùng lại
+`MonitorService` để phát hiện job kẹt).
 
 Quy tắc cho mỗi milestone từ M3 trở đi: **không tick "Done" cho tới khi đã test được
 bằng tay trên UI thật** (không phải mock, không chỉ Swagger) theo điều kiện nghiệm
@@ -61,13 +65,14 @@ thu trong file plan tương ứng.
 
 ## 3. Ngoài phạm vi MVP
 
-Dashboard aggregation nâng cao · Reconciliation cron · Nginx/production compose ·
-Instagram/TikTok · AI caption.
+Reconciliation cron · Nginx/production compose · Instagram/TikTok · AI caption ·
+chỉ số Facebook Insights (reach/like/comment) · bảng rollup thống kê / cache.
 
 Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa làm màn hình.
 
-**Đã chuyển vào scope Phase 2 (M8, plan 13):** Queue Monitor UI · Failed Jobs UI ·
-Audit Logs UI. (Retry job qua UI đã làm sớm ở M6 tại `/timeline`.)
+**Đã chuyển vào scope Phase 2:** Queue Monitor UI · Failed Jobs UI · Audit Logs UI
+(M8, plan 13) · Dashboard số liệu thật (M9, plan 14). (Retry job qua UI đã làm sớm
+ở M6 tại `/timeline`.)
 
 ---
 

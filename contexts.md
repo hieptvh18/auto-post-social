@@ -4,22 +4,27 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-07-25
-**Session gần nhất (mới nhất):** **M8 Monitor (plan 13) — code xong, chưa smoke UI.**
-3 màn `Queue Monitor` / `Failed Jobs` / `Audit Logs` đã bỏ mock, chạy API thật. Backend:
-module mới `monitor/` (`GET /monitor/queue/summary` — số BullMQ + `groupBy` DB + job kẹt,
-**Redis chết vẫn trả 200** với `queue: null` nhờ `Promise.race` timeout 2s), đường **đọc**
-audit log (`GET /audit-logs`, `GET /audit-logs/actions`) đặt trong `AuditHttpModule` riêng
-để không tạo vòng phụ thuộc (bài học `SettingsHttpModule`), và `GET /publish-jobs` đổi sang
-**phân trang** `{items,total,page,pageSize}` + lọc `from`/`to`/`search`. Mọi giá trị
-`beforeValue`/`afterValue` đi ra API đều qua `sanitizeAuditValue()` — che theo tên key, đệ
-quy, deny-by-default. Env mới `MONITOR_STUCK_MINUTES` (mặc định 15). **Không đụng schema ⇒
-`erd.md` giữ nguyên.** FE: `api/{monitor,audit,publishJobs,queryString}.ts`,
-`hooks/{useMonitor,useAuditLogs,usePublishJobs}.ts`, `JobEventsModal` chuyển sang
-`components/common/` dùng chung 2 màn. BE **516 test xanh (+31)**, FE 32 test cũ xanh,
-lint/build 2 phía xanh. **Đã smoke API thật** (Redis chết ⇒ 200 + badge; job kẹt 30 phút ⇒
-cảnh báo đúng số phút; phân trang/lọc đúng; EDITOR ⇒ 403). **Chưa bấm tay trên UI** ⇒ plan
-13 vẫn nằm ở `plans/`, xem §6 mục 17.
+**Cập nhật lần cuối:** 2026-07-26
+**Session gần nhất (mới nhất):** **M9 Dashboard (plan 14) — code xong, chưa smoke UI.**
+`/dashboard` là màn **cuối cùng** bỏ mock ⇒ toàn bộ 10 trang FE đã chạy API thật. Backend
+module mới `dashboard/` chỉ đọc: `GET /dashboard/{stats,chart/daily,posts-by-page}` theo
+đúng tên ở `docs/04` §8, thêm `GET /dashboard/health` (**ngoài docs**) gom 5 cảnh báo vận
+hành (job hỏng/kẹt, mốc giờ bỏ lỡ, page hết bài, token sắp hết hạn) — mỗi cảnh báo kèm
+`link` sang màn xử lý, mượn lại `MonitorService` + `AutoPostConfigsService` thay vì tính lại.
+**Ba quyết định về ngữ nghĩa số liệu** (plan 14 §3.2): thẻ tồn kho là **snapshot hiện tại**
+(không lọc theo range, vì "còn bao nhiêu bài chờ duyệt" luôn là câu hỏi *bây giờ*), job đếm
+theo `schedule_time` (job FAILED không có `published_at`), content đếm theo `created_at`.
+**RBAC scope ở service, không phải guard**: `dashboard:view` có ở cả 3 role nên CONTENT chỉ
+được đếm trên bài của chính mình (nếu không thì đây là đường rò rỉ ngược so với `/content`),
+EDITOR không thấy `activeUsers` và không thấy cảnh báo token, CONTENT gọi `/dashboard/health`
+⇒ 403. **Không đụng schema ⇒ `erd.md` giữ nguyên**, không thêm biến env. BE **542 test xanh
+(+26)**, FE 32 test cũ xanh, lint/build 2 phía xanh. **Đã smoke API thật** và **bắt được 1 lỗi
+timezone mà unit test không thể bắt** (xem §7 cạm bẫy: phải `AT TIME ZONE 'UTC'` trước rồi mới
+`AT TIME ZONE 'Asia/Ho_Chi_Minh'`). **Chưa bấm tay trên UI** ⇒ plan 14 vẫn ở `plans/`, xem §6 mục 18.
+
+---
+
+**Session trước đó:** **M8 Monitor (plan 13)** — 3 màn Queue/Failed/Audit bỏ mock (chi tiết ở §5).
 
 ---
 
@@ -180,9 +185,9 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8) + `_TEMPLATE.md` |
+| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md` |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
-| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). `SettingsPage` đã nối API thật (Drive 2 authMode). **`QueueMonitorPage` / `FailedJobsPage` / `AuditLogsPage` đã nối API thật** (M8, plan 13 — vẫn giữ nhánh mock theo ADR-005). **Còn mock: `DashboardPage`.** |
+| `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). `SettingsPage` đã nối API thật (Drive 2 authMode). **`QueueMonitorPage` / `FailedJobsPage` / `AuditLogsPage` đã nối API thật** (M8, plan 13 — vẫn giữ nhánh mock theo ADR-005). **`DashboardPage` ("Tổng quan") đã nối API thật** (M9, plan 14 — thẻ số + 2 chart + khối "Cần chú ý"). **Không còn trang nào chạy mock** (nhánh `VITE_USE_MOCK` vẫn giữ theo ADR-005). |
 | `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
@@ -256,6 +261,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M7 — Dọn FE còn sót (Users, Settings) | ✅ | 2026-07-25 — Users + Settings (2 authMode Drive) đã nối API thật |
 | **MVP đóng** | ✅ | **2026-07-25** — xem `PLAN-MVP.md` §5. Nợ nghiệm thu giữ ở §6 |
 | M8 — Monitor (Queue · Failed Jobs · Audit Logs) | 🟡 | 2026-07-25 — code + test + smoke API xong ([plans/13-monitor.md](./plans/13-monitor.md) §7); **chưa smoke UI thật** ⇒ chưa chuyển plan sang DONE (§6 mục 17) |
+| M9 — Tổng quan (Dashboard) số liệu thật | 🟡 | 2026-07-26 — code + test + smoke API xong ([plans/14-dashboard.md](./plans/14-dashboard.md) §7); **chưa smoke UI thật** ⇒ chưa chuyển plan sang DONE (§6 mục 18) |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
@@ -643,6 +649,31 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Còn nợ:** chưa bấm tay trên UI (§6 mục 17); `/failed` chưa có ô tìm kiếm dù backend
   đã hỗ trợ `search`.
 
+### M9 Tổng quan (Dashboard) — số liệu thật (Plan 14) — 🟡 2026-07-26
+
+- **Phạm vi:** `GET /dashboard/stats` (tồn kho hiện tại + sản lượng trong kỳ + số đang
+  chạy), `GET /dashboard/chart/daily`, `GET /dashboard/posts-by-page`, và
+  `GET /dashboard/health` (**ngoài `docs/04` §8**) gom 5 cảnh báo vận hành kèm link sang
+  màn xử lý. FE bỏ mock `/dashboard` — **màn cuối cùng còn mock**.
+- **File chính:** `backend/src/modules/dashboard/` (controller/service/repository/mapper/
+  types/module + `dashboard-range.ts` + `dto/query-dashboard.dto.ts`),
+  `frontend/src/api/dashboard.api.ts`, `frontend/src/hooks/useDashboard.ts`,
+  `frontend/src/pages/DashboardPage.tsx`
+- **Quyết định:** (1) **Tồn kho là snapshot, không lọc theo range** — "còn bao nhiêu bài
+  chờ duyệt" luôn là câu hỏi *bây giờ*; UI ghi nhãn "hiện tại" vs "trong kỳ". (2) Job đếm
+  theo `schedule_time` (job FAILED không có `published_at` ⇒ dùng lẫn 2 cột thì
+  success+failed không khớp mẫu số nào), content đếm theo `created_at`. (3) **Scope RBAC ở
+  service**: `dashboard:view` có ở cả 3 role, CONTENT chỉ đếm bài của mình, EDITOR không
+  thấy `activeUsers`/cảnh báo token, CONTENT gọi `/health` ⇒ 403. (4) `successRate = null`
+  khi chưa có job nào đóng sổ (khác hẳn `0` = hỏng sạch), UI hiện "—". (5) Chặn range >
+  366 ngày. (6) `MonitorModule`/`AutoPostConfigsModule` thêm `exports` để Dashboard mượn
+  service — không tính lại readiness/job kẹt lần thứ hai. (7) Không đụng schema ⇒ `erd.md`
+  giữ nguyên; không thêm biến env.
+- **Test:** BE 542 test xanh (+26: 8 `dashboard-range` + 18 `DashboardService`) · FE 32 test
+  cũ xanh · lint/build 2 phía xanh · smoke API thật đủ case RBAC/validate/timezone
+  (plan 14 §7), dữ liệu smoke đã xoá.
+- **Còn nợ:** chưa bấm tay trên UI (§6 mục 18).
+
 ---
 
 ## 6. Việc đang dở / nợ kỹ thuật
@@ -669,6 +700,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 16 | **Nút "Đăng lại" / "Chạy lại mốc này" chưa smoke UI thật** | Code BE+FE xong (plan 07 §10, BE 485 test xanh) nhưng **chưa bấm thử trên UI và chưa chạy với Redis thật**. Cần: tạo 1 job hỏng (page token sai) → `/timeline` bấm "Đăng lại" ⇒ job về QUEUED rồi worker chạy lại, nhật ký có dòng "Đăng lại thủ công bởi …"; bấm lại khi job đang QUEUED ⇒ báo 409; tắt page rồi bấm ⇒ báo 400. Với mốc giờ `MISSED`/`SKIPPED`: bấm "Chạy lại mốc này" ⇒ tạo job nếu kho có bài, bấm lần 2 trong cùng phút ⇒ cảnh báo "vừa chạy trong phút này". Đăng nhập EDITOR kiểm không thấy nút "Đăng lại" (chỉ ADMIN có `jobs:retry`). |
 | 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
 | 17 | **M8 Monitor chưa smoke UI thật** | Code BE+FE xong (plan 13, BE 516 test xanh), đã smoke API thật đủ case (Redis chết ⇒ 200 + `queue: null`, job kẹt 30 phút ⇒ `stuckMinutes: 30`, phân trang + lọc `/publish-jobs` và `/audit-logs`, EDITOR ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/queue` (thẻ số tự nhảy trong 10s sau `POST /auto-post/run-now`, tắt container Redis ⇒ badge "Mất kết nối" chứ không trắng trang), `/failed` (phân trang >20 job, "Xem nhật ký", "Đăng lại" ⇒ 409 khi bấm lại lúc đang QUEUED), `/audit` (lọc ngày/action/user, Drawer diff JSON, log cron hiện tag "Bot"), và **mở lại `/timeline`** xác nhận không gãy sau khi đổi shape `/publish-jobs`. EDITOR gõ thẳng `/queue`,`/failed`,`/audit` ⇒ bị đá về `/dashboard`. Xong thì `git mv plans/13-monitor.md plans/DONE/`. Còn thiếu: ô tìm kiếm theo tiêu đề ở `/failed` (backend đã hỗ trợ `search`). |
+| 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
 
 ---
 
@@ -693,3 +725,6 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | `nest build` báo `Property 'deletedAt' does not exist` sau khi sửa schema | Prisma Client sinh ra `backend/generated/prisma` (ADR-010) nên `prisma migrate dev` **không** tự cập nhật type cho tsc trong mọi trường hợp — chạy `npm run prisma:generate` sau khi đổi schema. Lưu ý jest vẫn xanh trong khi tsc đỏ, dễ tưởng là ổn. |
 | Nút Test kết nối FB báo "thiếu quyền" trong khi quyền đã đủ | Hai lỗi chồng nhau, mất >1h mới ra: (1) code hỏi `fields=...,tasks` nhưng `tasks` **không tồn tại** trên page node với Page token (chỉ có ở `/me/accounts`) ⇒ Graph trả `(#100)`; (2) Page token của page A đọc page B ⇒ Graph trả `(#10)` = "thiếu quyền", đánh lạc hướng khỏi lỗi thật là **sai Page ID**. Xử lý: gọi `/debug_token` **trước** để biết token loại gì, của page nào, hạn bao lâu — rồi mới gọi page node. **Bài học: adapter external API phải gọi thật ít nhất 1 lần trước khi coi là xong; unit test mock `fetch` chỉ chứng minh code khớp *giả định của mình* về API.** |
 | Coverage kẹt vì `jest.Mock` không generic khiến biểu thức trong `expect(...).toEqual({ message: expect.stringContaining(...) })` bị coi là `any` (`no-unsafe-assignment`) | ESLint `recommendedTypeChecked` bắt lỗi này ngay cả trong test. Xử lý: tách thành nhiều `expect(...).toBe(...)`/`toContain(...)` riêng lẻ thay vì gộp vào object literal cho `toEqual`. |
+| Chart Dashboard gom **sai ngày** dù đã dùng `AT TIME ZONE 'Asia/Ho_Chi_Minh'` | Prisma map `DateTime` sang `timestamp` **without** time zone, nên `schedule_time AT TIME ZONE 'Asia/Ho_Chi_Minh'` khiến Postgres hiểu giá trị đang lưu **là giờ VN** rồi đổi ngược chiều — bài 23:30 và 00:30 giờ VN (khác ngày) dồn hết vào một cột. Đúng phải là `schedule_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh'`: lần đầu gắn nhãn UTC cho giá trị naive, lần sau mới đổi sang giờ VN. **Bài học: lỗi này unit test không bao giờ bắt được vì nó nằm trong SQL — mọi câu raw gom theo ngày đều phải smoke với 2 bản ghi cận biên 23:30/00:30.** |
+| `ORDER BY "imagePosts" + "videoPosts"` ⇒ 500 `column does not exist` | Postgres cho dùng alias output ở `ORDER BY` **trần**, nhưng không cho dùng trong **biểu thức**. Phải lặp lại nguyên hàm `COUNT(*) FILTER (...)`. |
+| Prisma mất type `_count._all` khi gộp `groupBy` + `count` vào cùng một `$transaction([...])` | Mảng `$transaction` làm suy kiểu thành union ⇒ `_count` thành union `true / 0 / object`. Xử lý: dùng `Promise.all` cho trường hợp trộn nhiều loại query; `$transaction` chỉ giữ khi các query cùng loại. `groupBy` cũng bắt buộc có `orderBy`. |

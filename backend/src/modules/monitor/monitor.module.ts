@@ -18,5 +18,7 @@ import { MonitorService } from './monitor.service';
   ],
   controllers: [MonitorController],
   providers: [MonitorService],
+  // Dashboard mượn để cảnh báo job kẹt — dùng chung một ngưỡng, một cách tính.
+  exports: [MonitorService],
 })
 export class MonitorModule {}
