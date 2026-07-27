@@ -51,11 +51,16 @@ phải chỉ qua curl/Swagger.
 | M7 | Users + dọn FE còn lại | [DONE/08](./plans/DONE/08-frontend-integration.md) · [DONE/10](./plans/DONE/10-user-management-content-tracking.md) | ✅ 25/07 | UserManagementPage |
 | **M8** | **Monitor: Queue · Failed Jobs · Audit Logs** | [plans/13-monitor.md](./plans/13-monitor.md) | 🟡 code+test+smoke API xong, chưa smoke UI | QueueMonitorPage, FailedJobsPage, AuditLogsPage |
 | **M9** | **Tổng quan (Dashboard) chạy số liệu thật** | [plans/14-dashboard.md](./plans/14-dashboard.md) | 🟡 code+test+smoke API xong, chưa smoke UI | DashboardPage (màn cuối còn mock) |
+| **M10** | **Kết nối Page bằng đăng nhập Facebook** (thay dán token tay) | [plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md) | 🟡 code+test xong 27/07, chưa chạy với Meta app thật | PageManagementPage, SettingsPage |
 
 Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8** → **M9**.
 M8 phụ thuộc M6 (dữ liệu `publish_jobs` + `publish_job_events`) và M1 (`audit_logs`).
 M9 phụ thuộc M3 (`content_assets`), M6 (`publish_jobs`, `slot_runs`) và M8 (dùng lại
 `MonitorService` để phát hiện job kẹt).
+M10 phụ thuộc M4 (module page + crypto token) và mượn khuôn OAuth của plan 03c. Đây là
+đường trả nợ nghiệm thu "đăng thật lên Page" (`contexts.md` §6 mục 10): user chỉ được
+share quyền trên Page doanh nghiệp, không cầm System User, nên phải lấy Page token
+vĩnh viễn qua đăng nhập cá nhân thay vì dán token ngắn hạn.
 
 Quy tắc cho mỗi milestone từ M3 trở đi: **không tick "Done" cho tới khi đã test được
 bằng tay trên UI thật** (không phải mock, không chỉ Swagger) theo điều kiện nghiệm

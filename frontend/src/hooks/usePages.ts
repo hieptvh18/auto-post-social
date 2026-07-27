@@ -4,15 +4,21 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { pagesApi } from '../api/pages.api';
+import { pageConnectApi, pagesApi } from '../api/pages.api';
 import type {
   CreateFacebookPageBody,
+  FacebookConnectionResponse,
+  FacebookPageCandidate,
   FacebookPageResponse,
+  ImportPagesBody,
+  ImportPagesResult,
   PageConnectionResult,
   UpdateFacebookPageBody,
 } from '../types';
 
 const PAGES_KEY = 'pages';
+const CONNECTIONS_KEY = 'page-connections';
+const CANDIDATES_KEY = 'page-candidates';
 
 export function usePages(): UseQueryResult<FacebookPageResponse[]> {
   return useQuery({
@@ -67,6 +73,78 @@ export function useDeletePage() {
   return useMutation({
     mutationFn: (id: string) => pagesApi.remove(id),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [PAGES_KEY] });
+    },
+  });
+}
+
+// ───────────────── Đăng nhập bằng Facebook (plan 15) ─────────────────
+
+export function usePageConnections(): UseQueryResult<
+  FacebookConnectionResponse[]
+> {
+  return useQuery({
+    queryKey: [CONNECTIONS_KEY],
+    queryFn: () => pageConnectApi.listConnections(),
+  });
+}
+
+/** Danh sách page của một kết nối. Chỉ chạy khi modal chọn page đang mở. */
+export function usePageCandidates(
+  connectionId: string | null,
+): UseQueryResult<FacebookPageCandidate[]> {
+  return useQuery({
+    queryKey: [CANDIDATES_KEY, connectionId],
+    queryFn: () => pageConnectApi.listCandidates(connectionId as string),
+    enabled: connectionId !== null,
+  });
+}
+
+/** Lấy URL dialog rồi điều hướng cả trang sang Facebook. */
+export function useStartFacebookConnect() {
+  return useMutation({
+    mutationFn: () => pageConnectApi.authUrl(),
+    onSuccess: ({ url }) => {
+      window.location.assign(url);
+    },
+  });
+}
+
+export function useImportPages() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    ImportPagesResult,
+    Error,
+    { connectionId: string; body: ImportPagesBody }
+  >({
+    mutationFn: ({ connectionId, body }) =>
+      pageConnectApi.importPages(connectionId, body),
+    onSuccess: (_result, { connectionId }) => {
+      void queryClient.invalidateQueries({ queryKey: [PAGES_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [CONNECTIONS_KEY] });
+      void queryClient.invalidateQueries({
+        queryKey: [CANDIDATES_KEY, connectionId],
+      });
+    },
+  });
+}
+
+export function useRefreshPageToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => pagesApi.refreshToken(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [PAGES_KEY] });
+    },
+  });
+}
+
+export function useRevokeConnection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => pageConnectApi.revoke(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [CONNECTIONS_KEY] });
       void queryClient.invalidateQueries({ queryKey: [PAGES_KEY] });
     },
   });

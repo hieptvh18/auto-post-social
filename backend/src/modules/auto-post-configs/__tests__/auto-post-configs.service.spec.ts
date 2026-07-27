@@ -7,6 +7,7 @@ import type {
   AutoPostSlot,
   FacebookPage,
 } from '../../../../generated/prisma/client';
+import { FacebookConnectMode } from '../../../../generated/prisma/client';
 import {
   SlotMediaType,
   UserRole,
@@ -53,6 +54,8 @@ const makePage = (overrides: Partial<PageWithSlots> = {}): PageWithSlots => ({
   isActive: true,
   autopostEnabled: false,
   deletedAt: null,
+  connectMode: FacebookConnectMode.MANUAL_TOKEN,
+  connectionId: null,
   createdById: 'admin-1',
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),

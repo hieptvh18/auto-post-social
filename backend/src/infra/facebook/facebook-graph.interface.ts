@@ -27,6 +27,34 @@ export interface FacebookAccountPage {
   name: string | null;
 }
 
+/**
+ * Page kèm **Page token** — chỉ edge `/me/accounts` trả về field `access_token`.
+ * `tasks` là quyền thực tế của tài khoản trên page đó; có `CREATE_CONTENT` mới đăng bài được.
+ */
+export interface FacebookPageWithToken extends FacebookAccountPage {
+  category: string | null;
+  accessToken: string;
+  tasks: string[];
+}
+
+/** Chủ sở hữu của một user token (`/me`). */
+export interface FacebookUserProfile {
+  id: string;
+  name: string | null;
+}
+
+/** User token kèm hạn dùng. `expiresAt = null` nghĩa là không hết hạn. */
+export interface FacebookUserToken {
+  token: string;
+  expiresAt: Date | null;
+}
+
+/** App credentials cần cho mọi lời gọi OAuth (đổi code, đổi token dài hạn). */
+export interface FacebookAppCredentials {
+  appId: string;
+  appSecret: string;
+}
+
 /** Kết quả `/debug_token` — biết token là của ai, quyền gì, hạn tới bao giờ. */
 export interface FacebookTokenInfo {
   type: FacebookTokenType;
@@ -49,4 +77,35 @@ export interface FacebookGraph {
    * Page nào trong Business settings — nguyên nhân thật sự đứng sau lỗi `(#10)`.
    */
   listPages(accessToken: string): Promise<FacebookAccountPage[]>;
+
+  /**
+   * Đổi `code` ở callback OAuth lấy user token **ngắn hạn** (1–2 giờ).
+   * `redirectUri` phải trùng từng ký tự với URI đã dùng lúc mở dialog.
+   */
+  exchangeCodeForUserToken(
+    code: string,
+    redirectUri: string,
+    app: FacebookAppCredentials,
+  ): Promise<FacebookUserToken>;
+
+  /**
+   * Đổi user token ngắn hạn lấy bản **dài hạn (~60 ngày)**.
+   * Bỏ bước này thì Page token lấy được cũng chỉ sống vài giờ — bot sẽ chết lặng.
+   */
+  exchangeLongLivedUserToken(
+    shortLivedToken: string,
+    app: FacebookAppCredentials,
+  ): Promise<FacebookUserToken>;
+
+  /** Chủ sở hữu của user token — để biết đã đăng nhập bằng tài khoản nào. */
+  getMe(userToken: string, appSecret?: string): Promise<FacebookUserProfile>;
+
+  /**
+   * Như `listPages()` nhưng kèm Page token + `tasks`. Đây là nguồn Page token
+   * vĩnh viễn khi `userToken` đã là bản dài hạn.
+   */
+  listPagesWithTokens(
+    userToken: string,
+    appSecret?: string,
+  ): Promise<FacebookPageWithToken[]>;
 }

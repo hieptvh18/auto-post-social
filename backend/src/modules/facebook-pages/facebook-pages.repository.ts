@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { FacebookPage } from '../../../generated/prisma/client';
+import type {
+  FacebookConnectMode,
+  FacebookPage,
+} from '../../../generated/prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 
 export interface CreateFacebookPageData {
@@ -8,6 +11,8 @@ export interface CreateFacebookPageData {
   accessTokenEnc: string;
   tokenExpireAt?: Date;
   createdById: string;
+  connectMode?: FacebookConnectMode;
+  connectionId?: string | null;
 }
 
 export interface UpdateFacebookPageData {
@@ -18,6 +23,8 @@ export interface UpdateFacebookPageData {
   isActive?: boolean;
   deletedAt?: Date | null;
   createdById?: string;
+  connectMode?: FacebookConnectMode;
+  connectionId?: string | null;
 }
 
 /** Nơi duy nhất viết Prisma query cho bảng facebook_pages (rule 01). */
@@ -48,6 +55,23 @@ export class FacebookPagesRepository {
     return this.prisma.facebookPage.findUnique({ where: { pageId } });
   }
 
+  /**
+   * Kể cả page đã xoá mềm — cùng lý do với `findByPageId`: màn chọn page cần biết
+   * page nào đang tồn tại dưới dạng nào trước khi import.
+   */
+  findManyByPageIds(pageIds: string[]): Promise<FacebookPage[]> {
+    return this.prisma.facebookPage.findMany({
+      where: { pageId: { in: pageIds } },
+    });
+  }
+
+  /** Các page đang dùng token của một kết nối (bỏ page đã xoá). */
+  findByConnectionId(connectionId: string): Promise<FacebookPage[]> {
+    return this.prisma.facebookPage.findMany({
+      where: { connectionId, deletedAt: null },
+    });
+  }
+
   create(data: CreateFacebookPageData): Promise<FacebookPage> {
     return this.prisma.facebookPage.create({
       data: {
@@ -56,6 +80,8 @@ export class FacebookPagesRepository {
         accessTokenEnc: data.accessTokenEnc,
         tokenExpireAt: data.tokenExpireAt,
         createdById: data.createdById,
+        connectMode: data.connectMode,
+        connectionId: data.connectionId ?? null,
       },
     });
   }

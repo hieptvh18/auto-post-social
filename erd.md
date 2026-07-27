@@ -3,8 +3,8 @@
 > **Bản đồ dữ liệu chính thức.** Mọi thay đổi schema PHẢI cập nhật file này —
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
-**Cập nhật:** 2026-07-25
-**Migration tương ứng:** `20260725122007_autopost_engine_logs` (đã apply)
+**Cập nhật:** 2026-07-26
+**Migration tương ứng:** `20260726163154_facebook_login_connection` (đã apply)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -17,6 +17,8 @@ erDiagram
     users ||--o{ content_assets : "approves (approved_by)"
     users ||--o{ content_assets : "last edits (updated_by)"
     users ||--o{ facebook_pages : creates
+    users ||--o{ facebook_connections : "connects fb account"
+    facebook_connections ||--o{ facebook_pages : "supplies token to"
     users ||--o{ audit_logs : performs
     users ||--o{ app_settings : "last updated by"
     content_assets ||--o{ content_page_assignments : "assigned to"
@@ -47,7 +49,22 @@ erDiagram
         boolean is_active
         boolean autopost_enabled
         timestamp deleted_at
+        enum connect_mode
+        uuid connection_id FK
         uuid created_by FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    facebook_connections {
+        uuid id PK
+        string fb_user_id UK
+        string fb_user_name
+        text user_token_enc
+        timestamp token_expire_at
+        string_array scopes
+        timestamp revoked_at
+        uuid connected_by FK
         timestamp created_at
         timestamp updated_at
     }
@@ -172,6 +189,7 @@ erDiagram
 | `PublishStatus` | `SCHEDULED` · `QUEUED` · `PUBLISHING` · `SUCCESS` · `FAILED` · `CANCELLED` | `publish_jobs.status` |
 | `SlotRunStatus` | `CLAIMED` · `DONE` · `SKIPPED` · `ERROR` | `slot_runs.status` |
 | `PublishJobEventType` | `ENQUEUED` · `STARTED` · `SUCCEEDED` · `FAILED` · `RETRY_SCHEDULED` · `GAVE_UP` | `publish_job_events.event` |
+| `FacebookConnectMode` | `MANUAL_TOKEN` · `FB_LOGIN` | `facebook_pages.connect_mode` |
 
 ---
 
@@ -183,6 +201,9 @@ erDiagram
 | `facebook_pages` | UNIQUE `page_id` | Định danh phía Meta |
 | `facebook_pages` | `is_active` | Lọc page đang dùng (đang bật, chưa tạm dừng) |
 | `facebook_pages` | `deleted_at` | Lọc page chưa bị xoá — điều kiện mặc định của mọi truy vấn nghiệp vụ |
+| `facebook_pages` | `connection_id` | Lấy mọi page của một kết nối khi đồng bộ / ngắt kết nối |
+| `facebook_connections` | UNIQUE `fb_user_id` | Một tài khoản Facebook chỉ có 1 kết nối — đăng nhập lại là cập nhật dòng cũ, không đẻ dòng mới |
+| `facebook_connections` | `revoked_at` | Lọc kết nối còn hiệu lực |
 | `content_assets` | **`(status, updated_at)`** | **Cron picker: APPROVED order `updated_at ASC`** |
 | `content_assets` | `status` · `category` · `media_type` · `created_by` · `is_ads` | Bộ lọc trang quản lý + dashboard |
 | `content_page_assignments` | **UNIQUE `(content_asset_id, facebook_page_id)`** | **Mỗi bài chỉ đăng 1 lần trên 1 page** |
@@ -215,7 +236,13 @@ erDiagram
 | Xóa page = soft delete (`deleted_at = now()`, kèm `is_active=false`) | Service — vì `publish_jobs` còn tham chiếu. **`deleted_at` (đã xoá, ẩn khỏi UI) khác `is_active` (tạm dừng, vẫn hiện ở UI)** — không dùng lẫn |
 | Page có `deleted_at != null` coi như không tồn tại (list ẩn, GET/PUT/DELETE ⇒ 404, publisher không lấy được token) | `FacebookPagesRepository` lọc `deleted_at: null` ở `findMany`/`findById` |
 | Thêm lại page có `page_id` đã bị xoá mềm ⇒ **hồi sinh** bản ghi cũ (không 409, không tạo dòng mới) | `FacebookPagesService.create()` — vì UNIQUE `page_id` áp cả trên dòng đã xoá |
-| `app_settings.key` ∈ `google_drive` \| `facebook` \| `system` | Service (DTO enum) — DB để string cho dễ mở rộng |
+| `facebook_pages.connect_mode = FB_LOGIN` ⇒ `connection_id` **phải** khác null; `MANUAL_TOKEN` ⇒ luôn null | `FacebookConnectService.importPages()` / `FacebookPagesService.create()` |
+| Import trúng page đang `MANUAL_TOKEN` ⇒ **không tự ghi đè token**, trả `needsConfirm` để user xác nhận | `FacebookConnectService.importPages()` — ghi đè token System User đang chạy tốt bằng token cá nhân là hạ độ bền |
+| Chỉ import page mà tài khoản có task `CREATE_CONTENT` | `FacebookConnectService.importPages()` (400 kèm lý do) |
+| `facebook_connections.user_token_enc` là **long-lived user token** (~60 ngày), khác hẳn `facebook_pages.access_token_enc` (Page token, không hết hạn) | `FacebookConnectService.handleCallback()` |
+| Ngắt kết nối = `revoked_at = now()` + `user_token_enc = null`; **không** đụng token của page đang chạy | `FacebookConnectService.revoke()` |
+| `app_settings['facebook_app'].value` = `{ appId, appSecretEnc }`; không có bản ghi ⇒ fallback `META_APP_ID`/`META_APP_SECRET` trong `.env` | `SettingsService.getFacebookAppSettings()` (ADR-014) |
+| `app_settings.key` ∈ `google_drive` \| `facebook_app` \| `system` | Service (DTO enum) — DB để string cho dễ mở rộng |
 | Secret trong `app_settings.value` luôn là ciphertext AES-256-GCM | `CryptoService`; API trả bản mask, không trả JSON gốc |
 | Không có bản ghi `app_settings` ⇒ đọc fallback từ `.env` | `SettingsService.getDriveConfig()` (ADR-014) |
 | `app_settings['google_drive'].value` có `authMode ∈ service_account \| oauth2` (plan 03c). Field mã hoá: `serviceAccountJsonEnc`, `oauthClientSecretEnc`, `oauthRefreshTokenEnc` | Không đổi cột DB (JSONB) — shape do `settings.types.ts` định nghĩa |
@@ -234,6 +261,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-07-26 | `20260726163154_facebook_login_connection` | **Plan 15 (kết nối Page bằng đăng nhập Facebook).** (1) Bảng mới `facebook_connections`: giữ **long-lived user token** (~60 ngày, mã hoá) của tài khoản Facebook đã đăng nhập, kèm `fb_user_id` UNIQUE, `scopes`, `revoked_at`. Lý do giữ lại thay vì vứt sau khi lấy Page token: cần để đồng bộ page mới và lấy lại Page token mà không bắt user đăng nhập lại. (2) `facebook_pages` thêm `connect_mode` (enum `FacebookConnectMode`, default `MANUAL_TOKEN` — dòng cũ giữ nguyên nghĩa) + `connection_id` (FK nullable, index). Lý do: user chỉ được share quyền trên Page doanh nghiệp, không cầm System User ⇒ phải lấy Page token vĩnh viễn qua đăng nhập cá nhân, nhưng luồng dán token tay vẫn phải sống song song. |
 | 2026-07-25 | `20260725122007_autopost_engine_logs` | **Plan 07 (engine auto-post).** (1) Mở rộng `slot_runs` thành nhật ký cron: thêm `status` (enum `SlotRunStatus`), `picked_count`, `job_created_count`, `skip_reason`, `started_at`, `finished_at`, `error_message` + index `(run_date, status)`. UNIQUE cũ giữ nguyên vì vẫn là khoá chống double-fire. Lý do: trả lời được "tới giờ mà không đăng gì — vì hết bài, page tắt, hay cron không chạy?". (2) Bảng mới `publish_job_events` + enum `PublishJobEventType`: nhật ký từng lần thử đăng (attempt, event, message, `raw_error` jsonb đã lọc token), cascade theo `publish_jobs`. |
 | 2026-07-25 | `20260725062013_content_assets_updated_by` | Thêm cột `content_assets.updated_by` (uuid, nullable, FK → `users.id`) + quan hệ `ContentUpdater`. Lý do: trang "Quản lý Ảnh/Video Edit" cần tracking **ai sửa gần nhất** bên cạnh `created_by` (ai upload). Nullable vì dòng cũ không biết ai sửa; không index vì chưa có truy vấn lọc theo cột này. |
 | 2026-07-25 | `20260725033247_facebook_pages_deleted_at` | Thêm cột `facebook_pages.deleted_at` + index. Lý do: `remove()` trước đây chỉ set `is_active=false` mà `findMany()` không lọc ⇒ page bị xoá vẫn hiện trên UI; mà không thể lọc theo `is_active` vì cột đó mang nghĩa "tạm dừng". Tách hẳn 2 khái niệm. |

@@ -2,7 +2,9 @@ import {
   ApiOutlined,
   DeleteOutlined,
   EditOutlined,
+  FacebookOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
 import {
@@ -16,21 +18,27 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { mockPages } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
+import { ConnectPagesModal } from '../components/pages/ConnectPagesModal';
+import { ConnectionsCard } from '../components/pages/ConnectionsCard';
 import { env } from '../config/env';
 import { useAuthUser } from '../contexts/AuthContext';
 import {
   useCreatePage,
   useDeletePage,
   usePages,
+  useRefreshPageToken,
+  useStartFacebookConnect,
   useTestPageConnection,
   useUpdatePage,
 } from '../hooks/usePages';
@@ -265,13 +273,59 @@ function RealPageManagementPage() {
   const [testResult, setTestResult] = useState<PageConnectionResult | null>(null);
   const [form] = Form.useForm();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [pickerConnectionId, setPickerConnectionId] = useState<string | null>(
+    null,
+  );
+
   const { data: pages, isLoading } = usePages();
   const createMutation = useCreatePage();
   const updateMutation = useUpdatePage();
   const deleteMutation = useDeletePage();
   const testMutation = useTestPageConnection();
+  const connectMutation = useStartFacebookConnect();
+  const refreshTokenMutation = useRefreshPageToken();
 
   const canManage = can(user.role, 'pages:manage');
+
+  /**
+   * Facebook redirect về `/pages?fb_connect=...`. Thành công thì mở luôn modal chọn
+   * page — user vừa đi qua mấy màn của Meta, đừng bắt họ tự mò tiếp.
+   */
+  useEffect(() => {
+    const status = searchParams.get('fb_connect');
+    if (status === null) return;
+
+    if (status === 'success') {
+      setPickerConnectionId(searchParams.get('connectionId'));
+    } else {
+      message.error(
+        `Kết nối Facebook thất bại: ${searchParams.get('reason') ?? 'không rõ nguyên nhân'}`,
+      );
+    }
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const handleConnect = async (): Promise<void> => {
+    try {
+      await connectMutation.mutateAsync();
+    } catch (err) {
+      message.error(
+        err instanceof ApiError ? err.message : 'Không mở được đăng nhập Facebook',
+      );
+    }
+  };
+
+  const handleRefreshToken = async (id: string): Promise<void> => {
+    try {
+      await refreshTokenMutation.mutateAsync(id);
+      message.success('Đã lấy lại token mới cho page');
+    } catch (err) {
+      message.error(
+        err instanceof ApiError ? err.message : 'Lấy lại token thất bại',
+      );
+    }
+  };
 
   const filteredPages = useMemo(
     () => (pages ?? []).filter((page) => matchesKeyword(page, keyword)),
@@ -383,16 +437,31 @@ function RealPageManagementPage() {
       width: 100,
     },
     {
+      title: 'Nguồn token',
+      dataIndex: 'connectMode',
+      width: 150,
+      render: (mode: FacebookPageResponse['connectMode']) =>
+        mode === 'FB_LOGIN' ? (
+          <Tag color="blue" icon={<FacebookOutlined />}>
+            Đăng nhập FB
+          </Tag>
+        ) : (
+          <Tag>Dán tay</Tag>
+        ),
+    },
+    {
       title: 'Hết hạn',
       dataIndex: 'tokenExpireAt',
       width: 140,
+      // Không có hạn là trạng thái TỐT NHẤT (Page token vĩnh viễn) — phải đọc được
+      // ngay, không để user tự suy ra từ ô trống.
       render: (v: string | null) =>
         v ? (
           <Tag color={dayjs(v).isBefore(dayjs()) ? 'error' : 'success'}>
             {dayjs(v).format('DD/MM/YYYY')}
           </Tag>
         ) : (
-          <Tag>N/A</Tag>
+          <Tag color="success">Vĩnh viễn</Tag>
         ),
     },
     {
@@ -405,9 +474,20 @@ function RealPageManagementPage() {
       ? [
           {
             title: 'Actions',
-            width: 120,
+            width: 160,
             render: (_: unknown, record: FacebookPageResponse) => (
               <Space>
+                {/* Page dán tay không có gì để tạo lại token ⇒ không hiện nút. */}
+                {record.connectMode === 'FB_LOGIN' && (
+                  <Tooltip title="Lấy lại Page token từ tài khoản Facebook đã kết nối">
+                    <Button
+                      type="text"
+                      icon={<ReloadOutlined />}
+                      loading={refreshTokenMutation.isPending}
+                      onClick={() => void handleRefreshToken(record.id)}
+                    />
+                  </Tooltip>
+                )}
                 <Button
                   type="text"
                   icon={<EditOutlined />}
@@ -434,12 +514,30 @@ function RealPageManagementPage() {
         description="Quản lý Facebook Page và access token"
         extra={
           canManage && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              Thêm Page
-            </Button>
+            <Space>
+              <Button
+                type="primary"
+                icon={<FacebookOutlined />}
+                loading={connectMutation.isPending}
+                onClick={() => void handleConnect()}
+              >
+                Kết nối bằng Facebook
+              </Button>
+              <Button icon={<PlusOutlined />} onClick={openCreate}>
+                Thêm Page thủ công
+              </Button>
+            </Space>
           )
         }
       />
+
+      {canManage && (
+        <ConnectionsCard
+          reconnecting={connectMutation.isPending}
+          onReconnect={() => void handleConnect()}
+          onPickPages={setPickerConnectionId}
+        />
+      )}
 
       <Input
         allowClear
@@ -456,6 +554,11 @@ function RealPageManagementPage() {
         dataSource={filteredPages}
         loading={isLoading}
         pagination={false}
+      />
+
+      <ConnectPagesModal
+        connectionId={pickerConnectionId}
+        onClose={() => setPickerConnectionId(null)}
       />
 
       <Modal

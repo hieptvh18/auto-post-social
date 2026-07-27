@@ -170,4 +170,149 @@ describe('FacebookGraphClient', () => {
       expect(info.scopes).toEqual([]);
     });
   });
+
+  const APP = { appId: 'app-1', appSecret: 'app-secret' };
+
+  describe('exchangeCodeForUserToken', () => {
+    it('gửi đủ 4 tham số OAuth và KHÔNG gửi header Authorization', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { access_token: 'short-tok', expires_in: 3600 }),
+      );
+
+      await client.exchangeCodeForUserToken('the-code', 'https://app/cb', APP);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toContain('/v21.0/oauth/access_token?');
+      expect(url).toContain('client_id=app-1');
+      expect(url).toContain('code=the-code');
+      expect(url).toContain('redirect_uri=https%3A%2F%2Fapp%2Fcb');
+      // Endpoint này xác thực bằng client_secret trên query — thêm header sẽ bị từ chối.
+      expect(init.headers).toEqual({});
+    });
+  });
+
+  describe('exchangeLongLivedUserToken', () => {
+    it('đổi expires_in thành mốc thời gian tuyệt đối', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-07-26T10:00:00.000Z'));
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, {
+          access_token: 'long-tok',
+          // 60 ngày — giá trị Meta thực sự trả cho token dài hạn.
+          expires_in: 5_184_000,
+        }),
+      );
+
+      const result = await client.exchangeLongLivedUserToken('short-tok', APP);
+
+      expect(result.token).toBe('long-tok');
+      expect(result.expiresAt).toEqual(new Date('2026-09-24T10:00:00.000Z'));
+      expect(fetchMock.mock.calls[0][0]).toContain(
+        'grant_type=fb_exchange_token',
+      );
+      jest.useRealTimers();
+    });
+
+    it('không có expires_in ⇒ token không hết hạn', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { access_token: 'long-tok' }),
+      );
+
+      const result = await client.exchangeLongLivedUserToken('short-tok', APP);
+
+      expect(result.expiresAt).toBeNull();
+    });
+
+    it('Meta trả lỗi ⇒ FacebookGraphError, không ném lỗi HTTP thô', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(400, {
+          error: { message: 'Invalid verification code', code: 100 },
+        }),
+      );
+
+      await expect(
+        client.exchangeLongLivedUserToken('short-tok', APP),
+      ).rejects.toThrow(FacebookGraphError);
+    });
+
+    it('response thiếu access_token ⇒ báo lỗi cấu hình app', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, {}));
+
+      await expect(
+        client.exchangeLongLivedUserToken('short-tok', APP),
+      ).rejects.toThrow(/App ID \/ App Secret \/ Redirect URI/);
+    });
+  });
+
+  describe('listPagesWithTokens', () => {
+    it('trả page kèm token + tasks, và gắn appsecret_proof khi có app secret', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, {
+          data: [
+            {
+              id: 'p1',
+              name: 'Luca',
+              category: 'Coffee shop',
+              access_token: 'page-tok',
+              tasks: ['CREATE_CONTENT', 'MANAGE'],
+            },
+          ],
+        }),
+      );
+
+      const result = await client.listPagesWithTokens('user-tok', 'app-secret');
+
+      expect(result).toEqual([
+        {
+          id: 'p1',
+          name: 'Luca',
+          category: 'Coffee shop',
+          accessToken: 'page-tok',
+          tasks: ['CREATE_CONTENT', 'MANAGE'],
+        },
+      ]);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toContain('appsecret_proof=');
+      expect(url).not.toContain('user-tok');
+      expect(init.headers).toEqual({ Authorization: 'Bearer user-tok' });
+    });
+
+    it('bỏ qua page không có access_token — nhập vào cũng vô dụng', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { data: [{ id: 'p1', name: 'Luca' }] }),
+      );
+
+      const result = await client.listPagesWithTokens('user-tok');
+
+      expect(result).toEqual([]);
+    });
+
+    it('không có app secret ⇒ không gắn appsecret_proof', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { data: [] }));
+
+      await client.listPagesWithTokens('user-tok');
+
+      expect(fetchMock.mock.calls[0][0]).not.toContain('appsecret_proof');
+    });
+  });
+
+  describe('getMe', () => {
+    it('trả id + name của tài khoản', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { id: 'u1', name: 'Hiệp Trần' }),
+      );
+
+      expect(await client.getMe('user-tok')).toEqual({
+        id: 'u1',
+        name: 'Hiệp Trần',
+      });
+    });
+
+    it('thiếu id ⇒ FacebookGraphError', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, { name: 'Hiệp' }));
+
+      await expect(client.getMe('user-tok')).rejects.toThrow(
+        FacebookGraphError,
+      );
+    });
+  });
 });

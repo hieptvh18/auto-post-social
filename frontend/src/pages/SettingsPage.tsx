@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import { settingsApi } from '../api/settings.api';
 import { PageHeader } from '../components/common/PageHeader';
+import { FacebookAppSettings } from '../components/pages/FacebookAppSettings';
 import { env } from '../config/env';
 import type { DriveAuthMode, DriveSettingsResponse } from '../types';
 
@@ -422,6 +423,11 @@ export default function SettingsPage() {
             key: 'google-drive',
             label: 'Google Drive',
             children: <GoogleDriveSettings />,
+          },
+          {
+            key: 'facebook-app',
+            label: 'Facebook App',
+            children: <FacebookAppSettings />,
           },
         ]}
       />

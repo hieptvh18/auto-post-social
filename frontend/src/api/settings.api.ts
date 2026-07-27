@@ -1,7 +1,9 @@
 import type {
   DriveConnectionResult,
   DriveSettingsResponse,
+  FacebookAppSettingsResponse,
   UpdateDriveSettingsBody,
+  UpdateFacebookAppSettingsBody,
 } from '../types';
 import { apiRequest } from './client';
 
@@ -32,5 +34,20 @@ export const settingsApi = {
   /** GET /settings/google-drive/oauth/url — URL consent Google để kết nối OAuth2. */
   getOauthUrl(): Promise<{ url: string }> {
     return apiRequest<{ url: string }>('/settings/google-drive/oauth/url');
+  },
+
+  /** GET /settings/facebook-app — App ID + redirect URI phải khai ở Meta (plan 15). */
+  getFacebookApp(): Promise<FacebookAppSettingsResponse> {
+    return apiRequest<FacebookAppSettingsResponse>('/settings/facebook-app');
+  },
+
+  /** PUT /settings/facebook-app — không gửi `appSecret` = giữ nguyên secret đã lưu. */
+  updateFacebookApp(
+    body: UpdateFacebookAppSettingsBody,
+  ): Promise<FacebookAppSettingsResponse> {
+    return apiRequest<FacebookAppSettingsResponse>('/settings/facebook-app', {
+      method: 'PUT',
+      body,
+    });
   },
 };

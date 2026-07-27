@@ -1,6 +1,9 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { FacebookPage } from '../../../../generated/prisma/client';
-import { UserRole } from '../../../../generated/prisma/client';
+import {
+  FacebookConnectMode,
+  UserRole,
+} from '../../../../generated/prisma/client';
 import type { AppConfigService } from '../../../config/app-config.service';
 import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 import { UNKNOWN_TOKEN_MASK } from '../../../common/utils/token-mask.util';
@@ -33,6 +36,8 @@ const makePage = (overrides: Partial<FacebookPage> = {}): FacebookPage => ({
   isActive: true,
   autopostEnabled: false,
   deletedAt: null,
+  connectMode: FacebookConnectMode.MANUAL_TOKEN,
+  connectionId: null,
   createdById: 'admin-1',
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),

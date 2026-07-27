@@ -14,6 +14,7 @@ import {
   type FacebookPage,
   type PublishJob,
 } from '../../../../generated/prisma/client';
+import { FacebookConnectMode } from '../../../../generated/prisma/client';
 import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 import type { DriveStorageFactory } from '../../../infra/drive/drive-storage.factory';
 import type { DriveStorage } from '../../../infra/drive/drive-storage.interface';
@@ -75,6 +76,8 @@ const makePage = (overrides: Partial<FacebookPage> = {}): FacebookPage => ({
   isActive: true,
   autopostEnabled: false,
   deletedAt: null,
+  connectMode: FacebookConnectMode.MANUAL_TOKEN,
+  connectionId: null,
   createdById: 'admin-1',
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),

@@ -86,9 +86,60 @@ export interface FacebookPageResponse {
   tokenExpireAt: string | null;
   isActive: boolean;
   autopostEnabled: boolean;
+  /** Nguồn token: dán tay hay lấy qua đăng nhập Facebook (plan 15). */
+  connectMode: FacebookConnectMode;
+  /** null với page dán tay — chỉ page FB_LOGIN mới "lấy lại token" được. */
+  connectionId: string | null;
   createdById: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Nguồn Page Access Token. */
+export type FacebookConnectMode = 'MANUAL_TOKEN' | 'FB_LOGIN';
+
+/** Một tài khoản Facebook đã đăng nhập (`GET /pages/connect`). */
+export interface FacebookConnectionResponse {
+  id: string;
+  fbUserId: string;
+  fbUserName: string | null;
+  /** null = user token không hết hạn. */
+  tokenExpireAt: string | null;
+  /** null khi không có hạn; âm nghĩa là đã hết hạn. */
+  daysUntilExpire: number | null;
+  scopes: string[];
+  pageCount: number;
+  connectedById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Page mà tài khoản đã kết nối nhìn thấy (`GET /pages/connect/:id/candidates`). */
+export interface FacebookPageCandidate {
+  pageId: string;
+  pageName: string | null;
+  category: string | null;
+  /** Tài khoản có quyền tạo nội dung trên page này hay không. */
+  canPost: boolean;
+  alreadyAdded: boolean;
+  currentConnectMode: FacebookConnectMode | null;
+  /** false ⇒ khoá dòng lại, lý do ở `blockedReason`. */
+  importable: boolean;
+  blockedReason: string | null;
+}
+
+/** Body `POST /pages/connect/:id/import`. */
+export interface ImportPagesBody {
+  pageIds: string[];
+  /** true = đồng ý thay token dán tay hiện có bằng token đăng nhập. */
+  overwriteManual?: boolean;
+}
+
+/** Kết quả import — 3 nhóm tách bạch để nói đúng chuyện gì đã xảy ra. */
+export interface ImportPagesResult {
+  imported: FacebookPageResponse[];
+  skipped: { pageId: string; reason: string }[];
+  needsConfirm: { pageId: string; pageName: string }[];
 }
 
 /** Body `POST /pages`. */
@@ -552,6 +603,22 @@ export interface UpdateDriveSettingsBody {
   oauthClientId?: string | null;
   oauthClientSecret?: string | null;
   maxUploadMb: number;
+}
+
+/** Response `GET/PUT /settings/facebook-app` (backend `FacebookAppSettingsResponse`). */
+export interface FacebookAppSettingsResponse {
+  appId: string | null;
+  hasAppSecret: boolean;
+  /** Chuỗi phải khai trong Meta app → Facebook Login → Valid OAuth Redirect URIs. */
+  redirectUri: string;
+  usingEnvFallback: boolean;
+  updatedAt: string | null;
+}
+
+/** Body `PUT /settings/facebook-app` — không gửi `appSecret` = giữ nguyên cái đã lưu. */
+export interface UpdateFacebookAppSettingsBody {
+  appId: string;
+  appSecret?: string | null;
 }
 
 /** Response `POST /settings/google-drive/test` (backend `DriveConnectionResult`). */

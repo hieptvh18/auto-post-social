@@ -5,6 +5,7 @@ import {
   type AutoPostSlot,
   type FacebookPage,
 } from '../../../../generated/prisma/client';
+import { FacebookConnectMode } from '../../../../generated/prisma/client';
 import type { AppConfigService } from '../../../config/app-config.service';
 import type { ClockService } from '../../../infra/clock/clock.service';
 import type { SlotRunService } from '../../auto-post/slot-run.service';
@@ -32,6 +33,8 @@ function makePage(overrides: Partial<PageWithSlots> = {}): PageWithSlots {
     isActive: true,
     autopostEnabled: true,
     deletedAt: null,
+    connectMode: FacebookConnectMode.MANUAL_TOKEN,
+    connectionId: null,
     createdById: '33333333-3333-3333-3333-333333333333',
     createdAt: new Date('2026-07-01T00:00:00Z'),
     updatedAt: new Date('2026-07-01T00:00:00Z'),

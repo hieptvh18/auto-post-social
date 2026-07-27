@@ -9,8 +9,12 @@ import {
 } from '../media/media.service';
 import { DriveOAuthService } from './drive-oauth.service';
 import { UpdateDriveSettingsDto } from './dto/update-drive-settings.dto';
+import { UpdateFacebookAppSettingsDto } from './dto/update-facebook-app-settings.dto';
 import { SettingsService } from './settings.service';
-import type { DriveSettingsResponse } from './settings.types';
+import type {
+  DriveSettingsResponse,
+  FacebookAppSettingsResponse,
+} from './settings.types';
 
 @ApiTags('settings')
 @ApiBearerAuth()
@@ -46,6 +50,26 @@ export class SettingsController {
   })
   testDrive(): Promise<DriveConnectionResult> {
     return this.mediaService.testConnection();
+  }
+
+  @Get('facebook-app')
+  @ApiOperation({
+    summary:
+      'Đọc cấu hình Meta app cho đăng nhập Facebook (ADMIN) — kèm redirect URI phải khai ở Meta',
+  })
+  getFacebookApp(): Promise<FacebookAppSettingsResponse> {
+    return this.settingsService.getFacebookAppSettings();
+  }
+
+  @Put('facebook-app')
+  @ApiOperation({
+    summary: 'Cập nhật App ID / App Secret của Meta app (ADMIN)',
+  })
+  updateFacebookApp(
+    @Body() dto: UpdateFacebookAppSettingsDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<FacebookAppSettingsResponse> {
+    return this.settingsService.updateFacebookAppSettings(dto, actor.id);
   }
 
   @Get('google-drive/oauth/url')

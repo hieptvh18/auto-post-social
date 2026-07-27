@@ -78,8 +78,36 @@ model User {
   auditLogs       AuditLog[]
   facebookPages   FacebookPage[]
   appSettings     AppSetting[]
+  fbConnections   FacebookConnection[]
 
   @@map("users")
+}
+
+/// Nguồn Page Access Token của một page (plan 15).
+enum FacebookConnectMode {
+  MANUAL_TOKEN // dán tay ở form (thường là token System User doanh nghiệp cấp)
+  FB_LOGIN // lấy tự động qua đăng nhập Facebook
+}
+
+/// Một lần đăng nhập Facebook = một dòng. Giữ long-lived user token (~60 ngày)
+/// để còn đồng bộ page mới và lấy lại Page token mà không bắt đăng nhập lại.
+model FacebookConnection {
+  id            String    @id @default(uuid()) @db.Uuid
+  fbUserId      String    @unique @map("fb_user_id")
+  fbUserName    String?   @map("fb_user_name")
+  userTokenEnc  String?   @map("user_token_enc") @db.Text // null = đã ngắt kết nối
+  tokenExpireAt DateTime? @map("token_expire_at") // null = không hết hạn
+  scopes        String[]  @map("scopes")
+  revokedAt     DateTime? @map("revoked_at")
+  connectedById String    @map("connected_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  connectedBy User           @relation(fields: [connectedById], references: [id])
+  pages       FacebookPage[]
+
+  @@index([revokedAt])
+  @@map("facebook_connections")
 }
 
 model FacebookPage {
@@ -95,6 +123,10 @@ model FacebookPage {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
+  connectMode  FacebookConnectMode @default(MANUAL_TOKEN) @map("connect_mode")
+  connectionId String?             @map("connection_id") @db.Uuid // null = token dán tay
+
+  connection    FacebookConnection?     @relation(fields: [connectionId], references: [id])
   createdBy     User                    @relation(fields: [createdById], references: [id])
   publishJobs   PublishJob[]
   assignments   ContentPageAssignment[]
@@ -102,6 +134,7 @@ model FacebookPage {
 
   @@index([isActive])
   @@index([deletedAt])
+  @@index([connectionId])
   @@map("facebook_pages")
 }
 

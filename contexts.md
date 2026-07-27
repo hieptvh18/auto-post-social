@@ -4,8 +4,21 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-07-26 (tinh chỉnh màn Quản lý Ảnh/Video Edit)
-**Session gần nhất (mới nhất):** **M9 Dashboard (plan 14) — code xong, chưa smoke UI.**
+**Cập nhật lần cuối:** 2026-07-27 (M10 — kết nối Page bằng đăng nhập Facebook)
+**Session gần nhất (mới nhất):** **M10 Kết nối Page bằng đăng nhập Facebook (plan 15) —
+code xong, chưa chạy với Meta app thật.** Đây là đường gỡ nút thắt lớn nhất của dự án:
+user chỉ được **share quyền** trên Page doanh nghiệp, không cầm System User, nên không lấy
+được Page token vĩnh viễn theo đường cũ (§6 mục 10 kẹt từ 25/07). Giải pháp (ADR-018):
+OAuth phía server → user token ngắn hạn → **user token dài hạn 60 ngày** → `/me/accounts`
+lấy Page token, và Page token dẫn xuất từ user token dài hạn thì **không có hạn dùng**.
+Bảng mới `facebook_connections` giữ user token (mã hoá) để đồng bộ page mới / lấy lại token;
+`facebook_pages` thêm `connect_mode` + `connection_id`. Luồng **dán token tay giữ nguyên**,
+và import trúng page dán tay thì phải xác nhận mới ghi đè. BE **590 test xanh (+41)**,
+lint/build 2 phía xanh. **Chưa chạy thật** vì cần Meta app + tài khoản có role Tester (§6 mục 19).
+
+---
+
+**Session trước đó:** **M9 Dashboard (plan 14) — code xong, chưa smoke UI.**
 `/dashboard` là màn **cuối cùng** bỏ mock ⇒ toàn bộ 10 trang FE đã chạy API thật. Backend
 module mới `dashboard/` chỉ đọc: `GET /dashboard/{stats,chart/daily,posts-by-page}` theo
 đúng tên ở `docs/04` §8, thêm `GET /dashboard/health` (**ngoài docs**) gom 5 cảnh báo vận
@@ -240,6 +253,7 @@ Nginx/production compose, Instagram/TikTok, AI caption.
 | ADR-014 | Cấu hình Google Drive (driver, folder, service account) lưu **động trong bảng `app_settings`** (JSONB, secret mã hoá AES-256-GCM), sửa qua UI **"Cài đặt chung"** (`/settings`, chỉ ADMIN). `.env` chỉ còn là **fallback bootstrap** khi DB chưa có bản ghi | Yêu cầu user 2026-07-23: không muốn hardcode key/folder trong `.env`, cần đổi được từ UI không restart |
 | ADR-016 | Drive `real` có **2 authMode**: `service_account` (chỉ ghi Shared Drive/Workspace) và `oauth2` (tài khoản Google, dùng được Gmail free). OAuth lấy refresh token bằng **flow trong app** (callback public bảo vệ bằng `state`). Chọn switch ở UI, lưu trong `app_settings` (secret mã hoá) | Service account **không có quota** ⇒ không upload được My Drive của Gmail cá nhân; Shared Drive cần trả phí. OAuth2 cho phép dev/user free vẫn chạy thật. Xem plan 03c |
 | ADR-015 | **BE + API song song:** từ M3, mỗi milestone backend tự nối luôn FE trang tương ứng (bỏ mock cho trang đó) thay vì dồn nối API về cuối. Thêm milestone M2.5 dựng `api/client.ts` + `AuthContext` một lần dùng chung. M7 chỉ còn dọn phần sót + nghiệm thu end-to-end | Yêu cầu user 2026-07-23: xong milestone nào phải test tay được trên UI thật ngay, không chỉ curl/Swagger |
+| ADR-018 | **Page token lấy qua "Đăng nhập bằng Facebook"** (plan 15): OAuth authorization-code phía server → user token ngắn hạn → **user token dài hạn (~60 ngày)** → `/me/accounts` lấy Page token. Page token dẫn xuất từ user token dài hạn **không có hạn dùng**. Bảng mới `facebook_connections` giữ user token (mã hoá) để đồng bộ/lấy lại token. Luồng dán token tay **giữ nguyên** song song (`facebook_pages.connect_mode`). App ID/Secret vào `app_settings['facebook_app']` theo ADR-014, `.env` chỉ là fallback | Yêu cầu user 2026-07-26: chỉ được **share quyền** trên Page doanh nghiệp, không cầm System User ⇒ không lấy được token vĩnh viễn theo đường cũ (§6 mục 10 kẹt từ 25/07). Không dùng JS SDK popup vì bước đổi long-lived bắt buộc cần `appSecret` — phải làm ở server dù có SDK hay không |
 | ADR-017 | **Bỏ hẳn driver `fake`** cho Google Drive và Facebook (thay ADR-003). Xoá `DriverMode`, `FakeDriveStorage`, `DRIVE_DRIVER`/`FACEBOOK_DRIVER`. Drive luôn dùng `GoogleDriveStorage` (service_account hoặc oauth2); Facebook publisher (chưa code, plan 07) sẽ chỉ có driver thật khi làm | Yêu cầu user 2026-07-24: chỉ dùng cấu hình thật, không cần chế độ giả lập nữa. Unit test vẫn mock adapter qua interface (rule 02), không cần class fake riêng |
 
 ---
@@ -262,6 +276,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | **MVP đóng** | ✅ | **2026-07-25** — xem `PLAN-MVP.md` §5. Nợ nghiệm thu giữ ở §6 |
 | M8 — Monitor (Queue · Failed Jobs · Audit Logs) | 🟡 | 2026-07-25 — code + test + smoke API xong ([plans/13-monitor.md](./plans/13-monitor.md) §7); **chưa smoke UI thật** ⇒ chưa chuyển plan sang DONE (§6 mục 17) |
 | M9 — Tổng quan (Dashboard) số liệu thật | 🟡 | 2026-07-26 — code + test + smoke API xong ([plans/14-dashboard.md](./plans/14-dashboard.md) §7); **chưa smoke UI thật** ⇒ chưa chuyển plan sang DONE (§6 mục 18) |
+| M10 — Kết nối Page bằng đăng nhập Facebook | 🟡 | 2026-07-27 — code + 41 test mới xanh, lint/build 2 phía xanh ([plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md)); **chưa smoke với Meta app thật** (cần App ID/Secret + tài khoản có role Tester) ⇒ chưa chuyển plan sang DONE (§6 mục 19) |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
@@ -688,6 +703,33 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Test:** BE 548 test xanh (+6 cho nhánh auto-duyệt lúc create) · lint/build 2 phía xanh.
 - **Còn nợ:** chưa bấm tay trên UI.
 
+### M10 Kết nối Page bằng đăng nhập Facebook (Plan 15) — 🟡 2026-07-27
+
+- **Phạm vi:** thay việc dán Page token tay bằng đăng nhập Facebook. BE: `GET /pages/connect/url`,
+  `GET /pages/connect/callback` (`@Public`, state single-use TTL 10 phút),
+  `GET /pages/connect`, `GET /pages/connect/:id/candidates`, `POST /pages/connect/:id/import`,
+  `DELETE /pages/connect/:id`, `POST /pages/:id/refresh-token`, `GET/PUT /settings/facebook-app`.
+  FE: nút "Kết nối bằng Facebook" + modal chọn page + cột "Nguồn token" + card kết nối +
+  tab "Facebook App" ở `/settings`.
+- **File chính:** `backend/src/modules/facebook-pages/facebook-connect.service.ts`,
+  `facebook-connect.controller.ts`, `facebook-connections.repository.ts`,
+  `backend/src/infra/facebook/facebook-graph.client.ts` (thêm `exchangeCodeForUserToken`,
+  `exchangeLongLivedUserToken`, `getMe`, `listPagesWithTokens`, `appsecret_proof`),
+  `frontend/src/components/pages/{ConnectPagesModal,ConnectionsCard,FacebookAppSettings}.tsx`
+- **Quyết định:** ADR-018. (1) **Không thêm biến `.env`** — App ID/Secret vào
+  `app_settings['facebook_app']`, `META_APP_ID/SECRET` sẵn có chỉ còn là fallback.
+  (2) Import trúng page đang `MANUAL_TOKEN` ⇒ trả `needsConfirm`, **không tự ghi đè**
+  (ghi đè token System User bằng token cá nhân là hạ độ bền). (3) Chặn page thiếu task
+  `CREATE_CONTENT` ngay ở modal thay vì để job FAILED sau này. (4) Ngắt kết nối chỉ xoá
+  user token, **không** đụng Page token đang chạy. **Đổi schema ⇒ `erd.md` đã cập nhật**
+  (bảng `facebook_connections`, enum `FacebookConnectMode`, 2 cột mới trên `facebook_pages`;
+  migration `20260726163154_facebook_login_connection`).
+- **Test:** BE **590 test xanh (+41)** — 31 test service (state single-use/hết hạn, thứ tự
+  đổi token ngắn→dài, token lưu dạng mã hoá, 5 nhánh import, refresh, revoke, response không
+  lộ token) + 10 test graph client. FE 35 test cũ xanh. Lint/build 2 phía xanh.
+- **Còn nợ:** chưa chạy với Meta app thật (§6 mục 19) — cần user tạo app và tự thêm vai trò
+  **Tester**. Chưa làm auto-refresh nền cho user token 60 ngày (chỉ cảnh báo + nút kết nối lại).
+
 ---
 
 ## 6. Việc đang dở / nợ kỹ thuật
@@ -714,6 +756,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 16 | **Nút "Đăng lại" / "Chạy lại mốc này" chưa smoke UI thật** | Code BE+FE xong (plan 07 §10, BE 485 test xanh) nhưng **chưa bấm thử trên UI và chưa chạy với Redis thật**. Cần: tạo 1 job hỏng (page token sai) → `/timeline` bấm "Đăng lại" ⇒ job về QUEUED rồi worker chạy lại, nhật ký có dòng "Đăng lại thủ công bởi …"; bấm lại khi job đang QUEUED ⇒ báo 409; tắt page rồi bấm ⇒ báo 400. Với mốc giờ `MISSED`/`SKIPPED`: bấm "Chạy lại mốc này" ⇒ tạo job nếu kho có bài, bấm lần 2 trong cùng phút ⇒ cảnh báo "vừa chạy trong phút này". Đăng nhập EDITOR kiểm không thấy nút "Đăng lại" (chỉ ADMIN có `jobs:retry`). |
 | 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
 | 17 | **M8 Monitor chưa smoke UI thật** | Code BE+FE xong (plan 13, BE 516 test xanh), đã smoke API thật đủ case (Redis chết ⇒ 200 + `queue: null`, job kẹt 30 phút ⇒ `stuckMinutes: 30`, phân trang + lọc `/publish-jobs` và `/audit-logs`, EDITOR ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/queue` (thẻ số tự nhảy trong 10s sau `POST /auto-post/run-now`, tắt container Redis ⇒ badge "Mất kết nối" chứ không trắng trang), `/failed` (phân trang >20 job, "Xem nhật ký", "Đăng lại" ⇒ 409 khi bấm lại lúc đang QUEUED), `/audit` (lọc ngày/action/user, Drawer diff JSON, log cron hiện tag "Bot"), và **mở lại `/timeline`** xác nhận không gãy sau khi đổi shape `/publish-jobs`. EDITOR gõ thẳng `/queue`,`/failed`,`/audit` ⇒ bị đá về `/dashboard`. Xong thì `git mv plans/13-monitor.md plans/DONE/`. Còn thiếu: ô tìm kiếm theo tiêu đề ở `/failed` (backend đã hỗ trợ `search`). |
+| 19 | **M10 Kết nối Facebook chưa smoke với Meta app thật** | Code BE+FE xong (plan 15, BE 590 test xanh, +41 test mới), nhưng **chưa chạy lần nào với Meta app thật** vì cần user tạo app + tự thêm mình vào **App roles → Tester** (nếu không, đăng nhập vẫn thành công nhưng `/me/accounts` rỗng — đúng cái bẫy đã gặp ở mục 10). Cần: `/settings` tab "Facebook App" nhập App ID/Secret, copy Redirect URI dán vào Meta (Facebook Login → Valid OAuth Redirect URIs), `/pages` bấm "Kết nối bằng Facebook" → consent → modal chọn page → import. **Bằng chứng làm đúng: page vừa import phải hiện "Hết hạn: Vĩnh viễn" và Test kết nối trả `tokenType=PAGE`, `expiresAt=null`.** Nếu ra một ngày cụ thể ⇒ bước đổi long-lived hỏng. Sau đó trả nốt mục 10/11/15 (đăng thật lên Page). Xong thì `git mv plans/15-facebook-login-connect.md plans/DONE/`. |
 | 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
 
 ---

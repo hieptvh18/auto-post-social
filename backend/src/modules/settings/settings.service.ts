@@ -2,14 +2,19 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AppSetting } from '../../../generated/prisma/client';
 import { AppConfigService } from '../../config/app-config.service';
 import { DriveAuthMode } from '../../config/env.validation';
+import { buildFacebookRedirectUri } from '../../common/utils/facebook-redirect.util';
 import { CryptoService } from '../../infra/crypto/crypto.service';
+import type { FacebookAppCredentials } from '../../infra/facebook/facebook-graph.interface';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import type { UpdateDriveSettingsDto } from './dto/update-drive-settings.dto';
+import type { UpdateFacebookAppSettingsDto } from './dto/update-facebook-app-settings.dto';
 import { SettingsRepository } from './settings.repository';
 import {
   SettingKey,
   type DriveSettingsResponse,
   type DriveSettingsValue,
+  type FacebookAppSettingsResponse,
+  type FacebookAppSettingsValue,
   type ResolvedDriveConfig,
 } from './settings.types';
 
@@ -221,6 +226,127 @@ export class SettingsService {
       oauthAccountEmail: accountEmail,
     };
     await this.persist(value, actorId, current);
+  }
+
+  // ─────────────────────────── Facebook App (plan 15) ───────────────────────────
+
+  /** Bản cho API — chỉ nói "đã có secret hay chưa", không bao giờ trả secret. */
+  async getFacebookAppSettings(): Promise<FacebookAppSettingsResponse> {
+    const record = await this.repository.findByKey(SettingKey.FACEBOOK_APP);
+    const redirectUri = this.facebookRedirectUri();
+
+    if (record === null) {
+      const env = this.config.facebook;
+      return {
+        appId: env.appId ?? null,
+        hasAppSecret: env.appSecret !== undefined && env.appSecret !== '',
+        redirectUri,
+        usingEnvFallback: true,
+        updatedAt: null,
+      };
+    }
+
+    const value = this.parseFacebookAppValue(record);
+    return {
+      appId: value.appId,
+      hasAppSecret: value.appSecretEnc !== null,
+      redirectUri,
+      usingEnvFallback: false,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  async updateFacebookAppSettings(
+    dto: UpdateFacebookAppSettingsDto,
+    actorId: string,
+  ): Promise<FacebookAppSettingsResponse> {
+    const existing = await this.repository.findByKey(SettingKey.FACEBOOK_APP);
+    const current =
+      existing === null ? null : this.parseFacebookAppValue(existing);
+
+    // Không gửi secret = giữ nguyên cái đã lưu (UI không đổ secret cũ xuống client).
+    let appSecretEnc: string | null = current?.appSecretEnc ?? null;
+    if (dto.appSecret !== undefined) {
+      appSecretEnc =
+        dto.appSecret === null ? null : this.crypto.encrypt(dto.appSecret);
+    }
+
+    if (appSecretEnc === null) {
+      throw new BadRequestException(
+        'Cần nhập App Secret của Meta app thì mới đăng nhập Facebook được.',
+      );
+    }
+
+    const value: FacebookAppSettingsValue = { appId: dto.appId, appSecretEnc };
+
+    await this.repository.upsert(
+      SettingKey.FACEBOOK_APP,
+      { ...value },
+      actorId,
+    );
+    await this.auditService.log({
+      userId: actorId,
+      action: AuditAction.SETTINGS_UPDATE,
+      resource: `app_settings/${SettingKey.FACEBOOK_APP}`,
+      // Chỉ ghi appId — appSecret tuyệt đối không vào audit log.
+      beforeValue: current === null ? undefined : { appId: current.appId },
+      afterValue: { appId: value.appId },
+    });
+
+    return this.getFacebookAppSettings();
+  }
+
+  /**
+   * App credentials đã giải mã cho `FacebookConnectService`. KHÔNG expose qua controller.
+   * Ưu tiên app_settings, chưa có thì fallback `.env` (ADR-014) để clone xong chạy được ngay.
+   */
+  async getFacebookAppCredentials(): Promise<FacebookAppCredentials> {
+    const record = await this.repository.findByKey(SettingKey.FACEBOOK_APP);
+
+    if (record !== null) {
+      const value = this.parseFacebookAppValue(record);
+      if (value.appId !== null && value.appSecretEnc !== null) {
+        return {
+          appId: value.appId,
+          appSecret: this.crypto.decrypt(value.appSecretEnc),
+        };
+      }
+    }
+
+    const env = this.config.facebook;
+    if (
+      env.appId !== undefined &&
+      env.appId !== '' &&
+      env.appSecret !== undefined &&
+      env.appSecret !== ''
+    ) {
+      return { appId: env.appId, appSecret: env.appSecret };
+    }
+
+    throw new BadRequestException(
+      'Chưa khai báo Facebook App. Vào Cài đặt chung → Facebook App nhập App ID và App Secret trước khi kết nối.',
+    );
+  }
+
+  /** Chuỗi phải dán vào Meta app — dựng ở một chỗ duy nhất (rule: Meta so khớp từng ký tự). */
+  facebookRedirectUri(): string {
+    return buildFacebookRedirectUri(
+      this.config.appBaseUrl,
+      this.config.apiPrefix,
+    );
+  }
+
+  private parseFacebookAppValue(record: AppSetting): FacebookAppSettingsValue {
+    const raw = record.value as Partial<FacebookAppSettingsValue> | null;
+    if (raw === null || typeof raw !== 'object') {
+      throw new BadRequestException(
+        'Cấu hình Facebook App trong DB không hợp lệ',
+      );
+    }
+    return {
+      appId: raw.appId ?? null,
+      appSecretEnc: raw.appSecretEnc ?? null,
+    };
   }
 
   private async persist(

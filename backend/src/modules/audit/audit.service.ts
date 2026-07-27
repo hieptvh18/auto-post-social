@@ -23,6 +23,10 @@ export const AuditAction = {
   PAGE_UPDATE: 'PAGE_UPDATE',
   PAGE_TOKEN_UPDATE: 'PAGE_TOKEN_UPDATE',
   PAGE_DELETE: 'PAGE_DELETE',
+  /** Đăng nhập Facebook thành công — lưu 1 kết nối (plan 15). */
+  PAGE_CONNECT_FB: 'PAGE_CONNECT_FB',
+  /** Ngắt kết nối tài khoản Facebook (xoá user token đã lưu). */
+  PAGE_CONNECT_REVOKE: 'PAGE_CONNECT_REVOKE',
   AUTOPOST_CONFIG_UPDATE: 'AUTOPOST_CONFIG_UPDATE',
   AUTOPOST_SLOT_CREATE: 'AUTOPOST_SLOT_CREATE',
   AUTOPOST_SLOT_UPDATE: 'AUTOPOST_SLOT_UPDATE',

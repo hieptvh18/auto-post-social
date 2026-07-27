@@ -7,6 +7,7 @@ import {
   type PublishJob,
   type SlotRun,
 } from '../../../../generated/prisma/client';
+import { FacebookConnectMode } from '../../../../generated/prisma/client';
 import type { AppConfigService } from '../../../config/app-config.service';
 import type { ClockService } from '../../../infra/clock/clock.service';
 import type {
@@ -34,6 +35,8 @@ const makePage = (overrides: Partial<FacebookPage> = {}): FacebookPage => ({
   isActive: true,
   autopostEnabled: true,
   deletedAt: null,
+  connectMode: FacebookConnectMode.MANUAL_TOKEN,
+  connectionId: null,
   createdById: 'admin-1',
   createdAt: NOW,
   updatedAt: NOW,
