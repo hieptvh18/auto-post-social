@@ -68,7 +68,11 @@ export class SettingsService {
       serviceAccountJson:
         value.authMode === DriveAuthMode.service_account &&
         value.serviceAccountJsonEnc !== null
-          ? this.crypto.decrypt(value.serviceAccountJsonEnc)
+          ? this.decryptSecret(
+              value.serviceAccountJsonEnc,
+              'Service Account JSON',
+              'Vào Cài đặt chung → Google Drive dán lại Service Account JSON.',
+            )
           : null,
       oauth:
         value.authMode === DriveAuthMode.oauth2
@@ -210,7 +214,11 @@ export class SettingsService {
     }
     return {
       clientId: value.oauthClientId,
-      clientSecret: this.crypto.decrypt(value.oauthClientSecretEnc),
+      clientSecret: this.decryptSecret(
+        value.oauthClientSecretEnc,
+        'OAuth Client Secret của Google Drive',
+        'Vào Cài đặt chung → Google Drive nhập lại Client Secret rồi bấm Lưu.',
+      ),
     };
   }
 
@@ -315,7 +323,13 @@ export class SettingsService {
       if (value.appId !== null && value.appSecretEnc !== null) {
         return {
           appId: value.appId,
-          appSecret: this.crypto.decrypt(value.appSecretEnc),
+          // Cố tình KHÔNG rơi xuống fallback .env khi giải mã hỏng: appId lấy từ DB
+          // mà appSecret lấy từ env là cặp lệch nhau ⇒ Meta trả lỗi khó hiểu hơn.
+          appSecret: this.decryptSecret(
+            value.appSecretEnc,
+            'App Secret của Meta app',
+            'Vào Cài đặt chung → Facebook App nhập lại App Secret rồi bấm Lưu.',
+          ),
         };
       }
     }
@@ -434,8 +448,16 @@ export class SettingsService {
     }
     return {
       clientId: value.oauthClientId,
-      clientSecret: this.crypto.decrypt(value.oauthClientSecretEnc),
-      refreshToken: this.crypto.decrypt(value.oauthRefreshTokenEnc),
+      clientSecret: this.decryptSecret(
+        value.oauthClientSecretEnc,
+        'OAuth Client Secret của Google Drive',
+        'Vào Cài đặt chung → Google Drive nhập lại Client Secret rồi bấm Lưu.',
+      ),
+      refreshToken: this.decryptSecret(
+        value.oauthRefreshTokenEnc,
+        'Refresh token Google Drive',
+        'Vào Cài đặt chung → Google Drive bấm "Kết nối lại" để cấp quyền lại.',
+      ),
     };
   }
 
@@ -489,13 +511,33 @@ export class SettingsService {
    * TOKEN_ENCRYPTION_KEY (docs: đổi khoá ⇒ ciphertext cũ không giải mã được nữa).
    */
   private safeExtractEmail(enc: string): string | null {
-    try {
-      return this.extractClientEmail(this.crypto.decrypt(enc));
-    } catch {
+    const json = this.crypto.tryDecrypt(enc);
+    if (json === null) {
       this.logger.warn(
         'Không giải mã được Service Account JSON đã lưu (có thể do đổi TOKEN_ENCRYPTION_KEY) — bỏ qua serviceAccountEmail, cần nhập lại.',
       );
       return null;
     }
+    return this.extractClientEmail(json);
+  }
+
+  /**
+   * Giải mã một secret **bắt buộc phải có** để thao tác chạy được.
+   *
+   * Ciphertext cũ sau khi đổi `TOKEN_ENCRYPTION_KEY` là lỗi cấu hình của người dùng
+   * chứ không phải lỗi hệ thống ⇒ trả 400 kèm đúng chỗ cần nhập lại, thay vì để
+   * `CryptoService.decrypt()` ném 500 với câu chung chung không biết sửa ở đâu.
+   */
+  private decryptSecret(enc: string, label: string, howToFix: string): string {
+    const plain = this.crypto.tryDecrypt(enc);
+    if (plain === null) {
+      this.logger.warn(
+        `Không giải mã được ${label} (khoá mã hoá đã thay đổi) — yêu cầu nhập lại.`,
+      );
+      throw new BadRequestException(
+        `Không giải mã được ${label} đã lưu — khoá mã hoá (TOKEN_ENCRYPTION_KEY) đã thay đổi. ${howToFix}`,
+      );
+    }
+    return plain;
   }
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -385,7 +386,15 @@ export class FacebookPagesService {
         'Page đã ngừng hoạt động, không thể lấy token',
       );
     }
-    return this.crypto.decrypt(page.accessTokenEnc);
+    const token = this.crypto.tryDecrypt(page.accessTokenEnc);
+    if (token === null) {
+      // Đổi TOKEN_ENCRYPTION_KEY ⇒ token cũ thành rác. Job sẽ FAILED với lý do
+      // đọc được ở /queue thay vì câu 500 chung chung của CryptoService.
+      throw new BadRequestException(
+        `Không giải mã được access token của page "${page.pageName}" — khoá mã hoá (TOKEN_ENCRYPTION_KEY) đã thay đổi. Vào Quản lý Page nhập lại token hoặc kết nối lại bằng Facebook.`,
+      );
+    }
+    return token;
   }
 
   private async getOrFail(id: string): Promise<FacebookPage> {

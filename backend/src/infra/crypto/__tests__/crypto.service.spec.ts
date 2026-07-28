@@ -65,4 +65,23 @@ describe('CryptoService', () => {
       );
     });
   });
+
+  describe('tryDecrypt', () => {
+    it('trả plaintext khi giải mã được', () => {
+      expect(service.tryDecrypt(service.encrypt('secret'))).toBe('secret');
+    });
+
+    it('trả null khi sai khoá thay vì ném lỗi', () => {
+      const encrypted = service.encrypt('secret');
+      const other = new CryptoService({
+        tokenEncryptionKey: 'b'.repeat(64),
+      } as AppConfigService);
+
+      expect(other.tryDecrypt(encrypted)).toBeNull();
+    });
+
+    it('trả null khi chuỗi sai định dạng', () => {
+      expect(service.tryDecrypt('không-phải-ciphertext')).toBeNull();
+    });
+  });
 });

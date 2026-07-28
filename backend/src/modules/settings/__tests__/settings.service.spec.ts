@@ -28,7 +28,11 @@ const makeRecord = (value: Partial<DriveSettingsValue> = {}): AppSetting => ({
 describe('SettingsService', () => {
   let repository: { findByKey: jest.Mock; upsert: jest.Mock };
   let config: AppConfigService;
-  let crypto: { encrypt: jest.Mock; decrypt: jest.Mock };
+  let crypto: {
+    encrypt: jest.Mock;
+    decrypt: jest.Mock;
+    tryDecrypt: jest.Mock;
+  };
   let auditService: { log: jest.Mock };
   let service: SettingsService;
 
@@ -44,6 +48,14 @@ describe('SettingsService', () => {
     crypto = {
       encrypt: jest.fn().mockReturnValue('enc:tag:cipher'),
       decrypt: jest.fn().mockReturnValue(SA_JSON),
+      // Bám đúng hành vi thật: tryDecrypt = decrypt, hỏng thì null.
+      tryDecrypt: jest.fn((enc: string): string | null => {
+        try {
+          return crypto.decrypt(enc) as string;
+        } catch {
+          return null;
+        }
+      }),
     };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
 
@@ -604,6 +616,58 @@ describe('SettingsService', () => {
       await expect(
         service.saveOauthTokens('refresh-123', null, ACTOR),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // Đổi TOKEN_ENCRYPTION_KEY ⇒ ciphertext cũ trong app_settings thành rác.
+  // Đây là lỗi cấu hình ⇒ phải ra 400 chỉ đúng chỗ nhập lại, không phải 500 chung chung.
+  describe('secret không giải mã được (đổi TOKEN_ENCRYPTION_KEY)', () => {
+    const corrupt = (): void => {
+      crypto.decrypt.mockImplementation(() => {
+        throw new Error('bad key');
+      });
+    };
+
+    it('getFacebookAppCredentials ném BadRequest nhắc nhập lại App Secret', async () => {
+      repository.findByKey.mockResolvedValue({
+        key: SettingKey.FACEBOOK_APP,
+        value: { appId: '123', appSecretEnc: 'enc:tag:cipher' },
+        updatedById: ACTOR,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-02'),
+      });
+      corrupt();
+
+      await expect(service.getFacebookAppCredentials()).rejects.toThrow(
+        /App Secret/,
+      );
+      await expect(service.getFacebookAppCredentials()).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('getOauthClientCredentials ném BadRequest nhắc nhập lại Client Secret', async () => {
+      repository.findByKey.mockResolvedValue(
+        makeRecord({
+          oauthClientId: 'cid',
+          oauthClientSecretEnc: 'enc:tag:secret',
+        }),
+      );
+      corrupt();
+
+      await expect(service.getOauthClientCredentials()).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('getDriveSettings vẫn trả về được (chỉ mất serviceAccountEmail)', async () => {
+      repository.findByKey.mockResolvedValue(makeRecord());
+      corrupt();
+
+      const result = await service.getDriveSettings();
+
+      expect(result.hasServiceAccount).toBe(true);
+      expect(result.serviceAccountEmail).toBeNull();
     });
   });
 });

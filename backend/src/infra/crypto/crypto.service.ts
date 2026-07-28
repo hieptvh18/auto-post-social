@@ -70,4 +70,18 @@ export class CryptoService {
       );
     }
   }
+
+  /**
+   * Giải mã "mềm": ciphertext hỏng / sai khoá ⇒ `null` thay vì ném lỗi.
+   *
+   * Dùng khi caller biết secret nào đang hỏng và muốn tự dựng thông điệp chỉ đúng
+   * chỗ phải nhập lại — thay vì để câu 500 chung chung của `decrypt()` nổi lên UI.
+   */
+  tryDecrypt(encrypted: string): string | null {
+    try {
+      return this.decrypt(encrypted);
+    } catch {
+      return null;
+    }
+  }
 }
