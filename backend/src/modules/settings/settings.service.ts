@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { AppSetting } from '../../../generated/prisma/client';
 import { AppConfigService } from '../../config/app-config.service';
 import { DriveAuthMode } from '../../config/env.validation';
@@ -29,6 +29,7 @@ import {
  */
 @Injectable()
 export class SettingsService {
+  private readonly logger = new Logger(SettingsService.name);
   private driveVersion = 0;
 
   constructor(
@@ -57,15 +58,22 @@ export class SettingsService {
 
     const value = this.parseDriveValue(record);
 
+    // Chỉ giải mã field của authMode đang active — nhánh còn lại
+    // (vd service account cũ còn sót lại sau khi đổi TOKEN_ENCRYPTION_KEY)
+    // không được DriveStorageFactory dùng tới, không được phép làm hỏng request.
     return {
       authMode: value.authMode,
       folderId: value.folderId,
       maxUploadMb: value.maxUploadMb,
       serviceAccountJson:
-        value.serviceAccountJsonEnc === null
-          ? null
-          : this.crypto.decrypt(value.serviceAccountJsonEnc),
-      oauth: this.resolveOauth(value),
+        value.authMode === DriveAuthMode.service_account &&
+        value.serviceAccountJsonEnc !== null
+          ? this.crypto.decrypt(value.serviceAccountJsonEnc)
+          : null,
+      oauth:
+        value.authMode === DriveAuthMode.oauth2
+          ? this.resolveOauth(value)
+          : null,
       version: this.driveVersion,
     };
   }
@@ -103,8 +111,7 @@ export class SettingsService {
       folderId: value.folderId,
       maxUploadMb: value.maxUploadMb,
       hasServiceAccount: enc !== null,
-      serviceAccountEmail:
-        enc === null ? null : this.extractClientEmail(this.crypto.decrypt(enc)),
+      serviceAccountEmail: enc === null ? null : this.safeExtractEmail(enc),
       hasOauthClient:
         value.oauthClientId !== null && value.oauthClientSecretEnc !== null,
       oauthConnected: value.oauthRefreshTokenEnc !== null,
@@ -472,6 +479,22 @@ export class SettingsService {
       return typeof email === 'string' && email !== '' ? email : null;
     } catch {
       // Env có thể chứa đường dẫn file thay vì JSON — không phải lỗi, chỉ là không đọc được email.
+      return null;
+    }
+  }
+
+  /**
+   * Giải mã service account chỉ để hiển thị email — không được phép làm sập
+   * cả trang cài đặt nếu ciphertext cũ còn sót lại từ trước khi đổi
+   * TOKEN_ENCRYPTION_KEY (docs: đổi khoá ⇒ ciphertext cũ không giải mã được nữa).
+   */
+  private safeExtractEmail(enc: string): string | null {
+    try {
+      return this.extractClientEmail(this.crypto.decrypt(enc));
+    } catch {
+      this.logger.warn(
+        'Không giải mã được Service Account JSON đã lưu (có thể do đổi TOKEN_ENCRYPTION_KEY) — bỏ qua serviceAccountEmail, cần nhập lại.',
+      );
       return null;
     }
   }
