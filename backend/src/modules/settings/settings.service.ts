@@ -243,6 +243,34 @@ export class SettingsService {
     await this.persist(value, actorId, current);
   }
 
+  /**
+   * Xoá refresh token đã lưu khi Google báo `invalid_grant` (token bị thu hồi /
+   * hết hạn 7 ngày của app Testing). Gọi từ tầng infra, actor là hệ thống nên
+   * `userId = null`.
+   *
+   * Không ném lỗi: đây là dọn dẹp phụ trợ, lỗi chính (upload hỏng) đã được ném rồi.
+   */
+  async clearOauthTokens(reason: string): Promise<void> {
+    const record = await this.repository.findByKey(SettingKey.GOOGLE_DRIVE);
+    if (record === null) return;
+
+    const current = this.parseDriveValue(record);
+    // Đã trống rồi thì không ghi lại — tránh bump version vô ích mỗi lần lỗi.
+    if (current.oauthRefreshTokenEnc === null) return;
+
+    this.logger.warn(
+      `Xoá refresh token Google Drive đã lưu (tài khoản ${
+        current.oauthAccountEmail ?? '?'
+      }): ${reason}`,
+    );
+
+    await this.persist(
+      { ...current, oauthRefreshTokenEnc: null, oauthAccountEmail: null },
+      null,
+      current,
+    );
+  }
+
   // ─────────────────────────── Facebook App (plan 15) ───────────────────────────
 
   /** Bản cho API — chỉ nói "đã có secret hay chưa", không bao giờ trả secret. */
@@ -370,9 +398,10 @@ export class SettingsService {
     };
   }
 
+  /** `actorId = null` ⇒ hệ thống tự đổi (vd xoá token chết), không phải người dùng. */
   private async persist(
     value: DriveSettingsValue,
-    actorId: string,
+    actorId: string | null,
     current: DriveSettingsValue | null,
   ): Promise<void> {
     await this.repository.upsert(

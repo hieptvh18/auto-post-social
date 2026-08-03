@@ -41,6 +41,9 @@ export interface PickForSlotParams {
 }
 
 /**
+ * Mọi câu ở đây đều phải có `is_active = TRUE` (plan 19 §2.2): bài đã "ngưng dùng"
+ * mà lọt vào picker là Bot đăng thật lên page.
+ *
  * Query chọn bài cho Bot — **hàm dễ sai nhất hệ thống** (picker sai ⇒ đăng lặp
  * hoặc bỏ sót). Viết raw vì Prisma không diễn tả gọn `NOT EXISTS` + `= ANY`.
  * Bám đúng `docs/03-database-design.md` §7.
@@ -73,6 +76,7 @@ export class ContentPickerRepository {
         facebookPageId,
         publishedAt: null,
         contentAsset: {
+          isActive: true,
           status: {
             in: [
               ContentStatus.APPROVED,
@@ -106,6 +110,7 @@ export class ContentPickerRepository {
          AND a.facebook_page_id = ${facebookPageId}::uuid
          AND a.published_at IS NULL
        WHERE c.status IN ('APPROVED', 'PUBLISHING', 'PUBLISHED')
+         AND c.is_active = TRUE
          AND NOT EXISTS (
            SELECT 1 FROM publish_jobs j
             WHERE j.content_asset_id = c.id
@@ -138,6 +143,7 @@ export class ContentPickerRepository {
          AND a.facebook_page_id = ${params.facebookPageId}::uuid
          AND a.published_at IS NULL
        WHERE c.status IN ('APPROVED', 'PUBLISHING', 'PUBLISHED')
+         AND c.is_active = TRUE
          AND c.category = ANY(${params.categories}::text[])
          ${mediaFilter}
          AND NOT EXISTS (

@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
 import { ContentStatus } from '../../../../generated/prisma/client';
 
@@ -43,6 +44,17 @@ export class UpdateContentAssetDto {
   hashtags?: string;
 
   @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Người DỰNG video/ảnh (role EDITOR đang hoạt động). Gửi `null` để gỡ.',
+  })
+  @IsOptional()
+  // Cho phép `null` = gỡ editor; mọi giá trị khác vẫn phải là UUID.
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  editorId?: string | null;
+
+  @ApiPropertyOptional({
     enum: ContentStatus,
     description:
       'Chỉ EDITOR/ADMIN. PUBLISHING/PUBLISHED chỉ Bot set ⇒ client gửi lên nhận 422',
@@ -55,6 +67,14 @@ export class UpdateContentAssetDto {
   @IsOptional()
   @IsBoolean()
   isAds?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      '`false` = ngưng dùng (Bot không lấy bài này nữa). Không phải field duyệt ⇒ ai sửa được bài thì đổi được',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 
   @ApiPropertyOptional({ description: 'Bắt buộc khi chuyển sang REJECTED' })
   @IsOptional()

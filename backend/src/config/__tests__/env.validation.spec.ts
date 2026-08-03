@@ -32,6 +32,34 @@ describe('validateEnv', () => {
       expect(result.AUTOPOST_ENABLED).toBe(true);
     });
 
+    it('MEDIA_CACHE_DIR để RỖNG trong .env vẫn hợp lệ, rơi về mặc định', () => {
+      // `.env.example` ship key này với giá trị rỗng — nếu validate chặn thì
+      // app crash ngay lúc boot trên máy vừa copy file mẫu.
+      const env = { ...validEnv(), MEDIA_CACHE_DIR: '' };
+
+      const result = validateEnv(env);
+
+      expect(result.MEDIA_CACHE_DIR).not.toBe('');
+      expect(result.MEDIA_CACHE_DIR).toContain('tool-auto-fb-media');
+    });
+
+    it('MEDIA_CACHE_DIR khai tường minh thì dùng đúng giá trị đó', () => {
+      const result = validateEnv({
+        ...validEnv(),
+        MEDIA_CACHE_DIR: '/var/cache/tool-auto-fb',
+      });
+
+      expect(result.MEDIA_CACHE_DIR).toBe('/var/cache/tool-auto-fb');
+    });
+
+    it('timeout đăng Facebook và TTL cache có mặc định dùng được ngay', () => {
+      const result = validateEnv(validEnv());
+
+      expect(result.FB_IMAGE_TIMEOUT_MS).toBe(60_000);
+      expect(result.FB_VIDEO_TIMEOUT_MS).toBe(900_000);
+      expect(result.MEDIA_CACHE_TTL_MS).toBe(600_000);
+    });
+
     it('áp dụng giá trị mặc định khi biến không bắt buộc bị thiếu', () => {
       const env = validEnv();
       delete env.PORT;

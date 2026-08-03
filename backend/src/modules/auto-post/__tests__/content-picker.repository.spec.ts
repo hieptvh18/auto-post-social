@@ -55,6 +55,25 @@ describe('ContentPickerRepository', () => {
     expect(sql).toContain('a.published_at IS NULL');
   });
 
+  it('bỏ qua bài đã Ngưng dùng (is_active = false)', async () => {
+    await repository.pickForSlot({
+      facebookPageId: 'page-1',
+      categories: ['Review'],
+      mediaType: 'all',
+      limit: 2,
+    });
+
+    // Sót mệnh đề này là Bot đăng thật bài đã ngưng dùng (plan 19 §2.2).
+    expect(capturedSql()).toContain('c.is_active = TRUE');
+  });
+
+  it('đếm kho theo danh mục cũng bỏ bài đã Ngưng dùng (khớp với picker)', async () => {
+    await repository.countByCategoryForPage('page-1');
+
+    // Lệch với picker ⇒ UI báo "còn N bài" mà cron lại SKIPPED/NO_CONTENT.
+    expect(capturedSql()).toContain('c.is_active = TRUE');
+  });
+
   it('loại bài đang có job QUEUED/PUBLISHING trên page đó (không xếp hàng 2 lần)', async () => {
     await repository.pickForSlot({
       facebookPageId: 'page-1',

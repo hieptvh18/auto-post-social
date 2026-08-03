@@ -17,11 +17,19 @@ import { ContentStatus, MediaType } from '../../../../generated/prisma/client';
 export const ASSIGNMENT_FILTERS = ['assigned', 'unassigned'] as const;
 export type AssignmentFilter = (typeof ASSIGNMENT_FILTERS)[number];
 
-/** Query string luôn là chuỗi — đổi 'true'/'false' về boolean cho `@IsBoolean`. */
-function toBoolean(value: unknown): unknown {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return value;
+/**
+ * Query string luôn là chuỗi — đổi 'true'/'false' về boolean cho `@IsBoolean`.
+ *
+ * **Phải đọc từ `obj[key]` (giá trị gốc), không dùng `value`:** ValidationPipe bật
+ * `enableImplicitConversion` nên class-transformer đã chạy `Boolean('false')` →
+ * `true` **trước khi** `@Transform` được gọi. Dùng `value` thì mọi bộ lọc boolean
+ * đều thành `true` (lỗi này từng làm `?isAds=false` không lọc được — bắt được lúc
+ * smoke plan 19).
+ */
+function toBoolean(raw: unknown): unknown {
+  if (raw === 'true' || raw === true) return true;
+  if (raw === 'false' || raw === false) return false;
+  return raw;
 }
 
 export class QueryContentAssetsDto {
@@ -45,9 +53,22 @@ export class QueryContentAssetsDto {
 
   @ApiPropertyOptional({ description: 'Lọc bài đã tick Đạt ADS' })
   @IsOptional()
-  @Transform(({ value }): unknown => toBoolean(value))
+  @Transform(({ obj }): unknown =>
+    toBoolean((obj as Record<string, unknown>).isAds),
+  )
   @IsBoolean()
   isAds?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Lọc theo trạng thái dùng. Bỏ trống ⇒ lấy cả bài đã ngưng dùng (màn quản kho hiện hết)',
+  })
+  @IsOptional()
+  @Transform(({ obj }): unknown =>
+    toBoolean((obj as Record<string, unknown>).isActive),
+  )
+  @IsBoolean()
+  isActive?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -65,6 +86,13 @@ export class QueryContentAssetsDto {
   @IsOptional()
   @IsUUID()
   createdBy?: string;
+
+  @ApiPropertyOptional({
+    description: 'Lọc theo người dựng video/ảnh (account role EDITOR)',
+  })
+  @IsOptional()
+  @IsUUID()
+  editorId?: string;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

@@ -73,6 +73,9 @@ export class PublishScheduleRepository {
         facebookPageId: args.facebookPageId,
         publishedAt: null,
         contentAsset: {
+          // Bài đã "ngưng dùng" không được tính vào kho (plan 19 §2.2) — nếu không
+          // UI báo "còn N bài" trong khi Bot lại skip vì picker bỏ qua chúng.
+          isActive: true,
           status: ContentStatus.APPROVED,
           category: { in: args.categories },
           ...(args.mediaType === SlotMediaType.all

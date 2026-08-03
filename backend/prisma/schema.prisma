@@ -75,6 +75,7 @@ model User {
   contentCreated  ContentAsset[] @relation("ContentCreator")
   contentApproved ContentAsset[] @relation("ContentApprover")
   contentUpdated  ContentAsset[] @relation("ContentUpdater")
+  contentEdited   ContentAsset[] @relation("ContentEditor")
   auditLogs       AuditLog[]
   facebookPages   FacebookPage[]
   appSettings     AppSetting[]
@@ -153,25 +154,30 @@ model ContentAsset {
   fileSize      BigInt?       @map("file_size")
   status        ContentStatus @default(PENDING_REVIEW)
   isAds         Boolean       @default(false) @map("is_ads") // Đạt ADS
+  isActive      Boolean       @default(true) @map("is_active") // false = ngưng dùng: Bot không lấy nữa (khác status duyệt)
   rejectComment String?       @map("reject_comment") @db.Text
   createdById   String        @map("created_by") @db.Uuid
   approvedById  String?       @map("approved_by") @db.Uuid
   updatedById   String?       @map("updated_by") @db.Uuid // người sửa gần nhất; null = bài cũ trước khi có tracking
+  editorId      String?       @map("editor_id") @db.Uuid // người DỰNG video/ảnh (role EDITOR); khác người upload
   createdAt     DateTime      @default(now()) @map("created_at") // Ngày upload
   updatedAt     DateTime      @updatedAt @map("updated_at") // Mốc xếp hàng cho Bot
 
   createdBy   User                    @relation("ContentCreator", fields: [createdById], references: [id])
   approvedBy  User?                   @relation("ContentApprover", fields: [approvedById], references: [id])
   updatedBy   User?                   @relation("ContentUpdater", fields: [updatedById], references: [id])
+  editor      User?                   @relation("ContentEditor", fields: [editorId], references: [id])
   publishJobs PublishJob[]
   assignments ContentPageAssignment[]
 
   @@index([status])
+  @@index([editorId]) // filter "Editor" trên màn Quản lý Ảnh/Video
   @@index([category])
   @@index([mediaType])
   @@index([createdById])
   @@index([isAds])
-  @@index([status, updatedAt]) // Cron picker: APPROVED order by updated_at ASC
+  @@index([isActive])
+  @@index([status, isActive, updatedAt]) // Cron picker: APPROVED + đang dùng, order by updated_at ASC
   @@map("content_assets")
 }
 

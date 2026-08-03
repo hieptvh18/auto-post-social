@@ -27,14 +27,19 @@ export interface ContentAssetResponse {
   fileSize: number | null;
   status: ContentAsset['status'];
   isAds: boolean;
+  /** `false` = ngưng dùng: vẫn hiện ở kho (làm mờ) nhưng Bot không lấy nữa. */
+  isActive: boolean;
   rejectComment: string | null;
   createdById: string;
   approvedById: string | null;
   updatedById: string | null;
+  editorId: string | null;
   /** Người upload bài. */
   createdBy: ContentActor;
   /** Người sửa gần nhất — null với bài cũ có trước khi bật tracking. */
   updatedBy: ContentActor | null;
+  /** Người **dựng** video/ảnh (account role EDITOR) — khác người upload. */
+  editor: ContentActor | null;
   /** Page đã phân bổ (kể cả đã đăng) — nguồn cho ô "Phân bổ page" trên UI. */
   assignedPageIds: string[];
   /** Tập con của `assignedPageIds` đã đăng thành công — không gỡ được nữa. */
@@ -63,12 +68,15 @@ export function toContentAssetResponse(
     fileSize: asset.fileSize === null ? null : Number(asset.fileSize),
     status: asset.status,
     isAds: asset.isAds,
+    isActive: asset.isActive,
     rejectComment: asset.rejectComment,
     createdById: asset.createdById,
     approvedById: asset.approvedById,
     updatedById: asset.updatedById,
+    editorId: asset.editorId,
     createdBy: toActor(asset.createdBy),
     updatedBy: asset.updatedBy === null ? null : toActor(asset.updatedBy),
+    editor: asset.editor === null ? null : toActor(asset.editor),
     assignedPageIds: assignments.map((a) => a.facebookPageId),
     publishedPageIds: assignments
       .filter((a) => a.publishedAt !== null)

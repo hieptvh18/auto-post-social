@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import type { drive_v3 } from 'googleapis';
 import { Readable } from 'node:stream';
+import { DriveAuthExpiredError } from '../drive.errors';
 import { createDriveClient, GoogleDriveStorage } from '../google-drive.storage';
 
 const FOLDER = 'folder-1';
@@ -155,6 +156,26 @@ describe('GoogleDriveStorage', () => {
       });
 
       await expect(storage.upload(INPUT)).rejects.toThrow(BadGatewayException);
+    });
+
+    it('invalid_grant trong response.data => DriveAuthExpiredError', async () => {
+      files.create.mockRejectedValue({
+        code: 400,
+        message: 'Bad Request',
+        response: { data: { error: 'invalid_grant' } },
+      });
+
+      await expect(storage.upload(INPUT)).rejects.toThrow(
+        DriveAuthExpiredError,
+      );
+    });
+
+    it('invalid_grant chỉ nằm trong message => vẫn nhận diện được', async () => {
+      files.create.mockRejectedValue({ message: 'invalid_grant' });
+
+      await expect(storage.upload(INPUT)).rejects.toThrow(
+        /kết nối lại|Kết nối Google/i,
+      );
     });
 
     it('lỗi lạ => InternalServerError kèm message gốc', async () => {

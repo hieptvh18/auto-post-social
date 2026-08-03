@@ -654,13 +654,19 @@ export interface ContentAssetResponse {
   fileSize: number | null;
   status: ContentStatus;
   isAds: boolean;
+  /** `false` = ngưng dùng: vẫn hiện trong kho (làm mờ) nhưng Bot không lấy nữa. */
+  isActive: boolean;
   rejectComment: string | null;
   createdById: string;
   approvedById: string | null;
+  /** Người **dựng** video/ảnh (account role EDITOR) — `null` nếu chưa gán. */
+  editorId: string | null;
   /** Người upload bài. */
   createdBy: ContentActor;
   /** Người sửa gần nhất — `null` với bài cũ trước khi có tracking. */
   updatedBy: ContentActor | null;
+  /** Người dựng video/ảnh — khác `createdBy` (người upload lên hệ thống). */
+  editor: ContentActor | null;
   /** Page bài được phân bổ (kể cả đã đăng). */
   assignedPageIds: string[];
   /** Tập con đã đăng thành công — UI khoá không cho gỡ. */
@@ -684,6 +690,29 @@ export interface HashtagSuggestion {
   count: number;
 }
 
+/** Kết quả một thao tác hàng loạt (backend `BulkResult`, plan 19 §2.3). */
+export interface BulkItemFailure {
+  id: string;
+  /** Tiêu đề bài — id trần thì người dùng không biết là bài nào. */
+  label: string;
+  reason: string;
+}
+
+export interface BulkResult {
+  requested: number;
+  succeeded: string[];
+  failed: BulkItemFailure[];
+}
+
+/** `GET /content-assets/editors` — account cho ô "Editor" (kể cả đã vô hiệu hoá). */
+export interface EditorOption {
+  id: string;
+  name: string;
+  email: string;
+  /** `false` = đã vô hiệu hoá: lọc được nhưng không gán mới được. */
+  isActive: boolean;
+}
+
 /** `GET /content-assets/categories` — danh mục ("Dạng") đang dùng trong kho. */
 export interface CategorySuggestion {
   category: string;
@@ -705,8 +734,12 @@ export interface QueryContentAssetsParams {
   category?: string;
   status?: ContentStatus;
   isAds?: boolean;
+  /** Lọc "Đang dùng / Ngưng dùng"; bỏ trống ⇒ lấy cả hai. */
+  isActive?: boolean;
   search?: string;
   createdBy?: string;
+  /** Lọc theo người dựng video/ảnh. */
+  editorId?: string;
   page?: number;
   limit?: number;
 }
@@ -724,6 +757,8 @@ export interface CreateContentAssetBody {
   thumbnailUrl?: string;
   mimeType?: string;
   fileSize?: number;
+  /** Người dựng video/ảnh — không bắt buộc. */
+  editorId?: string;
   assignedPageIds?: string[];
 }
 
@@ -739,7 +774,11 @@ export interface UpdateContentAssetBody {
   hashtags?: string;
   status?: ContentStatus;
   isAds?: boolean;
+  /** `false` = ngưng dùng — không phải field duyệt, ai sửa được bài thì đổi được. */
+  isActive?: boolean;
   rejectComment?: string;
+  /** Người dựng video/ảnh; gửi `null` để gỡ. */
+  editorId?: string | null;
   /** Gửi lên là thay thế toàn bộ phân bổ — backend tự diff. */
   assignedPageIds?: string[];
 }

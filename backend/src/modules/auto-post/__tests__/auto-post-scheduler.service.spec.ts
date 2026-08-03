@@ -263,6 +263,108 @@ describe('AutoPostSchedulerService', () => {
       expect(result.results[1].jobCreatedCount).toBe(1);
     });
 
+    describe('CÙNG 1 VIDEO PHÂN BỔ CHO 4 PAGE, CÙNG MỐC 12:00', () => {
+      /** 4 page, mỗi page 1 slot 12:00, tất cả cùng được phân bổ video này. */
+      const VIDEO = makeContent('video-1');
+
+      function setupFourPages(): void {
+        const slots = [1, 2, 3, 4].map((n) =>
+          makeSlot({
+            id: `slot-${n}`,
+            time: '14:30',
+            postCount: 1,
+            facebookPageId: `page-${n}`,
+            facebookPage: makePage({ id: `page-${n}`, pageName: `Page ${n}` }),
+          }),
+        );
+        configsRepository.findDueSlots.mockResolvedValue(slots);
+        slotRuns.claim.mockImplementation((slotId: string) =>
+          Promise.resolve({ ...makeSlotRun(), id: `run-${slotId}`, slotId }),
+        );
+        picker.pickForSlot.mockResolvedValue([VIDEO]);
+      }
+
+      it('tạo ĐÚNG 4 job — mỗi page một job, không thiếu không thừa', async () => {
+        setupFourPages();
+
+        const result = await service.tick(NOW);
+
+        expect(publishJobs.createQueuedJob).toHaveBeenCalledTimes(4);
+        expect(result.dueSlotCount).toBe(4);
+      });
+
+      it('mỗi job trỏ đúng page của nó, cùng một contentAssetId', async () => {
+        setupFourPages();
+
+        await service.tick(NOW);
+
+        const calls = publishJobs.createQueuedJob.mock.calls.map(
+          ([arg]) => arg,
+        );
+        expect(calls.map((c) => c.facebookPageId)).toEqual([
+          'page-1',
+          'page-2',
+          'page-3',
+          'page-4',
+        ]);
+        expect(calls.map((c) => c.contentAssetId)).toEqual([
+          'video-1',
+          'video-1',
+          'video-1',
+          'video-1',
+        ]);
+      });
+
+      it('claim slot_run riêng cho từng slot — 4 lần, không dùng chung', async () => {
+        setupFourPages();
+
+        await service.tick(NOW);
+
+        expect(slotRuns.claim).toHaveBeenCalledTimes(4);
+        expect(slotRuns.claim.mock.calls.map(([slotId]) => slotId)).toEqual([
+          'slot-1',
+          'slot-2',
+          'slot-3',
+          'slot-4',
+        ]);
+      });
+
+      it('hỏi picker theo TỪNG page, không hỏi một lần rồi dùng chung', async () => {
+        setupFourPages();
+
+        await service.tick(NOW);
+
+        expect(
+          picker.pickForSlot.mock.calls.map(([arg]) => arg.facebookPageId),
+        ).toEqual(['page-1', 'page-2', 'page-3', 'page-4']);
+      });
+
+      it('một page hỏng không chặn ba page còn lại', async () => {
+        setupFourPages();
+        publishJobs.createQueuedJob.mockRejectedValueOnce(
+          new Error('page 1 mất token'),
+        );
+
+        const result = await service.tick(NOW);
+
+        expect(publishJobs.createQueuedJob).toHaveBeenCalledTimes(4);
+        expect(result.results.map((r) => r.jobCreatedCount)).toEqual([
+          0, 1, 1, 1,
+        ]);
+      });
+
+      it('chạy tick hai lần cùng phút ⇒ vẫn chỉ 4 job, không thành 8', async () => {
+        setupFourPages();
+        await service.tick(NOW);
+        // Lượt hai: mọi slot đều đã được claim trong phút này.
+        slotRuns.claim.mockResolvedValue(null);
+
+        await service.tick(NOW);
+
+        expect(publishJobs.createQueuedJob).toHaveBeenCalledTimes(4);
+      });
+    });
+
     it('không có slot nào tới giờ ⇒ không claim, không tạo job', async () => {
       const result = await service.tick(NOW);
 

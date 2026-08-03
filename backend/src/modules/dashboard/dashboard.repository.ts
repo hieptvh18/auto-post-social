@@ -74,8 +74,12 @@ export class DashboardRepository {
   async countContentInventory(
     ownerId: string | null,
   ): Promise<ContentInventoryCounts> {
+    // Thẻ tồn kho chỉ đếm bài **còn dùng được** (plan 19 §2.2) — bài đã ngưng dùng
+    // không phải hàng chờ Bot lấy nữa.
     const owner: Prisma.ContentAssetWhereInput =
-      ownerId === null ? {} : { createdById: ownerId };
+      ownerId === null
+        ? { isActive: true }
+        : { isActive: true, createdById: ownerId };
 
     // Promise.all thay vì $transaction: gộp groupBy và count vào một mảng
     // $transaction làm Prisma suy ra kiểu `_count` thành union và mất `_all`.

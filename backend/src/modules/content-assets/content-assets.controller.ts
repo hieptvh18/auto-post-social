@@ -18,9 +18,12 @@ import type { ContentAssetResponse } from './content-asset.mapper';
 import {
   ContentAssetsService,
   type CategorySuggestion,
+  type EditorOption,
   type HashtagSuggestion,
   type PaginatedContentAssets,
 } from './content-assets.service';
+import type { BulkResult } from '../../common/bulk/bulk-result';
+import { BulkIdsDto, BulkSetActiveDto } from './dto/bulk-content-assets.dto';
 import { CreateContentAssetDto } from './dto/create-content-asset.dto';
 import { QueryContentAssetsDto } from './dto/query-content-assets.dto';
 import { UpdateContentAssetDto } from './dto/update-content-asset.dto';
@@ -60,6 +63,15 @@ export class ContentAssetsController {
     return this.service.findCategorySuggestions();
   }
 
+  @Get('editors')
+  @ApiOperation({
+    summary:
+      'Account chọn được vào ô "Editor" (người dựng video/ảnh) — role EDITOR đang hoạt động',
+  })
+  findEditors(): Promise<EditorOption[]> {
+    return this.service.findEditorOptions();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Chi tiết content' })
   findOne(
@@ -79,6 +91,35 @@ export class ContentAssetsController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ContentAssetResponse> {
     return this.service.create(dto, actor);
+  }
+
+  // Thao tác hàng loạt (plan 19). Đặt trước `:id` cho khỏi bị ParseUUIDPipe nuốt.
+  // Dùng POST chứ không DELETE vì cần body danh sách id.
+  @Post('bulk-delete')
+  @HttpCode(200)
+  @RequirePermission('content:delete')
+  @ApiOperation({
+    summary:
+      'Xoá nhiều bài — bài nào vướng (đã đăng / không phải bài của mình) thì bỏ qua kèm lý do',
+  })
+  bulkDelete(
+    @Body() dto: BulkIdsDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<BulkResult> {
+    return this.service.bulkDelete(dto.ids, actor);
+  }
+
+  @Post('bulk-active')
+  @HttpCode(200)
+  @RequirePermission('content:edit')
+  @ApiOperation({
+    summary: 'Ngưng dùng / dùng lại nhiều bài (Bot chỉ lấy bài đang dùng)',
+  })
+  bulkSetActive(
+    @Body() dto: BulkSetActiveDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<BulkResult> {
+    return this.service.bulkSetActive(dto.ids, dto.isActive, actor);
   }
 
   @Patch(':id')

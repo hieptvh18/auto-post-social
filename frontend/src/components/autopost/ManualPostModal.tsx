@@ -72,6 +72,8 @@ export function ManualPostModal({
   const { data: contents, isLoading } = useContentAssets({
     category,
     mediaType: mediaType === 'all' ? undefined : mediaType,
+    // Bài đã "ngưng dùng" không được đem đăng (backend cũng chặn ⇒ 400).
+    isActive: true,
     limit: CONTENT_PAGE_SIZE,
   });
 

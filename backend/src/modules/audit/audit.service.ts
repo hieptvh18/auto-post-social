@@ -19,6 +19,12 @@ export const AuditAction = {
   CONTENT_STATUS_CHANGE: 'CONTENT_STATUS_CHANGE',
   CONTENT_ADS_MARK: 'CONTENT_ADS_MARK',
   CONTENT_ASSIGN_PAGE: 'CONTENT_ASSIGN_PAGE',
+  /** Ngưng dùng / dùng lại một bài (cột `is_active`, plan 19). */
+  CONTENT_ACTIVE_TOGGLE: 'CONTENT_ACTIVE_TOGGLE',
+  /** Xoá hàng loạt — ghi **1 dòng cho cả lô**, không 100 dòng lẻ (plan 19 §2.3). */
+  CONTENT_BULK_DELETE: 'CONTENT_BULK_DELETE',
+  /** Ngưng dùng / dùng lại hàng loạt — cũng 1 dòng cho cả lô. */
+  CONTENT_BULK_ACTIVE: 'CONTENT_BULK_ACTIVE',
   PAGE_CREATE: 'PAGE_CREATE',
   PAGE_UPDATE: 'PAGE_UPDATE',
   PAGE_TOKEN_UPDATE: 'PAGE_TOKEN_UPDATE',

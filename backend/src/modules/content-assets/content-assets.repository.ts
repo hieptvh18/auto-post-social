@@ -31,12 +31,15 @@ export interface ContentAssignment {
 export interface ContentAssetWithActors extends ContentAsset {
   createdBy: ContentActor;
   updatedBy: ContentActor | null;
+  /** Người dựng video/ảnh (role EDITOR) — null khi bài chưa gán editor. */
+  editor: ContentActor | null;
   assignments: ContentAssignment[];
 }
 
 const ACTOR_INCLUDE = {
   createdBy: { select: ACTOR_SELECT },
   updatedBy: { select: ACTOR_SELECT },
+  editor: { select: ACTOR_SELECT },
   assignments: {
     select: {
       id: true,
@@ -56,8 +59,12 @@ export interface FindContentAssetsFilter {
   category?: string;
   status?: ContentStatus;
   isAds?: boolean;
+  /** Lọc "Đang dùng / Ngưng dùng" — không truyền ⇒ lấy cả hai (đây là màn quản kho). */
+  isActive?: boolean;
   search?: string;
   createdBy?: string;
+  /** Lọc theo người dựng video/ảnh. */
+  editorId?: string;
   page: number;
   limit: number;
 }
@@ -77,6 +84,8 @@ export interface CreateContentAssetData {
   createdById: string;
   /** Người upload cũng là người "sửa" đầu tiên — UI không bị trống cột này. */
   updatedById: string;
+  /** Người dựng video/ảnh — optional, bỏ trống ⇒ null. */
+  editorId?: string;
   /** Bỏ trống ⇒ dùng default PENDING_REVIEW của schema. */
   status?: ContentStatus;
   /** Chỉ set khi bài vào thẳng APPROVED (ADMIN tự upload). */
@@ -93,12 +102,16 @@ export interface UpdateContentAssetData {
   hashtags?: string;
   status?: ContentStatus;
   isAds?: boolean;
+  /** `false` = ngưng dùng: Bot không lấy bài này nữa. */
+  isActive?: boolean;
   /** `null` = xoá lý do (khi duyệt lại hoặc trả về chờ duyệt). */
   rejectComment?: string | null;
   /** `null` = rút phê duyệt. */
   approvedById?: string | null;
   /** Người thực hiện lần sửa này — service luôn truyền `actor.id`. */
   updatedById: string;
+  /** `null` = gỡ người dựng khỏi bài. */
+  editorId?: string | null;
 }
 
 /** Diff phân bổ page service đã tính sẵn — repository chỉ việc ghi. */
@@ -120,7 +133,9 @@ export class ContentAssetsRepository {
     if (filter.category !== undefined) where.category = filter.category;
     if (filter.status !== undefined) where.status = filter.status;
     if (filter.isAds !== undefined) where.isAds = filter.isAds;
+    if (filter.isActive !== undefined) where.isActive = filter.isActive;
     if (filter.createdBy !== undefined) where.createdById = filter.createdBy;
+    if (filter.editorId !== undefined) where.editorId = filter.editorId;
     if (filter.assignment === 'assigned') where.assignments = { some: {} };
     if (filter.assignment === 'unassigned') where.assignments = { none: {} };
     if (filter.search !== undefined && filter.search !== '') {
@@ -167,6 +182,7 @@ export class ContentAssetsRepository {
           data.fileSize === undefined ? undefined : BigInt(data.fileSize),
         createdById: data.createdById,
         updatedById: data.updatedById,
+        editorId: data.editorId,
         status: data.status,
         approvedById: data.approvedById,
         assignments:
@@ -221,6 +237,32 @@ export class ContentAssetsRepository {
 
   async delete(id: string): Promise<void> {
     await this.prisma.contentAsset.delete({ where: { id } });
+  }
+
+  /**
+   * Bật/tắt "đang dùng" cho **một lô** bài trong đúng một câu UPDATE. Không đi qua
+   * `update()` từng bài vì thao tác này không đụng file Drive, không đổi phân bổ —
+   * 100 round-trip cho một việc thuần cột boolean là phí.
+   */
+  async setActiveMany(
+    ids: string[],
+    isActive: boolean,
+    updatedById: string,
+  ): Promise<number> {
+    const result = await this.prisma.contentAsset.updateMany({
+      where: { id: { in: ids } },
+      data: { isActive, updatedById },
+    });
+    return result.count;
+  }
+
+  /** Id có thật trong DB (lọc ra id đã bị xoá trước đó) — dùng cho thao tác lô. */
+  async findExistingIds(ids: string[]): Promise<string[]> {
+    const rows = await this.prisma.contentAsset.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
   }
 
   /** Page còn sống trong danh sách id truyền vào — dùng để validate phân bổ. */

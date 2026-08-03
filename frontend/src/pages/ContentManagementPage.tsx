@@ -18,12 +18,15 @@ import {
   Popconfirm,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
   type UploadFile,
   message,
+  notification,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -40,18 +43,23 @@ import { ContentStatusTag } from '../components/common/StatusTag';
 import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import {
+  useBulkDeleteContentAssets,
+  useBulkSetActiveContentAssets,
   useCategorySuggestions,
   useContentAsset,
   useContentAssets,
   useCreateContentAsset,
   useDeleteContentAsset,
+  useEditorOptions,
   useUpdateContentAsset,
 } from '../hooks/useContentAssets';
 import { usePages } from '../hooks/usePages';
-import { useUsers } from '../hooks/useUsers';
+// Cột/filter "Người upload" đã được thay bằng "Editor" (yêu cầu user 2026-08-03) —
+// giữ lại import dưới dạng chú thích để khôi phục nhanh nếu cần.
+// import { useUsers } from '../hooks/useUsers';
 import type {
   AssignmentFilter,
-  ContentActor,
+  BulkResult,
   ContentAsset,
   ContentAssetResponse,
   ContentStatus,
@@ -73,23 +81,57 @@ function detectMediaType(file: UploadFile): MediaType {
   return 'image';
 }
 
-/** Ô hiển thị người thao tác: tên + mốc thời gian (email ở tooltip cho khỏi chật). */
-function ActorCell({ actor, at }: { actor: ContentActor; at: string }) {
-  return (
-    <Space direction="vertical" size={0}>
-      <Text ellipsis title={actor.email}>
-        {actor.name}
-      </Text>
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {dayjs(at).format('DD/MM/YYYY HH:mm')}
-      </Text>
-    </Space>
-  );
-}
+/**
+ * Ô hiển thị người thao tác: tên + mốc thời gian (email ở tooltip cho khỏi chật).
+ * Tạm không dùng từ 2026-08-03 — cột "Người upload" đã nhường chỗ cho cột "Editor";
+ * giữ lại để khôi phục nhanh nếu cần cột đó trở lại.
+ */
+// function ActorCell({ actor, at }: { actor: ContentActor; at: string }) {
+//   return (
+//     <Space direction="vertical" size={0}>
+//       <Text ellipsis title={actor.email}>
+//         {actor.name}
+//       </Text>
+//       <Text type="secondary" style={{ fontSize: 12 }}>
+//         {dayjs(at).format('DD/MM/YYYY HH:mm')}
+//       </Text>
+//     </Space>
+//   );
+// }
 
 const STATUS_OPTIONS = (Object.keys(CONTENT_STATUS_LABELS) as ContentStatus[]).map(
   (s) => ({ value: s, label: CONTENT_STATUS_LABELS[s] }),
 );
+
+/** Bài đã đăng lên page thì không xoá được — dùng cho cả checkbox lẫn Popconfirm. */
+function isDeletable(record: ContentAssetResponse): boolean {
+  return record.publishedPageIds.length === 0;
+}
+
+/**
+ * Báo kết quả một lô. Xong sạch thì một dòng toast là đủ; có bài bị bỏ qua thì
+ * phải liệt kê ra — người dùng cần biết **bài nào** hỏng, không chỉ "2 bài lỗi".
+ */
+function reportBulk(result: BulkResult, doneVerb: string): void {
+  if (result.failed.length === 0) {
+    message.success(`Đã ${doneVerb} ${result.succeeded.length} bài`);
+    return;
+  }
+  notification.warning({
+    message: `Đã ${doneVerb} ${result.succeeded.length}/${result.requested} bài`,
+    description: (
+      <Space direction="vertical" size={2}>
+        <Text>{result.failed.length} bài bị bỏ qua:</Text>
+        {result.failed.map((item) => (
+          <Text key={item.id} type="secondary" style={{ fontSize: 12 }}>
+            • {item.label} — {item.reason}
+          </Text>
+        ))}
+      </Space>
+    ),
+    duration: 8,
+  });
+}
 
 /** Chọn implementation theo cờ mock (rule 01 FE + ADR-005) — giữ MockDataContext nguyên vẹn. */
 export default function ContentManagementPage() {
@@ -635,7 +677,10 @@ function RealContentManagementPage() {
     AssignmentFilter | undefined
   >();
   const [statusFilter, setStatusFilter] = useState<ContentStatus | undefined>();
-  const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
+  // const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
+  const [editorFilter, setEditorFilter] = useState<string | undefined>();
+  const [activeFilter, setActiveFilter] = useState<boolean | undefined>();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [editing, setEditing] = useState<ContentAssetResponse | null>(null);
@@ -645,14 +690,18 @@ function RealContentManagementPage() {
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
 
-  const canFilterByUploader = can(user.role, 'users:manage');
   const canReview = can(user.role, 'content:review');
+  // Thao tác hàng loạt cần ít nhất 1 trong 2 quyền; backend vẫn kiểm lại từng bài.
+  const canBulkDelete = can(user.role, 'content:delete');
+  const canBulkEdit = can(user.role, 'content:edit');
+  const canBulk = canBulkDelete || canBulkEdit;
   const { data, isLoading } = useContentAssets({
     search: search || undefined,
     category: categoryFilter,
     assignment: assignmentFilter,
     status: statusFilter,
-    createdBy: uploaderFilter,
+    editorId: editorFilter,
+    isActive: activeFilter,
     page,
     limit: pageSize,
   });
@@ -665,12 +714,21 @@ function RealContentManagementPage() {
     value: p.id,
     label: p.pageName,
   }));
-  // `GET /users` gác `users:manage` ⇒ chỉ ADMIN mới lấy được danh sách để lọc.
-  const { data: usersData } = useUsers(
-    { limit: 100 },
-    { enabled: canFilterByUploader },
-  );
+  // Ô "Editor" (người dựng video/ảnh): chỉ account role EDITOR đang hoạt động.
+  // Endpoint riêng thay vì `GET /users` (gác `users:manage`) để CONTENT cũng chọn được.
+  const { data: editorOptions } = useEditorOptions();
+  // Bộ lọc liệt kê **cả editor đã vô hiệu hoá** — bài cũ do họ dựng vẫn phải lọc ra được.
+  const editorFilterOptions = (editorOptions ?? []).map((e) => ({
+    value: e.id,
+    label: e.isActive ? e.name : `${e.name} (đã khoá)`,
+  }));
+  // Form thì chỉ gán được người đang hoạt động (backend trả 400 nếu cố tình gửi).
+  const editorSelectOptions = (editorOptions ?? [])
+    .filter((e) => e.isActive)
+    .map((e) => ({ value: e.id, label: e.name }));
   const createMutation = useCreateContentAsset();
+  const bulkDeleteMutation = useBulkDeleteContentAssets();
+  const bulkActiveMutation = useBulkSetActiveContentAssets();
   const updateMutation = useUpdateContentAsset();
   const deleteMutation = useDeleteContentAsset();
 
@@ -683,6 +741,8 @@ function RealContentManagementPage() {
         caption: record.caption,
         hashtags: record.hashtags ?? '',
         assignedPageIds: record.assignedPageIds,
+        editorId: record.editorId ?? undefined,
+        isActive: record.isActive,
         status: record.status,
         isAds: record.isAds,
         rejectComment: record.rejectComment ?? '',
@@ -720,6 +780,8 @@ function RealContentManagementPage() {
     caption: string;
     hashtags?: string;
     assignedPageIds?: string[];
+    editorId?: string;
+    isActive: boolean;
     status: ContentStatus;
     isAds: boolean;
     rejectComment?: string;
@@ -732,6 +794,9 @@ function RealContentManagementPage() {
       caption: values.caption,
       hashtags: values.hashtags,
       assignedPageIds: values.assignedPageIds ?? [],
+      // Bỏ trống ô Editor ⇒ gửi null để gỡ người dựng đang gán.
+      editorId: values.editorId ?? null,
+      isActive: values.isActive,
       ...(canReview
         ? {
             // Bài do bot đang xử lý: ô trạng thái bị khoá nên không gửi `status`
@@ -753,6 +818,35 @@ function RealContentManagementPage() {
     }
   };
 
+  /** Đổi filter/trang thì bỏ chọn — tránh thao tác nhầm lên dòng không còn nhìn thấy. */
+  const resetPageAndSelection = (): void => {
+    setPage(1);
+    setSelectedIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      const result = await bulkDeleteMutation.mutateAsync(selectedIds);
+      reportBulk(result, 'xoá');
+      setSelectedIds([]);
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : 'Xoá hàng loạt thất bại');
+    }
+  };
+
+  const handleBulkSetActive = async (isActive: boolean) => {
+    try {
+      const result = await bulkActiveMutation.mutateAsync({
+        ids: selectedIds,
+        isActive,
+      });
+      reportBulk(result, isActive ? 'bật lại' : 'ngưng dùng');
+      setSelectedIds([]);
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : 'Cập nhật hàng loạt thất bại');
+    }
+  };
+
   const handleDelete = async (record: ContentAssetResponse) => {
     try {
       await deleteMutation.mutateAsync(record.id);
@@ -768,6 +862,7 @@ function RealContentManagementPage() {
     caption: string;
     hashtags?: string;
     assignedPageIds?: string[];
+    editorId?: string;
   }) => {
     const pickedFile = fileList[0];
     if (!pickedFile) {
@@ -785,6 +880,7 @@ function RealContentManagementPage() {
         caption: values.caption,
         hashtags: values.hashtags,
         assignedPageIds: values.assignedPageIds ?? [],
+        editorId: values.editorId,
         mediaType: uploaded.mediaType,
         driveFileId: uploaded.fileId,
         driveUrl: uploaded.driveUrl ?? undefined,
@@ -848,6 +944,7 @@ function RealContentManagementPage() {
             assignedCount={record.assignedPageIds.length}
           />
           {record.isAds && <Tag color="gold">Đạt ADS</Tag>}
+          {!record.isActive && <Tag>Ngưng dùng</Tag>}
         </Space>
       ),
     },
@@ -878,11 +975,26 @@ function RealContentManagementPage() {
           <Text type="secondary">—</Text>
         ),
     },
+    // Cột "Người upload" đã được thay bằng "Editor" (người dựng video/ảnh) theo
+    // yêu cầu user 2026-08-03. Người upload vẫn xem được ở chân Drawer sửa bài.
+    // {
+    //   title: 'Người upload',
+    //   dataIndex: ['createdBy', 'name'],
+    //   width: 170,
+    //   render: (_, record) => <ActorCell actor={record.createdBy} at={record.createdAt} />,
+    // },
     {
-      title: 'Người upload',
-      dataIndex: ['createdBy', 'name'],
+      title: 'Editor',
+      dataIndex: ['editor', 'name'],
       width: 170,
-      render: (_, record) => <ActorCell actor={record.createdBy} at={record.createdAt} />,
+      render: (_, record) =>
+        record.editor === null ? (
+          <Text type="secondary">—</Text>
+        ) : (
+          <Text ellipsis title={record.editor.email}>
+            {record.editor.name}
+          </Text>
+        ),
     },
     {
       title: 'Phân bổ page',
@@ -917,17 +1029,22 @@ function RealContentManagementPage() {
           {can(user.role, 'content:edit') && (
             <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
           )}
-          {can(user.role, 'content:delete') && (
-            <Popconfirm
-              title={`Xoá "${record.title}"?`}
-              description="Thao tác không thể hoàn tác — file trên Drive cũng bị xoá."
-              okText="Xoá"
-              okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
-              onConfirm={() => handleDelete(record)}
-            >
-              <Button type="text" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          )}
+          {can(user.role, 'content:delete') &&
+            (isDeletable(record) ? (
+              <Popconfirm
+                title={`Xoá "${record.title}"?`}
+                description="Thao tác không thể hoàn tác — file trên Drive cũng bị xoá."
+                okText="Xoá"
+                okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
+                onConfirm={() => handleDelete(record)}
+              >
+                <Button type="text" danger icon={<DeleteOutlined />} />
+              </Popconfirm>
+            ) : (
+              <Tooltip title="Bài đã đăng lên page — không xoá được">
+                <Button type="text" danger disabled icon={<DeleteOutlined />} />
+              </Tooltip>
+            ))}
         </Space>
       ),
     },
@@ -982,6 +1099,7 @@ function RealContentManagementPage() {
             setPage(1);
           }}
         />
+        {/* Filter "Người upload" đã thay bằng "Editor" (yêu cầu user 2026-08-03):
         {canFilterByUploader && (
           <Select
             placeholder="Người upload"
@@ -996,7 +1114,32 @@ function RealContentManagementPage() {
               setPage(1);
             }}
           />
-        )}
+        )} */}
+        <Select
+          placeholder="Editor"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 200 }}
+          options={editorFilterOptions}
+          onChange={(v: string | undefined) => {
+            setEditorFilter(v);
+            resetPageAndSelection();
+          }}
+        />
+        <Select
+          placeholder="Trạng thái dùng"
+          allowClear
+          style={{ width: 170 }}
+          options={[
+            { value: 'active', label: 'Đang dùng' },
+            { value: 'inactive', label: 'Ngưng dùng' },
+          ]}
+          onChange={(v: 'active' | 'inactive' | undefined) => {
+            setActiveFilter(v === undefined ? undefined : v === 'active');
+            resetPageAndSelection();
+          }}
+        />
         <Input.Search
           placeholder="Tìm theo tiêu đề..."
           allowClear
@@ -1008,11 +1151,76 @@ function RealContentManagementPage() {
         />
       </Space>
 
+      {selectedIds.length > 0 && (
+        <Space
+          wrap
+          style={{
+            marginBottom: 12,
+            padding: '8px 12px',
+            background: 'rgba(22,119,255,.08)',
+            borderRadius: 8,
+          }}
+        >
+          <Text strong>Đã chọn {selectedIds.length} bài</Text>
+          {canBulkEdit && (
+            <>
+              <Button
+                size="small"
+                loading={bulkActiveMutation.isPending}
+                onClick={() => void handleBulkSetActive(false)}
+              >
+                Ngưng dùng
+              </Button>
+              <Button
+                size="small"
+                loading={bulkActiveMutation.isPending}
+                onClick={() => void handleBulkSetActive(true)}
+              >
+                Dùng lại
+              </Button>
+            </>
+          )}
+          {canBulkDelete && (
+            <Popconfirm
+              title={`Xoá ${selectedIds.length} bài?`}
+              description="Không hoàn tác được — file trên Drive cũng bị xoá."
+              okText="Xoá"
+              okButtonProps={{ danger: true, loading: bulkDeleteMutation.isPending }}
+              onConfirm={() => void handleBulkDelete()}
+            >
+              <Button size="small" danger>
+                Xoá
+              </Button>
+            </Popconfirm>
+          )}
+          <Button size="small" type="text" onClick={() => setSelectedIds([])}>
+            Bỏ chọn
+          </Button>
+        </Space>
+      )}
+
       <Table
         rowKey="id"
         columns={columns}
         dataSource={data?.data ?? []}
         loading={isLoading}
+        rowSelection={
+          canBulk
+            ? {
+                selectedRowKeys: selectedIds,
+                onChange: (keys) => setSelectedIds(keys as string[]),
+                // Bài đã đăng lên page thì backend từ chối xoá ⇒ khoá luôn ở đây
+                // cho khỏi chọn nhầm (chọn-tất-cả cũng tự bỏ qua các dòng này).
+                getCheckboxProps: (record) => ({
+                  disabled: !isDeletable(record),
+                  title: isDeletable(record)
+                    ? undefined
+                    : 'Bài đã đăng lên page — không xoá được',
+                }),
+              }
+            : undefined
+        }
+        rowClassName={(record) => (record.isActive ? '' : 'row-inactive')}
         pagination={{
           current: page,
           pageSize,
@@ -1021,6 +1229,7 @@ function RealContentManagementPage() {
           onChange: (p, ps) => {
             setPage(p);
             setPageSize(ps);
+            setSelectedIds([]);
           },
         }}
         scroll={{ x: 1500 }}
@@ -1098,6 +1307,27 @@ function RealContentManagementPage() {
                 }))}
                 maxTagCount="responsive"
               />
+            </Form.Item>
+            <Form.Item
+              name="editorId"
+              label="Editor"
+              tooltip="Người DỰNG video/ảnh này — khác với người upload lên hệ thống"
+            >
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Chọn account Editor (không bắt buộc)"
+                options={editorSelectOptions}
+              />
+            </Form.Item>
+            <Form.Item
+              name="isActive"
+              label="Đang dùng"
+              valuePropName="checked"
+              tooltip="Tắt = ngưng dùng: Bot không lấy bài này nữa (bài đã đăng vẫn giữ nguyên trên page)"
+            >
+              <Switch checkedChildren="Đang dùng" unCheckedChildren="Ngưng dùng" />
             </Form.Item>
 
             {canReview && (
@@ -1225,6 +1455,20 @@ function RealContentManagementPage() {
               placeholder="Chọn fanpage sẽ đăng bài này"
               options={pageOptions}
               maxTagCount="responsive"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="editorId"
+            label="Editor"
+            tooltip="Người DỰNG video/ảnh này — khác với người upload lên hệ thống"
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Chọn account Editor (không bắt buộc)"
+              options={editorSelectOptions}
             />
           </Form.Item>
         </Form>

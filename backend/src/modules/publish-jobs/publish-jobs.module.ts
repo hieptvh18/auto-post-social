@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { DriveModule } from '../../infra/drive/drive.module';
+import { MediaCacheModule } from '../../infra/media-cache/media-cache.module';
 import { FacebookModule } from '../../infra/facebook/facebook.module';
 import { PrismaModule } from '../../infra/prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
@@ -23,6 +24,7 @@ import { PUBLISH_FACEBOOK_QUEUE } from './publish-queue.constants';
   imports: [
     PrismaModule,
     DriveModule,
+    MediaCacheModule,
     FacebookModule,
     AuditModule,
     FacebookPagesModule,

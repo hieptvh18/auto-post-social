@@ -1,3 +1,4 @@
+import { openAsBlob } from 'node:fs';
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../config/app-config.service';
 import type {
@@ -11,11 +12,6 @@ const GRAPH_BASE_URL = 'https://graph.facebook.com';
 /** Video phải đi qua host riêng — `graph.facebook.com` từ chối upload video lớn. */
 const GRAPH_VIDEO_BASE_URL = 'https://graph-video.facebook.com';
 
-/** Ảnh nhỏ, người dùng đang chờ trên UI. */
-const IMAGE_TIMEOUT_MS = 60_000;
-/** Video nặng hơn nhiều — vẫn phải có trần để không treo request mãi. */
-const VIDEO_TIMEOUT_MS = 180_000;
-
 @Injectable()
 export class FacebookPublisherClient implements FacebookPublisher {
   private readonly logger = new Logger(FacebookPublisherClient.name);
@@ -23,7 +19,7 @@ export class FacebookPublisherClient implements FacebookPublisher {
   constructor(private readonly config: AppConfigService) {}
 
   async publishImage(input: PublishMediaInput): Promise<PublishResult> {
-    const form = this.baseForm(input);
+    const form = await this.baseForm(input);
     form.set('caption', input.message);
     // `published=true` để ảnh lên tường ngay, không nằm ở dạng unpublished photo.
     form.set('published', 'true');
@@ -35,7 +31,7 @@ export class FacebookPublisherClient implements FacebookPublisher {
       form,
       input.accessToken,
       'đăng ảnh lên Page',
-      IMAGE_TIMEOUT_MS,
+      this.config.facebook.imageTimeoutMs,
     );
 
     // Edge /photos trả cả `id` (photo) lẫn `post_id` (bài viết) — cần `post_id`.
@@ -43,7 +39,7 @@ export class FacebookPublisherClient implements FacebookPublisher {
   }
 
   async publishVideo(input: PublishMediaInput): Promise<PublishResult> {
-    const form = this.baseForm(input);
+    const form = await this.baseForm(input);
     form.set('description', input.message);
 
     const body = await this.post(
@@ -53,7 +49,7 @@ export class FacebookPublisherClient implements FacebookPublisher {
       form,
       input.accessToken,
       'đăng video lên Page',
-      VIDEO_TIMEOUT_MS,
+      this.config.facebook.videoTimeoutMs,
     );
 
     return { postId: this.readId(body, ['id']) };
@@ -63,9 +59,14 @@ export class FacebookPublisherClient implements FacebookPublisher {
     return this.config.facebook.graphVersion;
   }
 
-  private baseForm(input: PublishMediaInput): FormData {
+  /**
+   * `openAsBlob` trả Blob **trỏ tới file trên đĩa**, không đọc nội dung vào RAM.
+   * undici stream thẳng từ đó khi gửi. Đo thật với video 300MB: cách cũ
+   * (`new Blob([new Uint8Array(buffer)])`) đẩy RSS lên 1020MB, cách này giữ ~200MB.
+   */
+  private async baseForm(input: PublishMediaInput): Promise<FormData> {
     const form = new FormData();
-    const blob = new Blob([new Uint8Array(input.file.buffer)], {
+    const blob = await openAsBlob(input.file.path, {
       type: input.file.mimeType,
     });
     form.set('source', blob, input.file.filename);

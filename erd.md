@@ -3,8 +3,8 @@
 > **Bản đồ dữ liệu chính thức.** Mọi thay đổi schema PHẢI cập nhật file này —
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
-**Cập nhật:** 2026-07-26
-**Migration tương ứng:** `20260726163154_facebook_login_connection` (đã apply)
+**Cập nhật:** 2026-08-03
+**Migration tương ứng:** `20260803154543_content_assets_is_active` (đã apply)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -16,6 +16,7 @@ erDiagram
     users ||--o{ content_assets : "creates (created_by)"
     users ||--o{ content_assets : "approves (approved_by)"
     users ||--o{ content_assets : "last edits (updated_by)"
+    users ||--o{ content_assets : "edits media (editor_id)"
     users ||--o{ facebook_pages : creates
     users ||--o{ facebook_connections : "connects fb account"
     facebook_connections ||--o{ facebook_pages : "supplies token to"
@@ -84,10 +85,12 @@ erDiagram
         bigint file_size
         enum status
         boolean is_ads
+        boolean is_active
         text reject_comment
         uuid created_by FK
         uuid approved_by FK
         uuid updated_by FK
+        uuid editor_id FK
         timestamp created_at
         timestamp updated_at
     }
@@ -204,8 +207,10 @@ erDiagram
 | `facebook_pages` | `connection_id` | Lấy mọi page của một kết nối khi đồng bộ / ngắt kết nối |
 | `facebook_connections` | UNIQUE `fb_user_id` | Một tài khoản Facebook chỉ có 1 kết nối — đăng nhập lại là cập nhật dòng cũ, không đẻ dòng mới |
 | `facebook_connections` | `revoked_at` | Lọc kết nối còn hiệu lực |
-| `content_assets` | **`(status, updated_at)`** | **Cron picker: APPROVED order `updated_at ASC`** |
+| `content_assets` | **`(status, is_active, updated_at)`** | **Cron picker: APPROVED + đang dùng, order `updated_at ASC`** (thay index `(status, updated_at)` cũ) |
+| `content_assets` | `is_active` | Lọc "Đang dùng / Ngưng dùng" ở trang quản lý |
 | `content_assets` | `status` · `category` · `media_type` · `created_by` · `is_ads` | Bộ lọc trang quản lý + dashboard |
+| `content_assets` | `editor_id` | Bộ lọc "Editor" (người dựng video) trên trang Quản lý Ảnh/Video |
 | `content_page_assignments` | **UNIQUE `(content_asset_id, facebook_page_id)`** | **Mỗi bài chỉ đăng 1 lần trên 1 page** |
 | `content_page_assignments` | `(facebook_page_id, published_at)` | Thống kê bài đã đăng theo page |
 | `auto_post_slots` | `(facebook_page_id, enabled)` | Cron quét slot đến giờ |
@@ -232,6 +237,8 @@ erDiagram
 | `access_token_enc` luôn là ciphertext AES-256-GCM | `crypto.util.ts`; API trả bản mask |
 | Mọi timestamp lưu **UTC** | Prisma mặc định; UI convert sang `Asia/Ho_Chi_Minh` |
 | `content_assets.updated_at` = mốc xếp hàng cho Bot (thời điểm duyệt gần nhất) | `@updatedAt` |
+| `content_assets.is_active` = **bài còn được đem ra dùng không**, độc lập với `status` (duyệt). `false` ⇒ Bot **không lấy nữa**, nhưng **không** gỡ bài đã đăng và không đụng `publish_jobs`. Mọi nơi *tiêu thụ* bài (cron picker, đếm kho, đăng tay, lịch đăng, dashboard) phải lọc `is_active = TRUE`; riêng `GET /content-assets` **cố ý không lọc** vì đó là màn quản kho | Picker raw SQL + `ContentAssetsService`; xem `plans/19-bulk-actions.md` §2.2 |
+| `content_assets.editor_id` = người **dựng** video/ảnh (account role `EDITOR`, đang active). Khác hẳn `created_by` (người upload) và `updated_by` (người sửa gần nhất). Nullable — không bắt buộc. Ràng buộc "phải là EDITOR + active" kiểm ở **service**, DB chỉ ràng FK | `ContentAssetsService.assertEditorSelectable()` |
 | `content_assets.updated_by` = người **sửa gần nhất** (không phải người duyệt — đó là `approved_by`). `null` = bài cũ có trước khi bật tracking | `ContentAssetsService.create()/update()` set `= actor.id` |
 | Xóa page = soft delete (`deleted_at = now()`, kèm `is_active=false`) | Service — vì `publish_jobs` còn tham chiếu. **`deleted_at` (đã xoá, ẩn khỏi UI) khác `is_active` (tạm dừng, vẫn hiện ở UI)** — không dùng lẫn |
 | Page có `deleted_at != null` coi như không tồn tại (list ẩn, GET/PUT/DELETE ⇒ 404, publisher không lấy được token) | `FacebookPagesRepository` lọc `deleted_at: null` ở `findMany`/`findById` |
@@ -261,6 +268,8 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-08-03 | `20260803154543_content_assets_is_active` | **Plan 19 (Multi action).** Thêm `content_assets.is_active` (boolean, `DEFAULT true` ⇒ bài cũ giữ nguyên hành vi) + index `is_active`; đổi index picker `(status, updated_at)` → **`(status, is_active, updated_at)`**. Lý do: cần "ngưng dùng" một bài mà không xoá và không đụng tới quy trình duyệt (`status` có bảng chuyển trạng thái riêng, `PUBLISHING`/`PUBLISHED` chỉ Bot set — nhét "ngưng dùng" vào đó sẽ đẻ thêm ~10 cặp chuyển trạng thái). |
+| 2026-08-03 | `20260803130538_content_assets_editor` | **Plan 18.** Thêm cột `content_assets.editor_id` (uuid, **nullable**, FK → `users.id`, quan hệ `ContentEditor`) + index `editor_id`. Lý do: trang "Quản lý Ảnh/Video Edit" cần biết **ai dựng** video/ảnh — khác với `created_by` (ai upload lên hệ thống). Chỉ chọn được account role `EDITOR` đang active (kiểm ở service, DB không diễn tả được). Index vì trang list có filter theo Editor. |
 | 2026-07-26 | `20260726163154_facebook_login_connection` | **Plan 15 (kết nối Page bằng đăng nhập Facebook).** (1) Bảng mới `facebook_connections`: giữ **long-lived user token** (~60 ngày, mã hoá) của tài khoản Facebook đã đăng nhập, kèm `fb_user_id` UNIQUE, `scopes`, `revoked_at`. Lý do giữ lại thay vì vứt sau khi lấy Page token: cần để đồng bộ page mới và lấy lại Page token mà không bắt user đăng nhập lại. (2) `facebook_pages` thêm `connect_mode` (enum `FacebookConnectMode`, default `MANUAL_TOKEN` — dòng cũ giữ nguyên nghĩa) + `connection_id` (FK nullable, index). Lý do: user chỉ được share quyền trên Page doanh nghiệp, không cầm System User ⇒ phải lấy Page token vĩnh viễn qua đăng nhập cá nhân, nhưng luồng dán token tay vẫn phải sống song song. |
 | 2026-07-25 | `20260725122007_autopost_engine_logs` | **Plan 07 (engine auto-post).** (1) Mở rộng `slot_runs` thành nhật ký cron: thêm `status` (enum `SlotRunStatus`), `picked_count`, `job_created_count`, `skip_reason`, `started_at`, `finished_at`, `error_message` + index `(run_date, status)`. UNIQUE cũ giữ nguyên vì vẫn là khoá chống double-fire. Lý do: trả lời được "tới giờ mà không đăng gì — vì hết bài, page tắt, hay cron không chạy?". (2) Bảng mới `publish_job_events` + enum `PublishJobEventType`: nhật ký từng lần thử đăng (attempt, event, message, `raw_error` jsonb đã lọc token), cascade theo `publish_jobs`. |
 | 2026-07-25 | `20260725062013_content_assets_updated_by` | Thêm cột `content_assets.updated_by` (uuid, nullable, FK → `users.id`) + quan hệ `ContentUpdater`. Lý do: trang "Quản lý Ảnh/Video Edit" cần tracking **ai sửa gần nhất** bên cạnh `created_by` (ai upload). Nullable vì dòng cũ không biết ai sửa; không index vì chưa có truy vấn lọc theo cột này. |

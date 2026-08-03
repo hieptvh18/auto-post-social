@@ -68,6 +68,14 @@ export class CreateContentAssetDto {
 
   @ApiPropertyOptional({
     description:
+      'Người DỰNG video/ảnh — phải là account role EDITOR đang hoạt động. Không bắt buộc.',
+  })
+  @IsOptional()
+  @IsUUID()
+  editorId?: string;
+
+  @ApiPropertyOptional({
+    description:
       'Phân bổ page ngay lúc upload — bổ sung sau qua PATCH cũng được',
     type: [String],
   })

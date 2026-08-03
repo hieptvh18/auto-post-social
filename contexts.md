@@ -4,7 +4,7 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-07-27 (M10 — kết nối Page bằng đăng nhập Facebook)
+**Cập nhật lần cuối:** 2026-08-03 (Plan 19 — Multi action + `is_active` cho content)
 **Session gần nhất (mới nhất):** **M10 Kết nối Page bằng đăng nhập Facebook (plan 15) —
 code xong, chưa chạy với Meta app thật.** Đây là đường gỡ nút thắt lớn nhất của dự án:
 user chỉ được **share quyền** trên Page doanh nghiệp, không cầm System User, nên không lấy
@@ -703,6 +703,87 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 - **Test:** BE 548 test xanh (+6 cho nhánh auto-duyệt lúc create) · lint/build 2 phía xanh.
 - **Còn nợ:** chưa bấm tay trên UI.
 
+### Multi action + `is_active` cho content (Plan 19) — 🟡 2026-08-03
+
+- **Phạm vi:** chọn nhiều bài ở `/content` để **xoá** / **ngưng dùng** / **dùng lại**;
+  cột DB mới `content_assets.is_active`. Bài ngưng dùng **vẫn hiện** trong kho (làm mờ
+  + tag "Ngưng dùng") nhưng **mọi nơi tiêu thụ bài đều bỏ qua**: cron picker, đếm kho
+  (`readyCount`/`readiness`), đăng tay, lịch đăng bài, thẻ tồn kho dashboard.
+- **File chính:** `backend/src/common/bulk/bulk-result.ts` (mới, dùng lại được cho
+  resource khác), `backend/src/modules/content-assets/*`,
+  `backend/src/modules/auto-post/content-picker.repository.ts`,
+  `frontend/src/pages/ContentManagementPage.tsx`
+- **Quyết định:** (1) `is_active` là **cột riêng, không phải một `ContentStatus` mới** —
+  status có bảng chuyển trạng thái + rule "chỉ Bot set PUBLISHING/PUBLISHED", nhét
+  "ngưng dùng" vào đó sẽ đẻ ~10 cặp transition phải test. (2) Bulk **không all-or-nothing**:
+  trả `{requested, succeeded[], failed[{id,label,reason}]}` **HTTP 200** kể cả có bài bị bỏ
+  qua; UI hiện toast "đã xoá 8/10 + lý do từng bài", checkbox của bài đã đăng bị **disable**
+  sẵn. (3) Trần **100 id/lô**, xử lý **tuần tự** (mỗi bài là 1 lần gọi Drive). (4) RBAC
+  **per-item**: CONTENT chọn nhầm bài người khác ⇒ chỉ bài đó vào `failed`. (5) Audit ghi
+  **1 dòng cho cả lô**, không 100 dòng lẻ. (6) Tắt `is_active` **không** gỡ bài đã đăng và
+  job đang QUEUED/PUBLISHING **vẫn chạy** (đã qua bước pick) — cố ý.
+- **Test:** BE **687 test xanh (+34)**, FE 35 test cũ xanh, lint/build 2 phía xanh.
+  **Đã smoke API thật** — xem `plans/19-bulk-actions.md` §6.
+- **Còn nợ:** chưa bấm tay trên UI (§6 mục 26).
+
+### Cột "Editor" (người dựng video/ảnh) cho Quản lý Ảnh/Video (Plan 18) — 🟡 2026-08-03
+
+- **Phạm vi:** thêm trường **Editor** = *ai dựng* video/ảnh, khác hẳn "Người upload".
+  Chọn được trong Modal upload + Drawer sửa (**không bắt buộc**), có cột riêng trên bảng
+  và ô filter. Theo yêu cầu user: cột/filter **"Người upload" bị thay** bằng "Editor"
+  (code cũ để lại dạng comment, chưa xoá); label role FE `Biên tập / Duyệt bài` → `Editor`.
+- **File chính:** `backend/prisma/schema.prisma` (+ migration `20260803130538_content_assets_editor`),
+  `backend/src/modules/content-assets/*`, `backend/src/modules/users/users.repository.ts`,
+  `frontend/src/pages/ContentManagementPage.tsx`, `frontend/src/hooks/useContentAssets.ts`
+- **Quyết định:** (1) **Dùng lại role `EDITOR` sẵn có** (user chốt) — không thêm enum, không
+  đụng ma trận quyền; chỉ user role EDITOR **đang active** mới chọn được, sai ⇒ **400**
+  (FK không diễn tả được ràng buộc theo role). (2) Endpoint riêng
+  `GET /content-assets/editors` thay vì dùng `GET /users` — `/users` gác `users:manage`
+  (chỉ ADMIN) trong khi CONTENT cũng phải chọn editor cho bài của mình. (3) `editorId`
+  **không phải field duyệt** ⇒ ai sửa được bài thì set được; gửi `null` = gỡ, không gửi =
+  không đụng. (4) `erd.md` đã cập nhật (cột + index + lịch sử).
+- **Test:** BE **653 test xanh (+9 test Editor)**, FE 35 test cũ xanh, lint/build 2 phía xanh.
+  **Đã smoke API thật** (editor bị khoá / role CONTENT / uuid sai ⇒ 400, gán ⇒ trả `editor`
+  kèm tên–email, `?editorId=` lọc đúng 1 bài, gửi `null` ⇒ gỡ) — tài khoản mượn để smoke đã
+  trả về trạng thái cũ.
+- **Còn nợ:** **chưa bấm tay trên UI** — xem §6 mục 24.
+
+### Tối ưu đường publish media — cache Drive + stream, bỏ buffer RAM (Plan 17) — 🟡 2026-08-03
+
+- **Phạm vi:** cùng 1 video phân bổ cho nhiều page trước đây tải lại từ Drive cho **từng**
+  page và nạp trọn file vào RAM. Giờ tải 1 lần xuống đĩa, các job stream từ đó.
+  Kèm: timeout đăng FB đưa vào env, job hỏng trong Redis có hạn sống.
+- **File chính:** `backend/src/infra/media-cache/media-cache.service.ts` (mới),
+  `backend/src/infra/facebook/facebook-publisher.client.ts`,
+  `backend/src/modules/publish-jobs/publish-media.service.ts`
+- **Quyết định:** (1) `PublishFileInput` đổi từ `Buffer` sang **đường dẫn file**, publisher
+  dùng `fs.openAsBlob` — đo thật: video 300MB từ **1020MB RSS xuống ~200MB**, do bỏ được
+  3 bản copy Buffer/Uint8Array/Blob. (2) Dọn cache bằng **`@Cron` 10 phút + `sweep(now)`**
+  chứ không `setTimeout`, để test được bằng giờ giả (cùng khuôn `AutoPostSchedulerService.tick`).
+  (3) Tải xuống `.part` rồi `rename` — file cụt do crash không được mang tên thật, nếu không
+  lần sau sẽ đăng lên Facebook một video hỏng. (4) `FB_VIDEO_TIMEOUT_MS` 180s → 900s: 180s
+  đòi ≥14 Mbps liên tục mới đẩy nổi 300MB, không đạt thì hỏng rồi retry, mỗi lần retry lại
+  tải file về. (5) `removeOnFail: false` → hạn 7 ngày.
+- **Test:** BE **644 test xanh (+41)** — 21 test `MediaCacheService` (coverage 100%),
+  13 test `PublishMediaService`, 6 test kịch bản 4 page cùng mốc giờ, 3 test env.
+  Lint/build xanh.
+- **Còn nợ:** chưa test tay trên VPS thật với video 300MB × 4 page; FB resumable upload,
+  concurrency worker, tách queue ảnh/video — xem §6.
+
+### Nâng trần upload 300MB + vá timeout tầng Node — ✅ 2026-08-03
+
+- **Phạm vi:** `MAX_UPLOAD_MB` 200 → 300; vá `413` (Nginx) và chặn `408/504` (Node).
+- **File chính:** `backend/src/common/http/server-timeouts.ts` (mới), `backend/src/main.ts`
+- **Quyết định:** Node `server.requestTimeout` mặc định **300_000ms** là tổng thời gian nhận
+  trọn request **kể cả body** — nới Nginx không cứu được. Thêm `HTTP_REQUEST_TIMEOUT_MS`
+  (900_000) áp trước `app.listen()`. Giới hạn upload nằm ở **3 tầng độc lập**: Nginx
+  `client_max_body_size`, `MAX_UPLOAD_MB` (chỉ fallback), và `maxUploadMb` trong
+  `app_settings` (**tầng này thắng**, sửa ở UI `/settings`).
+- **Test:** 8 test `server-timeouts` gồm 3 test hành vi thật trên socket. Lint/build xanh.
+- **Còn nợ:** đường **upload** vẫn dùng multer `memoryStorage` (300MB ⇒ ~600MB RAM) — §6.
+
+---
+
 ### M10 Kết nối Page bằng đăng nhập Facebook (Plan 15) — 🟡 2026-07-27
 
 - **Phạm vi:** thay việc dán Page token tay bằng đăng nhập Facebook. BE: `GET /pages/connect/url`,
@@ -757,6 +838,12 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 13 | **Content giai đoạn 2 chưa smoke UI thật** | Code BE+FE xong (plan 11, BE 382 test xanh), đã smoke API qua curl đủ case (403 CONTENT đổi status/isAds, 400 thiếu lý do từ chối, 422 set PUBLISHED, 409 gỡ page đã đăng / xoá bài đã đăng, 400 page lạ, CONTENT sửa bài REJECTED ⇒ tự về PENDING_REVIEW, gợi ý hashtag). **Chưa test tay UI**: `/content` — bảng có cột "Phân bổ page" (tag xanh = đã đăng), Drawer sửa duyệt/không duyệt (bắt buộc lý do)/tick Đạt ADS/chọn page (page đã đăng bị khoá), ô Hashtags gõ ra gợi ý và tạo tag mới được, ô "Dạng" gõ tên mới ⇒ dropdown hiện "＋ Thêm ..." và lưu được (kiểm cả ở `/auto-post` slot categories). Đăng nhập CONTENT kiểm không thấy khối duyệt. |
 | 17 | **M8 Monitor chưa smoke UI thật** | Code BE+FE xong (plan 13, BE 516 test xanh), đã smoke API thật đủ case (Redis chết ⇒ 200 + `queue: null`, job kẹt 30 phút ⇒ `stuckMinutes: 30`, phân trang + lọc `/publish-jobs` và `/audit-logs`, EDITOR ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/queue` (thẻ số tự nhảy trong 10s sau `POST /auto-post/run-now`, tắt container Redis ⇒ badge "Mất kết nối" chứ không trắng trang), `/failed` (phân trang >20 job, "Xem nhật ký", "Đăng lại" ⇒ 409 khi bấm lại lúc đang QUEUED), `/audit` (lọc ngày/action/user, Drawer diff JSON, log cron hiện tag "Bot"), và **mở lại `/timeline`** xác nhận không gãy sau khi đổi shape `/publish-jobs`. EDITOR gõ thẳng `/queue`,`/failed`,`/audit` ⇒ bị đá về `/dashboard`. Xong thì `git mv plans/13-monitor.md plans/DONE/`. Còn thiếu: ô tìm kiếm theo tiêu đề ở `/failed` (backend đã hỗ trợ `search`). |
 | 19 | **M10 Kết nối Facebook chưa smoke với Meta app thật** | Code BE+FE xong (plan 15, BE 590 test xanh, +41 test mới), nhưng **chưa chạy lần nào với Meta app thật** vì cần user tạo app + tự thêm mình vào **App roles → Tester** (nếu không, đăng nhập vẫn thành công nhưng `/me/accounts` rỗng — đúng cái bẫy đã gặp ở mục 10). Cần: `/settings` tab "Facebook App" nhập App ID/Secret, copy Redirect URI dán vào Meta (Facebook Login → Valid OAuth Redirect URIs), `/pages` bấm "Kết nối bằng Facebook" → consent → modal chọn page → import. **Bằng chứng làm đúng: page vừa import phải hiện "Hết hạn: Vĩnh viễn" và Test kết nối trả `tokenType=PAGE`, `expiresAt=null`.** Nếu ra một ngày cụ thể ⇒ bước đổi long-lived hỏng. Sau đó trả nốt mục 10/11/15 (đăng thật lên Page). Xong thì `git mv plans/15-facebook-login-connect.md plans/DONE/`. |
+| 20 | **Plan 17 chưa smoke trên VPS thật** | Cache media + stream đã xong, 644 test xanh, nhưng **chưa chạy lần nào với video lớn thật**. Cần: 1 video ~300MB phân bổ 4 page, cùng mốc giờ. Bằng chứng làm đúng: log `Đã tải file <id> (300MB) xuống cache` xuất hiện **đúng 1 lần** cho 4 job; `pm2 monit` RSS **không** vọt lên ~1GB; 4 bài lên đủ 4 page. Kiểm luôn `MEDIA_CACHE_DIR` không phình sau vài ngày (cron dọn 10 phút/lần). Xong thì `git mv plans/17-publish-media-optimize.md plans/DONE/`. |
+| 21 | **Đường UPLOAD vẫn buffer toàn bộ vào RAM** | `media.controller.ts` dùng multer `memoryStorage()` ⇒ file 300MB chiếm ~300MB RAM, cộng bản copy khi đẩy lên Drive là ~600MB **cho một request**. Plan 17 chỉ vá chiều **đăng bài** (Drive→FB), chưa vá chiều **upload** (browser→Drive). VPS dưới 2GB có thể OOM khi vừa upload vừa đăng. Hướng xử lý: stream thẳng request → Google Drive resumable upload, hoặc ghi ra file tạm rồi stream lên. |
+| 22 | **Facebook resumable upload cho video lớn** | Hiện đẩy video trong **một** POST tới `graph-video.facebook.com`. Meta khuyến nghị chunked/resumable cho video lớn; một POST 300MB dễ đứt giữa chừng và phải làm lại từ đầu. Cần plan riêng (dự kiến plan 18). |
+| 23 | **Worker concurrency vẫn = 1, chưa tách queue ảnh/video** | Giữ 1 là đúng khi RAM còn phình; sau plan 17 RAM đã phẳng nên nâng được, nhưng phải đo rate limit Meta trước. Hệ quả hiện tại: một video 300MB chiếm hàng đợi vài phút, mọi bài **ảnh** của page khác xếp sau phải chờ. Cân nhắc 2 queue riêng + `limiter` của BullMQ. |
+| 26 | **Multi action (plan 19) chưa smoke UI thật** | Code BE+FE xong (BE 687 test xanh), đã smoke API đủ case (xem plan 19 §6). **Chưa bấm tay UI**: `/content` — chọn nhiều dòng (dòng đã đăng phải **mờ checkbox**), thanh "Đã chọn N bài" hiện đúng, bấm **Ngưng dùng** ⇒ dòng mờ + tag, bấm **Xoá** với lô có bài đã đăng ⇒ notification liệt kê bài bị bỏ qua kèm lý do; ô lọc "Trạng thái dùng"; Switch "Đang dùng" trong Drawer sửa. Sau đó `POST /auto-post/run-now` xác nhận Bot **không** lấy bài đã ngưng. Đăng nhập CONTENT kiểm chỉ thao tác được trên bài của mình. Xong thì `git mv plans/19-bulk-actions.md plans/DONE/`. |
+| 24 | **Cột "Editor" chưa smoke UI thật** | Code BE+FE xong (plan 18, BE 653 test xanh), đã smoke API qua curl đủ case 400/gán/lọc/gỡ. **Chưa bấm tay UI**: `/content` — mở Modal upload chọn Editor (bỏ trống vẫn upload được), Drawer sửa đổi/gỡ Editor, cột "Editor" hiện đúng tên (bài chưa gán hiện "—"), ô filter "Editor" lọc đúng và gõ tìm được theo tên. Kiểm bằng account **CONTENT** (phải thấy danh sách Editor dù không có quyền `/users`). Lưu ý: DB dev hiện **không có EDITOR nào đang active** ⇒ dropdown rỗng là đúng, phải tạo 1 account role Editor ở `/users` trước. Xong thì `git mv plans/18-content-editor-field.md plans/DONE/`. |
 | 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
 
 ---
@@ -767,6 +854,8 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 
 | Vấn đề | Nguyên nhân & cách xử lý |
 |--------|--------------------------|
+| **Bộ lọc boolean trên query string luôn ra `true`** (`?isAds=false`, `?isActive=false` không lọc được) | `ValidationPipe` bật `transformOptions.enableImplicitConversion` ⇒ class-transformer chạy `Boolean('false') === true` **trước** khi `@Transform` được gọi, nên `@Transform(({ value }) => ...)` nhận sẵn `true` chứ không phải chuỗi gốc. Lỗi âm thầm, unit test cũ không thấy vì test gọi service chứ không qua pipe. **Cách xử lý:** trong `@Transform` đọc giá trị gốc từ `obj[key]` (`@Transform(({ obj }) => toBoolean(obj.isAds))`), và có test dựng DTO **kèm `enableImplicitConversion: true`** để khoá lại — xem `content-assets/__tests__/bulk-content-assets.dto.spec.ts`. Áp dụng cho mọi DTO query có field boolean. |
+| **Server smoke cũ không chết ⇒ test nhầm build cũ** | `pkill -f "PORT=3002"` chỉ giết tiến trình npm, `node dist/main` vẫn giữ cổng; instance mới bật lên chết vì `EADDRINUSE` nhưng lệnh chạy nền không báo gì, curl vẫn xanh nên rất dễ tưởng code mới đã chạy. **Cách xử lý:** luôn `lsof -ti:<port> | xargs kill` rồi kiểm lại cổng trống trước khi smoke. |
 | FE `vite.config.ts` không nhận key `test` của vitest (TS2769) và xung đột type `Plugin` | Vite 8 dùng rolldown, còn vitest kéo theo bản vite riêng ⇒ hai kiểu `Plugin` khác nhau. Xử lý: **tách cấu hình test ra `vitest.config.ts` riêng** (`defineConfig` từ `vitest/config`), giữ `vite.config.ts` dùng `defineConfig` của `vite`; script test trỏ `--config vitest.config.ts`. |
 | Test FE `localStorage.clear is not a function` | jsdom trong môi trường này cấp `localStorage` thiếu method. Xử lý: stub `MemoryStorage` trong `src/test/setup.ts` gán vào `globalThis.localStorage`. |
 | `prisma migrate` báo `P1012: datasource url no longer supported` | **Prisma 7** bỏ `url` trong `schema.prisma`. Phải khai ở `prisma.config.ts` (`defineConfig({ datasource: { url: env('DATABASE_URL') } })`) và runtime client dùng `new PrismaClient({ adapter: new PrismaPg({ connectionString }) })`. Cũng bỏ luôn flag `--skip-generate`. |
@@ -785,4 +874,9 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | Chart Dashboard gom **sai ngày** dù đã dùng `AT TIME ZONE 'Asia/Ho_Chi_Minh'` | Prisma map `DateTime` sang `timestamp` **without** time zone, nên `schedule_time AT TIME ZONE 'Asia/Ho_Chi_Minh'` khiến Postgres hiểu giá trị đang lưu **là giờ VN** rồi đổi ngược chiều — bài 23:30 và 00:30 giờ VN (khác ngày) dồn hết vào một cột. Đúng phải là `schedule_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh'`: lần đầu gắn nhãn UTC cho giá trị naive, lần sau mới đổi sang giờ VN. **Bài học: lỗi này unit test không bao giờ bắt được vì nó nằm trong SQL — mọi câu raw gom theo ngày đều phải smoke với 2 bản ghi cận biên 23:30/00:30.** |
 | `ORDER BY "imagePosts" + "videoPosts"` ⇒ 500 `column does not exist` | Postgres cho dùng alias output ở `ORDER BY` **trần**, nhưng không cho dùng trong **biểu thức**. Phải lặp lại nguyên hàm `COUNT(*) FILTER (...)`. |
 | Prisma mất type `_count._all` khi gộp `groupBy` + `count` vào cùng một `$transaction([...])` | Mảng `$transaction` làm suy kiểu thành union ⇒ `_count` thành union `true / 0 / object`. Xử lý: dùng `Promise.all` cho trường hợp trộn nhiều loại query; `$transaction` chỉ giữ khi các query cùng loại. `groupBy` cũng bắt buộc có `orderBy`. |
+| Test `MediaCacheService` xoá file hết hạn không bao giờ xanh với `jest.useFakeTimers()` (2026-08-03) | Eviction ban đầu dùng `setTimeout` rồi `await rm(...)` bên trong callback. `jest.advanceTimersByTimeAsync` đẩy được đồng hồ nhưng **không chờ thao tác `fs` thật** trong callback ⇒ assert chạy trước khi file kịp xoá. Xử lý gốc: bỏ hẳn `setTimeout`, đổi sang `@Cron` + hàm `sweep(now)` nhận thời điểm — test gọi thẳng `sweep()` và `await` được. **Bài học: khi fake timer làm test khó xanh, thường là thiết kế đang trộn "khi nào chạy" với "chạy cái gì" — tách ra theo mẫu `AutoPostSchedulerService.tick(now)` thay vì vật lộn với timer.** |
+| Thêm biến env có default nhưng `.env.example` ship giá trị RỖNG ⇒ app crash lúc boot (2026-08-03) | `MEDIA_CACHE_DIR=` (rỗng) đi vào `@IsNotEmpty()` là lỗi validate ngay. Viết `@Transform` trả `undefined` **vẫn không cứu được**: `plainToInstance` chạy với `exposeDefaultValues: true` gán `undefined` đè lên default của class. Transform phải trả **thẳng giá trị mặc định**. **Bài học: mỗi key mới ship rỗng trong `.env.example` phải có 1 test `validateEnv({ KEY: '' })`, nếu không lỗi chỉ lộ ra lúc deploy trên máy vừa copy file mẫu.** |
+| Upload video 66MB trên production báo `413 Request Entity Too Large` (2026-08-03) | **Không phải lỗi backend.** Backend vượt giới hạn thì ném `BadRequestException` **400** kèm message tiếng Việt (`media.service.ts`), còn multer `memoryStorage()` không đặt `limits` nên không bao giờ trả 413. 413 là của **Nginx**, mặc định `client_max_body_size 1m` — server block do certbot sinh ra trên VPS không có dòng này. Xử lý: thêm `client_max_body_size` + `proxy_send/read_timeout 600s` + `proxy_request_buffering off` vào server block, `nginx -T \| grep client_max_body_size` để xác nhận config **đang chạy**. **Bài học: giới hạn upload nằm ở 3 tầng độc lập — Nginx, `MAX_UPLOAD_MB` (chỉ là fallback), và giá trị `maxUploadMb` lưu trong `app_settings` (tầng này thắng, sửa ở UI /settings). Đổi 1 tầng mà quên 2 tầng kia thì vẫn chặn.** |
+| Nới `client_max_body_size` xong, upload file lớn vẫn chết — lần này là `504`/`408` (2026-08-03) | **Node có timeout riêng mà Nginx không cứu được:** `server.requestTimeout` mặc định **300_000ms** = tổng thời gian nhận trọn 1 request **kể cả body**. Với `proxy_request_buffering off`, backend nhận file theo đúng tốc độ mạng người upload ⇒ video 300MB từ đường <8 Mbps vượt 300s, **Node trả 408 và huỷ request** dù `proxy_read_timeout` để 600s. Xử lý: `common/http/server-timeouts.ts` + `HTTP_REQUEST_TIMEOUT_MS` (mặc định 900_000), gọi trong `main.ts` **trước** `app.listen()`. **Bài học: timeout upload có 4 tầng — Nginx, Node `requestTimeout`, `headersTimeout`, và CDN nếu có. Sửa mỗi Nginx là sửa được đúng 1/4.** Lưu ý phụ: Node quét connection quá hạn theo `connectionsCheckingInterval` (mặc định 30s) nên test hành vi phải hạ giá trị này xuống mới quan sát được. |
 | Đổi `TOKEN_ENCRYPTION_KEY` ⇒ UI báo *"Không giải mã được dữ liệu — sai khoá mã hoá..."* ở nhiều màn khác nhau (2026-07-28) | Mọi secret trong `app_settings`/`facebook_pages` mã hoá bằng khoá cũ thành rác. Commit `ee4a062` mới vá **một** đường (Drive settings), nên lỗi lại nổi ở `/pages` → nút "Kết nối lại" (đường `getFacebookAppCredentials` giải mã `appSecretEnc`). Xử lý gốc: thêm `CryptoService.tryDecrypt()` (null thay vì ném lỗi) + `SettingsService.decryptSecret(enc, label, howToFix)` ném **400 nói rõ phải nhập lại secret nào ở đâu**; áp cho cả 4 secret (SA JSON, Drive client secret, Drive refresh token, Meta app secret) và `FacebookPagesService.getDecryptedToken`. **Bài học: khi vá lỗi do đổi khoá mã hoá, phải quét `grep -rn "\.decrypt("` và xử lý toàn bộ call site — vá lẻ từng chỗ thì lỗi chỉ đổi màn hình.** |
+| Upload Drive báo `invalid_grant`, UI vẫn hiện "đã kết nối" (2026-08-03) | `invalid_grant` không phải lỗi Drive API mà là lỗi bước đổi **refresh token → access token**, nên không có `code`/`reason` như lỗi Drive thường ⇒ rơi xuống nhánh cuối `mapDriveError` thành **500** với message thô. Nguyên nhân gốc hay gặp nhất: OAuth consent screen còn ở chế độ **Testing** ⇒ Google thu hồi refresh token sau **7 ngày** (phải Publish app). Xử lý: `DriveAuthExpiredError` (502, message hướng dẫn kết nối lại) nhận diện qua `response.data.error` **lẫn** `message`; `DriveStorageFactory` bọc storage OAuth2 để khi gặp lỗi này thì gọi `SettingsService.clearOauthTokens()` (xoá `oauthRefreshTokenEnc` + email, actor = null) và bỏ client đang cache. **Bài học: token chết mà không xoá thì `oauthConnected` vẫn `true` và client hỏng còn nằm trong cache cho tới khi restart — lỗi xác thực phải dọn state, không chỉ đổi message.** |

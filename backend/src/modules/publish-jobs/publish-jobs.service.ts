@@ -23,6 +23,7 @@ import {
   type PagingParams,
 } from './publish-jobs.repository';
 import {
+  FAILED_JOB_RETENTION_SECONDS,
   PUBLISH_FACEBOOK_QUEUE,
   PUBLISH_MAX_ATTEMPTS,
   type PublishFacebookJobData,
@@ -151,7 +152,7 @@ export class PublishJobsService {
       );
     }
 
-    // Bull job cũ vẫn nằm trong Redis (`removeOnFail: false`) nên add lại cùng
+    // Bull job cũ vẫn nằm trong Redis (chưa hết hạn giữ) nên add lại cùng
     // jobId sẽ bị bỏ qua — dọn cái cũ rồi dùng jobId mới có mốc thời gian.
     if (job.bullJobId !== null) {
       try {
@@ -202,7 +203,9 @@ export class PublishJobsService {
         attempts: PUBLISH_MAX_ATTEMPTS,
         backoff: { type: 'exponential', delay: 60_000 },
         removeOnComplete: 100,
-        removeOnFail: false,
+        // Không giữ job hỏng vĩnh viễn: Redis dùng chung với dự án khác, để
+        // vô hạn là rò rỉ dung lượng. 7 ngày đủ để điều tra ở màn Failed Jobs.
+        removeOnFail: { age: FAILED_JOB_RETENTION_SECONDS },
       },
     );
 

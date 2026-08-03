@@ -1,6 +1,12 @@
-/** File media đã nạp sẵn để đẩy lên Graph (multipart field `source`). */
+/**
+ * File media để đẩy lên Graph (multipart field `source`).
+ *
+ * Cố tình là **đường dẫn trên đĩa**, không phải Buffer: một video 300MB nạp vào
+ * Buffer rồi qua `new Blob([...])` ngốn ~1GB RSS vì bị copy nhiều lần. Với path,
+ * `fs.openAsBlob` cho undici stream thẳng từ đĩa, RAM giữ phẳng.
+ */
 export interface PublishFileInput {
-  buffer: Buffer;
+  path: string;
   filename: string;
   mimeType: string;
 }

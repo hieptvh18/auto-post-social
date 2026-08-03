@@ -54,6 +54,19 @@ export class UsersRepository {
     return { data, total };
   }
 
+  /**
+   * Mọi user của một role, **kể cả đã vô hiệu hoá**, xếp người đang hoạt động lên
+   * trước rồi tới tên. Nguồn cho các ô chọn người trên UI (vd ô "Editor" ở trang
+   * Quản lý Ảnh/Video): form chỉ nhận người đang hoạt động, còn bộ lọc vẫn phải
+   * liệt kê người đã nghỉ — nếu không thì bài cũ do họ dựng sẽ không lọc ra được.
+   */
+  findByRole(role: UserRole): Promise<User[]> {
+    return this.prisma.user.findMany({
+      where: { role },
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+    });
+  }
+
   findById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
   }

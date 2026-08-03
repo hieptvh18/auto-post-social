@@ -56,7 +56,7 @@ interface SavedDriveSettings {
 const MOCK_SAVED: SavedDriveSettings = {
   authMode: 'service_account',
   folderId: '',
-  maxUploadMb: 200,
+  maxUploadMb: 300,
   hasServiceAccount: false,
   serviceAccountEmail: null,
   hasOauthClient: false,

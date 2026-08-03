@@ -6,10 +6,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ContentStatus, UserRole } from '../../../generated/prisma/client';
+import {
+  BulkItemError,
+  runBulkSequential,
+  type BulkResult,
+} from '../../common/bulk/bulk-result';
 import { hasPermission } from '../../common/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { DriveStorageFactory } from '../../infra/drive/drive-storage.factory';
 import { AuditAction, AuditService } from '../audit/audit.service';
+import { UsersRepository } from '../users/users.repository';
 import {
   toContentAssetResponse,
   type ContentAssetResponse,
@@ -42,6 +48,15 @@ export interface CategorySuggestion {
   count: number;
 }
 
+/** Một account cho ô "Editor" (người dựng video/ảnh). */
+export interface EditorOption {
+  id: string;
+  name: string;
+  email: string;
+  /** `false` = đã vô hiệu hoá: **lọc được** nhưng **không gán mới** được. */
+  isActive: boolean;
+}
+
 /** Mã lỗi unique constraint của Prisma — dùng để đổi 500 thành 409. */
 const PRISMA_UNIQUE_VIOLATION = 'P2002';
 
@@ -49,6 +64,7 @@ const PRISMA_UNIQUE_VIOLATION = 'P2002';
 export class ContentAssetsService {
   constructor(
     private readonly repository: ContentAssetsRepository,
+    private readonly usersRepository: UsersRepository,
     private readonly driveFactory: DriveStorageFactory,
     private readonly auditService: AuditService,
   ) {}
@@ -67,8 +83,10 @@ export class ContentAssetsService {
       category: query.category,
       status: query.status,
       isAds: query.isAds,
+      isActive: query.isActive,
       search: query.search,
       createdBy,
+      editorId: query.editorId,
       page: query.page,
       limit: query.limit,
     });
@@ -141,12 +159,29 @@ export class ContentAssetsService {
     );
   }
 
+  /**
+   * Account cho ô "Editor" — mọi user role EDITOR, **kèm cả người đã vô hiệu hoá**
+   * (cờ `isActive`) để bộ lọc còn tìm được bài cũ do họ dựng; form chỉ cho chọn
+   * người đang hoạt động. `GET /users` gác `users:manage` (ADMIN) nên CONTENT
+   * không lấy được danh sách này ở đó, mà CONTENT vẫn phải chọn editor cho bài mình.
+   */
+  async findEditorOptions(): Promise<EditorOption[]> {
+    const editors = await this.usersRepository.findByRole(UserRole.EDITOR);
+    return editors.map((editor) => ({
+      id: editor.id,
+      name: editor.name,
+      email: editor.email,
+      isActive: editor.isActive,
+    }));
+  }
+
   async create(
     dto: CreateContentAssetDto,
     actor: AuthenticatedUser,
   ): Promise<ContentAssetResponse> {
     const assignedPageIds = dedupe(dto.assignedPageIds ?? []);
     await this.assertPagesExist(assignedPageIds);
+    await this.assertEditorSelectable(dto.editorId);
 
     // ADMIN tự upload thì khỏi phải tự duyệt lại bài của chính mình: vào thẳng
     // APPROVED và ghi luôn người duyệt. Role khác vẫn qua hàng chờ duyệt.
@@ -167,6 +202,7 @@ export class ContentAssetsService {
       fileSize: dto.fileSize,
       createdById: actor.id,
       updatedById: actor.id,
+      editorId: dto.editorId,
       assignedPageIds,
       status: autoApproved ? ContentStatus.APPROVED : undefined,
       approvedById: autoApproved ? actor.id : undefined,
@@ -194,6 +230,9 @@ export class ContentAssetsService {
     const current = await this.getOrFail(id);
     this.assertOwnership(current, actor);
     this.assertCanSetReviewFields(dto, actor);
+    if (dto.editorId !== undefined && dto.editorId !== null) {
+      await this.assertEditorSelectable(dto.editorId);
+    }
 
     const data: UpdateContentAssetData = {
       title: dto.title,
@@ -205,6 +244,10 @@ export class ContentAssetsService {
     };
 
     if (dto.isAds !== undefined) data.isAds = dto.isAds;
+    // "Đang dùng" không phải field duyệt ⇒ ai sửa được bài thì đổi được.
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    // `null` = gỡ người dựng; `undefined` = không đụng tới field này.
+    if (dto.editorId !== undefined) data.editorId = dto.editorId;
 
     if (dto.status !== undefined) {
       const change = planStatusChange({
@@ -233,6 +276,97 @@ export class ContentAssetsService {
 
   async remove(id: string, actor: AuthenticatedUser): Promise<void> {
     const current = await this.getOrFail(id);
+    await this.removeExisting(current, actor);
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: AuditAction.CONTENT_DELETE,
+      resource: `content_asset:${id}`,
+      beforeValue: { title: current.title, driveFileId: current.driveFileId },
+    });
+  }
+
+  /**
+   * Xoá hàng loạt (plan 19). **Không all-or-nothing**: bài nào vướng thì vào
+   * `failed` kèm lý do, phần còn lại vẫn xoá. Ghi **một** dòng audit cho cả lô —
+   * 100 dòng lẻ làm màn `/audit` không đọc nổi.
+   */
+  async bulkDelete(
+    ids: string[],
+    actor: AuthenticatedUser,
+  ): Promise<BulkResult> {
+    const result = await runBulkSequential(dedupe(ids), async (id) => {
+      const current = await this.getOrFail(id);
+      try {
+        await this.removeExisting(current, actor);
+      } catch (error) {
+        // Gắn tiêu đề bài vào lỗi để UI liệt kê được "bài nào bị bỏ qua".
+        throw new BulkItemError(current.title, messageOf(error));
+      }
+    });
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: AuditAction.CONTENT_BULK_DELETE,
+      resource: 'content_asset:bulk',
+      afterValue: {
+        requested: result.requested,
+        deletedIds: result.succeeded,
+        failedCount: result.failed.length,
+      },
+    });
+
+    return result;
+  }
+
+  /**
+   * Ngưng dùng / dùng lại hàng loạt. Chỉ đụng đúng một cột boolean nên phần ghi
+   * làm bằng **một** `updateMany` sau khi đã lọc quyền từng bài.
+   */
+  async bulkSetActive(
+    ids: string[],
+    isActive: boolean,
+    actor: AuthenticatedUser,
+  ): Promise<BulkResult> {
+    const allowedIds: string[] = [];
+    const result = await runBulkSequential(dedupe(ids), async (id) => {
+      const current = await this.getOrFail(id);
+      try {
+        this.assertOwnership(current, actor);
+      } catch (error) {
+        throw new BulkItemError(current.title, messageOf(error));
+      }
+      allowedIds.push(id);
+    });
+
+    if (allowedIds.length > 0) {
+      await this.repository.setActiveMany(allowedIds, isActive, actor.id);
+    }
+
+    await this.auditService.log({
+      userId: actor.id,
+      action: AuditAction.CONTENT_BULK_ACTIVE,
+      resource: 'content_asset:bulk',
+      afterValue: {
+        isActive,
+        requested: result.requested,
+        changedIds: allowedIds,
+        failedCount: result.failed.length,
+      },
+    });
+
+    return result;
+  }
+
+  /**
+   * Phần xoá dùng chung cho xoá đơn lẻ và xoá hàng loạt: kiểm quyền → chặn bài đã
+   * đăng → xoá file Drive → xoá bản ghi. Xoá file trước để không còn file mồ côi
+   * trên Drive khi bản ghi đã biến mất.
+   */
+  private async removeExisting(
+    current: ContentAssetWithActors,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
     this.assertOwnership(current, actor);
 
     const published = current.assignments.filter(
@@ -246,14 +380,7 @@ export class ContentAssetsService {
 
     const storage = await this.driveFactory.get();
     await storage.delete(current.driveFileId);
-    await this.repository.delete(id);
-
-    await this.auditService.log({
-      userId: actor.id,
-      action: AuditAction.CONTENT_DELETE,
-      resource: `content_asset:${id}`,
-      beforeValue: { title: current.title, driveFileId: current.driveFileId },
-    });
+    await this.repository.delete(current.id);
   }
 
   /** Gọi repository, đổi lỗi unique (P2002) thành 409 có nghĩa. */
@@ -296,6 +423,16 @@ export class ContentAssetsService {
           status: after.status,
           rejectComment: after.rejectComment,
         },
+      });
+    }
+
+    if (before.isActive !== after.isActive) {
+      await this.auditService.log({
+        userId: actor.id,
+        action: AuditAction.CONTENT_ACTIVE_TOGGLE,
+        resource: `content_asset:${after.id}`,
+        beforeValue: { isActive: before.isActive },
+        afterValue: { isActive: after.isActive },
       });
     }
 
@@ -363,6 +500,25 @@ export class ContentAssetsService {
     await this.assertPagesExist(addPageIds);
 
     return { addPageIds, removePageIds };
+  }
+
+  /**
+   * Người dựng phải là account **role EDITOR đang hoạt động**. Gửi id lạ / user
+   * bị khoá / user role khác đều là input sai ⇒ 400 (FK ở DB không diễn tả được
+   * ràng buộc theo role).
+   */
+  private async assertEditorSelectable(editorId?: string): Promise<void> {
+    if (editorId === undefined) return;
+    const editor = await this.usersRepository.findById(editorId);
+    if (
+      editor === null ||
+      !editor.isActive ||
+      editor.role !== UserRole.EDITOR
+    ) {
+      throw new BadRequestException(
+        'Editor phải là tài khoản có vai trò Editor và đang hoạt động',
+      );
+    }
   }
 
   /** Page không tồn tại (hoặc đã xoá) là input sai ⇒ 400, không phải 404. */
@@ -437,6 +593,12 @@ function splitHashtags(raw: string): string[] {
     .map((token) => token.trim())
     .filter((token) => token !== '' && token !== '#')
     .map((token) => (token.startsWith('#') ? token : `#${token}`));
+}
+
+/** Lấy câu lỗi để nhét vào báo cáo lô; lỗi lạ vẫn có chữ đọc được. */
+function messageOf(error: unknown): string {
+  if (error instanceof Error && error.message !== '') return error.message;
+  return 'Lỗi không xác định';
 }
 
 function dedupe(values: string[]): string[] {

@@ -30,6 +30,11 @@ export class AppConfigService {
     return this.get('API_PREFIX');
   }
 
+  /** Xem `common/http/server-timeouts.ts` — quyết định upload file lớn có bị cắt không. */
+  get httpRequestTimeoutMs(): number {
+    return this.get('HTTP_REQUEST_TIMEOUT_MS');
+  }
+
   /** Timezone dùng để so khớp mốc giờ slot auto-post. */
   get timezone(): string {
     return this.get('TZ_DISPLAY');
@@ -85,11 +90,23 @@ export class AppConfigService {
     appId?: string;
     appSecret?: string;
     graphVersion: string;
+    imageTimeoutMs: number;
+    videoTimeoutMs: number;
   } {
     return {
       appId: this.get('META_APP_ID'),
       appSecret: this.get('META_APP_SECRET'),
       graphVersion: this.get('META_GRAPH_API_VERSION'),
+      imageTimeoutMs: this.get('FB_IMAGE_TIMEOUT_MS'),
+      videoTimeoutMs: this.get('FB_VIDEO_TIMEOUT_MS'),
+    };
+  }
+
+  /** Cache file Drive dùng chung giữa các job đăng cùng một video. */
+  get mediaCache(): { dir: string; ttlMs: number } {
+    return {
+      dir: this.get('MEDIA_CACHE_DIR'),
+      ttlMs: this.get('MEDIA_CACHE_TTL_MS'),
     };
   }
 

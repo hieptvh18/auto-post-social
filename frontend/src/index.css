@@ -30,3 +30,9 @@ body {
   background: rgba(0, 0, 0, 0.15);
   border-radius: 3px;
 }
+
+/* Bài "ngưng dùng" (content_assets.is_active = false): vẫn hiện trong kho nhưng
+   phải nhìn ra ngay là Bot không lấy nữa — làm mờ thay vì ẩn (plan 19). */
+.row-inactive > td {
+  opacity: 0.55;
+}

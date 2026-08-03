@@ -1,7 +1,9 @@
 import type {
+  BulkResult,
   CategorySuggestion,
   ContentAssetResponse,
   CreateContentAssetBody,
+  EditorOption,
   HashtagSuggestion,
   PaginatedContentAssets,
   QueryContentAssetsParams,
@@ -36,6 +38,11 @@ export const contentAssetsApi = {
     return apiRequest<CategorySuggestion[]>('/content-assets/categories');
   },
 
+  /** Account chọn được vào ô "Editor" — role EDITOR đang hoạt động. */
+  editors(): Promise<EditorOption[]> {
+    return apiRequest<EditorOption[]>('/content-assets/editors');
+  },
+
   getById(id: string): Promise<ContentAssetResponse> {
     return apiRequest<ContentAssetResponse>(`/content-assets/${id}`);
   },
@@ -52,6 +59,22 @@ export const contentAssetsApi = {
     return apiRequest<ContentAssetResponse>(`/content-assets/${id}`, {
       method: 'PATCH',
       body,
+    });
+  },
+
+  /** Xoá nhiều bài; bài vướng bị bỏ qua kèm lý do (không all-or-nothing). */
+  bulkDelete(ids: string[]): Promise<BulkResult> {
+    return apiRequest<BulkResult>('/content-assets/bulk-delete', {
+      method: 'POST',
+      body: { ids },
+    });
+  },
+
+  /** Ngưng dùng / dùng lại nhiều bài. */
+  bulkSetActive(ids: string[], isActive: boolean): Promise<BulkResult> {
+    return apiRequest<BulkResult>('/content-assets/bulk-active', {
+      method: 'POST',
+      body: { ids, isActive },
     });
   },
 

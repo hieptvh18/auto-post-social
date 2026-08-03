@@ -1,8 +1,10 @@
+import type { Server as HttpServer } from 'node:http';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { applyServerTimeouts } from './common/http/server-timeouts';
 import { AppConfigService } from './config/app-config.service';
 
 async function bootstrap(): Promise<void> {
@@ -35,7 +37,15 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.createDocument(app, swaggerConfig),
   );
 
+  // Phải đặt TRƯỚC listen: upload video lớn đi qua đây, mặc định 300s là quá ngắn.
+  applyServerTimeouts(app.getHttpServer() as HttpServer, {
+    requestTimeoutMs: config.httpRequestTimeoutMs,
+  });
+
   await app.listen(config.port);
+  logger.log(
+    `HTTP requestTimeout=${config.httpRequestTimeoutMs}ms (upload file lớn)`,
+  );
   logger.log(
     `API chạy tại http://localhost:${config.port}/${config.apiPrefix}`,
   );

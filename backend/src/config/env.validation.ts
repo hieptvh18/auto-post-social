@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { plainToInstance } from 'class-transformer';
 import {
   IsBoolean,
@@ -37,6 +39,22 @@ const toBoolean = ({ value }: { value: unknown }): unknown => {
   if (['0', 'false', 'no', 'n'].includes(v)) return false;
   return value;
 };
+
+/** Thư mục cache media mặc định khi không khai trong `.env`. */
+const DEFAULT_MEDIA_CACHE_DIR = join(tmpdir(), 'tool-auto-fb-media');
+
+/**
+ * Key có mặt trong `.env` nhưng để rỗng ⇒ dùng giá trị mặc định.
+ *
+ * Phải trả thẳng giá trị mặc định chứ KHÔNG trả `undefined`: `plainToInstance`
+ * chạy với `exposeDefaultValues: true` vẫn gán `undefined` đè lên default của
+ * class, và `MEDIA_CACHE_DIR=` (đúng như trong `.env.example`) sẽ rơi vào
+ * `@IsNotEmpty()` làm app crash lúc boot.
+ */
+const emptyToDefaultDir = ({ value }: { value: unknown }): unknown =>
+  typeof value !== 'string' || value.trim() === ''
+    ? DEFAULT_MEDIA_CACHE_DIR
+    : value;
 
 const toInt = ({ value }: { value: unknown }): unknown => {
   if (typeof value !== 'string' || value.trim() === '') return value;
@@ -119,7 +137,17 @@ export class EnvVars {
   @Transform(toInt)
   @IsInt()
   @Min(1)
-  MAX_UPLOAD_MB = 200;
+  MAX_UPLOAD_MB = 300;
+
+  /**
+   * Tổng thời gian Node cho phép nhận trọn 1 request, kể cả body upload.
+   * Mặc định của Node là 300_000 — quá ngắn cho video 300MB từ mạng chậm.
+   * `0` = bỏ giới hạn (không khuyến khích: mở đường cho slowloris).
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(0)
+  HTTP_REQUEST_TIMEOUT_MS = 900_000;
 
   @IsOptional()
   @IsString()
@@ -132,6 +160,37 @@ export class EnvVars {
   @IsString()
   @IsNotEmpty()
   META_GRAPH_API_VERSION = 'v21.0';
+
+  /** Trần thời gian đẩy 1 ảnh lên Graph. */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1_000)
+  FB_IMAGE_TIMEOUT_MS = 60_000;
+
+  /**
+   * Trần thời gian đẩy 1 video lên Graph. Đây là deadline TỔNG của request:
+   * 180s cũ đòi ≥14 Mbps liên tục mới đẩy nổi 300MB, không đạt thì job hỏng rồi
+   * retry — mỗi lần retry lại tải file từ Drive về.
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1_000)
+  FB_VIDEO_TIMEOUT_MS = 900_000;
+
+  /** Thư mục chứa file media tải từ Drive về để nhiều page dùng chung. */
+  @Transform(emptyToDefaultDir)
+  @IsString()
+  @IsNotEmpty()
+  MEDIA_CACHE_DIR = DEFAULT_MEDIA_CACHE_DIR;
+
+  /**
+   * Giữ file trong cache bao lâu sau khi job cuối thả tay. Phải đủ dài để các
+   * page còn lại của cùng mốc giờ kịp dùng lại (worker chạy tuần tự).
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(0)
+  MEDIA_CACHE_TTL_MS = 600_000;
 
   @Transform(toBoolean)
   @IsBoolean()

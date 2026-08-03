@@ -56,6 +56,14 @@ export class ManualPostService {
       throw new NotFoundException('Không tìm thấy bài trong kho nội dung');
     }
 
+    // Bài đã "ngưng dùng" thì đường tự động lẫn đường tay đều không được lấy
+    // (plan 19 §2.2) — nếu không, tắt is_active vẫn đăng tay được là vô nghĩa.
+    if (!content.isActive) {
+      throw new BadRequestException(
+        `Bài "${content.title}" đang ở trạng thái Ngưng dùng — bật lại ở kho nội dung trước khi đăng`,
+      );
+    }
+
     const page = await this.pagesRepository.findById(dto.pageId);
     if (page === null) {
       throw new NotFoundException('Không tìm thấy Facebook Page');

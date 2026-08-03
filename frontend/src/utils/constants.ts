@@ -8,7 +8,7 @@ import type {
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: 'Quản trị viên',
-  EDITOR: 'Biên tập / Duyệt bài',
+  EDITOR: 'Editor',
   CONTENT: 'Content',
 };
 

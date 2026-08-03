@@ -7,20 +7,50 @@ import {
 const logger = new Logger('DriveStorage');
 
 interface GoogleApiErrorShape {
-  code?: number;
+  code?: number | string;
   message?: string;
   errors?: { reason?: string }[];
+  response?: { data?: { error?: unknown; error_description?: unknown } };
 }
 
 const readError = (error: unknown): GoogleApiErrorShape =>
   error !== null && typeof error === 'object' ? error : {};
 
 /**
+ * Refresh token OAuth không còn hiệu lực (`invalid_grant`).
+ *
+ * Tách thành class riêng để `DriveStorageFactory` bắt được và xoá token đã lưu —
+ * giữ token chết trong DB thì UI vẫn báo "đã kết nối" mà mọi upload đều lỗi.
+ */
+export class DriveAuthExpiredError extends BadGatewayException {
+  constructor() {
+    super(
+      'Kết nối Google Drive đã hết hạn hoặc bị thu hồi (invalid_grant). ' +
+        'Vào "Cài đặt chung" → Google Drive bấm "Kết nối Google" để cấp quyền lại. ' +
+        'Nếu tuần nào cũng hỏng: OAuth consent screen đang ở chế độ Testing — ' +
+        'Google thu hồi refresh token sau 7 ngày, hãy Publish app trong Google Cloud Console.',
+    );
+  }
+}
+
+/**
+ * `invalid_grant` không đến từ Drive API mà từ bước đổi refresh token lấy access
+ * token, nên không có `code`/`reason` như lỗi Drive thường — phải soi cả
+ * `response.data.error` lẫn message.
+ */
+function isInvalidGrant(error: GoogleApiErrorShape): boolean {
+  const responseError = error.response?.data?.error;
+  if (responseError === 'invalid_grant') return true;
+  return /invalid_grant/i.test(error.message ?? '');
+}
+
+/**
  * Wrap lỗi googleapis thành domain error (rule 01 §Lỗi).
  * Log nguyên response gốc, nhưng message trả ra ngoài phải nói được cách khắc phục.
  */
 export function mapDriveError(error: unknown, context: string): never {
-  const { code, message, errors } = readError(error);
+  const parsed = readError(error);
+  const { code, message, errors } = parsed;
   const reason = errors?.[0]?.reason;
   // Google đôi khi trả reason=undefined nhưng nói rõ trong message.
   const quotaByMessage = /storage quota|shared drive/i.test(message ?? '');
@@ -30,6 +60,10 @@ export function mapDriveError(error: unknown, context: string): never {
       reason,
     )} message=${String(message)}`,
   );
+
+  if (isInvalidGrant(parsed)) {
+    throw new DriveAuthExpiredError();
+  }
 
   if (
     reason === 'storageQuotaExceeded' ||

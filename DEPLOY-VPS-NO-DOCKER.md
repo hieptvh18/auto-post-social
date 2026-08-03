@@ -334,7 +334,9 @@ WEB_BASE_URL=https://tool.example.com
 # ── Google Drive (chỉ là fallback bootstrap — cấu hình thật ở UI /settings) ──
 GOOGLE_SERVICE_ACCOUNT_JSON=
 GOOGLE_DRIVE_FOLDER_ID=
-MAX_UPLOAD_MB=200
+MAX_UPLOAD_MB=300
+# Node mặc định cắt request sau 300s ⇒ video lớn từ mạng chậm bị 408/504.
+HTTP_REQUEST_TIMEOUT_MS=900000
 
 # ── Meta Graph API ──
 META_APP_ID=
@@ -484,8 +486,9 @@ server {
     root /var/www/tool-auto-fb/frontend/dist;
     index index.html;
 
-    # Upload media lên Drive đi qua backend. MAX_UPLOAD_MB=200 ⇒ để dư một chút.
-    client_max_body_size 210M;
+    # Upload media lên Drive đi qua backend. MAX_UPLOAD_MB=300 ⇒ để dư một chút
+    # cho phần overhead của multipart boundary/header.
+    client_max_body_size 320M;
 
     access_log /var/log/nginx/tool-auto-fb.access.log;
     error_log  /var/log/nginx/tool-auto-fb.error.log;
@@ -509,10 +512,12 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Upload video lên Drive có thể lâu — nới timeout
+        # Upload video lên Drive có thể lâu — nới timeout.
+        # Phải KHỚP với HTTP_REQUEST_TIMEOUT_MS của backend (900000ms = 900s):
+        # bên nào nhỏ hơn thì bên đó cắt trước.
         proxy_connect_timeout 60s;
-        proxy_send_timeout    300s;
-        proxy_read_timeout    300s;
+        proxy_send_timeout    900s;
+        proxy_read_timeout    900s;
         proxy_request_buffering off;
     }
 }
@@ -648,6 +653,7 @@ Lưu key ở password manager, **không** commit, **không** để chung chỗ v
 | `permission denied for schema public` | Postgres 15+ | `GRANT ALL ON SCHEMA public TO toolautofb;` (mục 4) |
 | `413 Request Entity Too Large` | thiếu `client_max_body_size` | mục 10 |
 | Upload video timeout ở 60s | `proxy_read_timeout` mặc định | mục 10 |
+| Upload file lớn chết ở đúng ~300s dù Nginx đã nới | Node `requestTimeout` mặc định 300s — đặt `HTTP_REQUEST_TIMEOUT_MS` | mục 10 |
 | FE gọi API ra 404 HTML | build FE với `VITE_API_BASE_URL` sai | sửa `frontend/.env` rồi **build lại** |
 | `redirect_uri_mismatch` | chưa thêm URI vào Google Console | mục 11 |
 | Job kẹt `PUBLISHING` > 15 phút | worker chết giữa chừng | `pm2 logs`, xem `/queue`; `MONITOR_STUCK_MINUTES` chỉ cảnh báo, không tự sửa |
@@ -699,7 +705,7 @@ server {
     server_name toolautofb.duckdns.org;
     # ... ssl_certificate do certbot điền ...
 
-    client_max_body_size 210M;
+    client_max_body_size 320M;
 
     location /api/ {
         proxy_pass http://127.0.0.1:3001;
@@ -709,8 +715,8 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 60s;
-        proxy_send_timeout    300s;
-        proxy_read_timeout    300s;
+        proxy_send_timeout    900s;
+        proxy_read_timeout    900s;
         proxy_request_buffering off;
     }
 }

@@ -4,6 +4,9 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import {
   MediaType,
@@ -17,6 +20,8 @@ import {
 import { FacebookConnectMode } from '../../../../generated/prisma/client';
 import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 import type { DriveStorageFactory } from '../../../infra/drive/drive-storage.factory';
+import type { ClockService } from '../../../infra/clock/clock.service';
+import { MediaCacheService } from '../../../infra/media-cache/media-cache.service';
 import type { DriveStorage } from '../../../infra/drive/drive-storage.interface';
 import type { FacebookPublisherClient } from '../../../infra/facebook/facebook-publisher.client';
 import type {
@@ -26,6 +31,7 @@ import type {
 import { FacebookGraphError } from '../../../infra/facebook/facebook.errors';
 import type { CreateAuditLogData } from '../../audit/audit.repository';
 import type { AuditService } from '../../audit/audit.service';
+import type { AppConfigService } from '../../../config/app-config.service';
 import { PublishMediaService } from '../../publish-jobs/publish-media.service';
 import type { ContentAssetsRepository } from '../../content-assets/content-assets.repository';
 import type { FacebookPagesRepository } from '../../facebook-pages/facebook-pages.repository';
@@ -59,9 +65,12 @@ const makeContent = (overrides: Partial<ContentAsset> = {}): ContentAsset => ({
   fileSize: null,
   status: 'PENDING_REVIEW',
   isAds: false,
+  isActive: true,
   rejectComment: null,
   createdById: 'user-1',
   approvedById: null,
+  updatedById: null,
+  editorId: null,
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   ...overrides,
@@ -118,9 +127,11 @@ describe('ManualPostService', () => {
     publishVideo: jest.Mock<Promise<PublishResult>, [PublishMediaInput]>;
   };
   let auditService: { log: jest.Mock<Promise<void>, [CreateAuditLogData]> };
+  let mediaCache: MediaCacheService;
+  let cacheDir: string;
   let service: ManualPostService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     repository = {
       findAssignment: jest.fn<
         Promise<ContentPageAssignment | null>,
@@ -165,6 +176,19 @@ describe('ManualPostService', () => {
     publisher.publishVideo.mockResolvedValue({ postId: 'video-1' });
     auditService.log.mockResolvedValue(undefined);
 
+    // MediaCacheService THẬT trên thư mục tạm: đường đăng giờ đi qua file trên
+    // đĩa, mock nó đi thì test không còn chứng minh được gì về đường thật.
+    cacheDir = await mkdtemp(join(tmpdir(), 'manual-post-cache-'));
+    const clock: ClockService = { now: () => new Date('2026-08-03T05:00:00Z') };
+    mediaCache = new MediaCacheService(
+      driveFactory as unknown as DriveStorageFactory,
+      {
+        mediaCache: { dir: cacheDir, ttlMs: 60_000 },
+      } as unknown as AppConfigService,
+      clock,
+    );
+    await mediaCache.onModuleInit();
+
     service = new ManualPostService(
       repository as unknown as ManualPostRepository,
       contentRepository as unknown as ContentAssetsRepository,
@@ -173,11 +197,15 @@ describe('ManualPostService', () => {
       // PublishMediaService thật (đường đăng dùng chung với Bot) trên nền
       // Drive/publisher mock — giữ nguyên các assertion về input gửi lên Graph.
       new PublishMediaService(
-        driveFactory as unknown as DriveStorageFactory,
+        mediaCache,
         publisher as unknown as FacebookPublisherClient,
       ),
       auditService as unknown as AuditService,
     );
+  });
+
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
   });
 
   describe('publishNow', () => {
@@ -253,6 +281,18 @@ describe('ManualPostService', () => {
       await expect(service.publishNow(dto, editor)).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+
+    it('ném BadRequestException khi bài đang ở trạng thái Ngưng dùng', async () => {
+      contentRepository.findById.mockResolvedValue(
+        makeContent({ isActive: false }),
+      );
+
+      await expect(service.publishNow(dto, editor)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(publisher.publishImage).not.toHaveBeenCalled();
+      expect(repository.createPublishingJob).not.toHaveBeenCalled();
     });
 
     it('ném NotFoundException khi không tìm thấy page', async () => {

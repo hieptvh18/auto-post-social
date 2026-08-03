@@ -619,6 +619,68 @@ describe('SettingsService', () => {
     });
   });
 
+  // Google trả invalid_grant ⇒ token đã chết, phải xoá để UI hiện "chưa kết nối".
+  describe('clearOauthTokens', () => {
+    const connected = (): AppSetting =>
+      makeRecord({
+        authMode: DriveAuthMode.oauth2,
+        oauthClientId: 'cid',
+        oauthClientSecretEnc: 'enc:tag:secret',
+        oauthRefreshTokenEnc: 'enc:tag:refresh',
+        oauthAccountEmail: 'me@gmail.com',
+      });
+
+    it('xoá refresh token + email, giữ nguyên client id/secret', async () => {
+      const record = connected();
+      repository.findByKey.mockResolvedValue(record);
+      repository.upsert.mockResolvedValue(record);
+
+      await service.clearOauthTokens('invalid_grant');
+
+      expect(repository.upsert).toHaveBeenCalledWith(
+        SettingKey.GOOGLE_DRIVE,
+        expect.objectContaining({
+          oauthRefreshTokenEnc: null,
+          oauthAccountEmail: null,
+          oauthClientId: 'cid',
+          oauthClientSecretEnc: 'enc:tag:secret',
+        }),
+        // Hệ thống tự xoá, không phải người dùng ⇒ userId null.
+        null,
+      );
+    });
+
+    it('bump version để DriveStorageFactory dựng lại client', async () => {
+      const record = connected();
+      repository.findByKey.mockResolvedValue(record);
+      repository.upsert.mockResolvedValue(record);
+      const before = (await service.getDriveConfig()).version;
+
+      await service.clearOauthTokens('invalid_grant');
+
+      expect((await service.getDriveConfig()).version).toBeGreaterThan(before);
+    });
+
+    it('không ghi lại khi vốn đã không có token — tránh bump version vô ích', async () => {
+      repository.findByKey.mockResolvedValue(
+        makeRecord({ authMode: DriveAuthMode.oauth2, oauthClientId: 'cid' }),
+      );
+
+      await service.clearOauthTokens('invalid_grant');
+
+      expect(repository.upsert).not.toHaveBeenCalled();
+    });
+
+    it('không làm gì khi DB chưa có bản ghi cấu hình', async () => {
+      repository.findByKey.mockResolvedValue(null);
+
+      await expect(
+        service.clearOauthTokens('invalid_grant'),
+      ).resolves.toBeUndefined();
+      expect(repository.upsert).not.toHaveBeenCalled();
+    });
+  });
+
   // Đổi TOKEN_ENCRYPTION_KEY ⇒ ciphertext cũ trong app_settings thành rác.
   // Đây là lỗi cấu hình ⇒ phải ra 400 chỉ đúng chỗ nhập lại, không phải 500 chung chung.
   describe('secret không giải mã được (đổi TOKEN_ENCRYPTION_KEY)', () => {

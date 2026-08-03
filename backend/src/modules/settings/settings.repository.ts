@@ -12,11 +12,11 @@ export class SettingsRepository {
     return this.prisma.appSetting.findUnique({ where: { key } });
   }
 
-  /** Upsert vì mỗi nhóm config chỉ có đúng 1 dòng. */
+  /** Upsert vì mỗi nhóm config chỉ có đúng 1 dòng. `updatedById = null` ⇒ hệ thống ghi. */
   upsert(
     key: SettingKeyValue,
     value: Prisma.InputJsonValue,
-    updatedById: string,
+    updatedById: string | null,
   ): Promise<AppSetting> {
     return this.prisma.appSetting.upsert({
       where: { key },
