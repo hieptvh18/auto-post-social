@@ -7,6 +7,9 @@ import ContentManagementPage from './pages/ContentManagementPage';
 import DashboardPage from './pages/DashboardPage';
 import FailedJobsPage from './pages/FailedJobsPage';
 import GuidePage from './pages/GuidePage';
+import DataDeletionPage from './pages/legal/DataDeletionPage';
+import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
+import TermsPage from './pages/legal/TermsPage';
 import LoginPage from './pages/LoginPage';
 import PageManagementPage from './pages/PageManagementPage';
 import QueueMonitorPage from './pages/QueueMonitorPage';
@@ -26,6 +29,15 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRedirect />} />
+
+      {/*
+        Ba trang pháp lý CÔNG KHAI — nộp cho Meta App Review. Phải nằm ngoài
+        ProtectedRoute: reviewer xem khi chưa đăng nhập, và phải khai báo trước
+        route "*" để không bị đá về /dashboard.
+      */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/data-deletion" element={<DataDeletionPage />} />
+      <Route path="/terms" element={<TermsPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AdminLayout />}>

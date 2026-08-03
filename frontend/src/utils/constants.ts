@@ -88,8 +88,13 @@ export const SLOT_PROGRESS_COLORS: Record<SlotProgress, string> = {
 
 export const BOT_PUBLISHER = 'Bot';
 
-export const APP_NAME = 'Luca';
+export const APP_NAME = 'Auto Planning Tool';
 export const APP_TAGLINE = 'Trung tâm Điều trị Cơ Xương Khớp';
+
+/** Email hiển thị trên 3 trang pháp lý công khai — Meta reviewer dùng để liên hệ. */
+export const LEGAL_CONTACT_EMAIL = 'hiephoangtran002@gmail.com';
+/** Ngày hiệu lực của Privacy / Terms / Data Deletion. Sửa tay khi đổi nội dung. */
+export const LEGAL_UPDATED_AT = '03/08/2026';
 
 export const PREVIEW_EMAILS: Record<UserRole, string> = {
   ADMIN: 'admin@phucan-cxk.vn',

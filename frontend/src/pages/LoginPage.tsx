@@ -1,7 +1,7 @@
 import { LockOutlined, MedicineBoxOutlined, UserOutlined } from '@ant-design/icons';
-import { Button, Card, Form, Input, Typography, message } from 'antd';
+import { Button, Card, Form, Input, Space, Typography, message } from 'antd';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS } from '../utils/constants';
@@ -97,6 +97,21 @@ export default function LoginPage() {
             </Text>
           </div>
         )}
+
+        {/* Link công khai để Meta reviewer tìm thấy 3 trang pháp lý từ trang chủ. */}
+        <div style={{ marginTop: 24, textAlign: 'center' }}>
+          <Space split="·" size={8} wrap>
+            <Link to="/privacy" style={{ fontSize: 12 }}>
+              Quyền riêng tư
+            </Link>
+            <Link to="/terms" style={{ fontSize: 12 }}>
+              Điều khoản
+            </Link>
+            <Link to="/data-deletion" style={{ fontSize: 12 }}>
+              Xoá dữ liệu
+            </Link>
+          </Space>
+        </div>
       </Card>
     </div>
   );
