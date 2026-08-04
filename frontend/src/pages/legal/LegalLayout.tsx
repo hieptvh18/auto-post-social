@@ -1,6 +1,7 @@
 import { Layout, Segmented, Space, Typography } from 'antd';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { AppLogo } from '../../components/common/AppLogo';
 import { APP_NAME, LEGAL_CONTACT_EMAIL, LEGAL_UPDATED_AT } from '../../utils/constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -37,9 +38,12 @@ export function LegalLayout({ titleVi, titleEn, children }: LegalLayoutProps) {
           wrap
         >
           <Link to="/login">
-            <Text strong style={{ fontSize: 18 }}>
-              {APP_NAME}
-            </Text>
+            <Space size={10} align="center">
+              <AppLogo size={28} />
+              <Text strong style={{ fontSize: 18 }}>
+                {APP_NAME}
+              </Text>
+            </Space>
           </Link>
           <Segmented
             value={lang}

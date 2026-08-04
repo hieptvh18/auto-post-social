@@ -89,7 +89,7 @@ export const SLOT_PROGRESS_COLORS: Record<SlotProgress, string> = {
 export const BOT_PUBLISHER = 'Bot';
 
 export const APP_NAME = 'Auto Planning Tool';
-export const APP_TAGLINE = 'Trung tâm Điều trị Cơ Xương Khớp';
+export const APP_TAGLINE = 'Tool tự động lên lịch đăng bài social';
 
 /** Email hiển thị trên 3 trang pháp lý công khai — Meta reviewer dùng để liên hệ. */
 export const LEGAL_CONTACT_EMAIL = 'hiephoangtran002@gmail.com';

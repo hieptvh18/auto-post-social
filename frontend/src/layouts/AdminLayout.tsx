@@ -6,7 +6,6 @@ import {
   FileImageOutlined,
   FacebookOutlined,
   LogoutOutlined,
-  MedicineBoxOutlined,
   QuestionCircleOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -16,6 +15,7 @@ import {
 import { Avatar, Dropdown, Layout, Menu, Select, Space, Tag, Typography, theme } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { AppLogo } from '../components/common/AppLogo';
 import { RoleTag } from '../components/common/StatusTag';
 import { canAccessRoute } from '../utils/permissions';
 import { APP_NAME, APP_TAGLINE, ROLE_LABELS } from '../utils/constants';
@@ -99,7 +99,7 @@ export function AdminLayout() {
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}
         >
-          <MedicineBoxOutlined style={{ fontSize: 22, color: '#36cfc9' }} />
+          <AppLogo size={28} />
           <div>
             <Text strong style={{ color: '#fff', display: 'block', lineHeight: 1.2 }}>
               {APP_NAME}

@@ -1,8 +1,9 @@
-import { LockOutlined, MedicineBoxOutlined, UserOutlined } from '@ant-design/icons';
+import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, Space, Typography, message } from 'antd';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
+import { AppLogo } from '../components/common/AppLogo';
 import { useAuth } from '../contexts/AuthContext';
 import { APP_NAME, APP_TAGLINE, PREVIEW_EMAILS } from '../utils/constants';
 
@@ -47,7 +48,9 @@ export default function LoginPage() {
         styles={{ body: { padding: 32 } }}
       >
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <MedicineBoxOutlined style={{ fontSize: 40, color: '#13a8a8' }} />
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <AppLogo size={56} />
+          </div>
           <Title level={3} style={{ marginTop: 12, marginBottom: 4 }}>
             {APP_NAME}
           </Title>
