@@ -40,6 +40,32 @@ export class ManualPostRepository {
     });
   }
 
+  /**
+   * Job đang chờ/chạy hoặc đã lỗi cho đúng content+page — có job này thì KHÔNG
+   * được tạo job mới, phải xử lý (chờ hoặc bấm "Đăng lại" trên chính job cũ).
+   * Không có guard này thì bấm "Đăng bài thủ công" lần 2 sau khi lần 1 lỗi sẽ
+   * tạo 2 job độc lập, có thể ra 2 bài trùng trên Page thật.
+   */
+  findBlockingJob(
+    contentAssetId: string,
+    facebookPageId: string,
+  ): Promise<PublishJob | null> {
+    return this.prisma.publishJob.findFirst({
+      where: {
+        contentAssetId,
+        facebookPageId,
+        status: {
+          in: [
+            PublishStatus.QUEUED,
+            PublishStatus.PUBLISHING,
+            PublishStatus.FAILED,
+          ],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   /** Tạo job ở trạng thái PUBLISHING ngay từ đầu — đăng thủ công là đồng bộ, không qua queue. */
   createPublishingJob(data: CreateManualJobData): Promise<PublishJob> {
     return this.prisma.publishJob.create({

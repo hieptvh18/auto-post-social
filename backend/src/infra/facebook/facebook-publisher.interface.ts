@@ -9,6 +9,8 @@ export interface PublishFileInput {
   path: string;
   filename: string;
   mimeType: string;
+  /** Byte — cần cho pha `start` của Facebook Resumable Upload API (video). */
+  size: number;
 }
 
 export interface PublishMediaInput {

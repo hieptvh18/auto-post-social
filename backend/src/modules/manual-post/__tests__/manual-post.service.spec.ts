@@ -112,6 +112,7 @@ describe('ManualPostService', () => {
     createPublishingJob: jest.Mock<Promise<PublishJob>, [CreateManualJobData]>;
     markPublished: jest.Mock<Promise<PublishJob>, [MarkPublishedData]>;
     markFailed: jest.Mock<Promise<PublishJob>, [string, string]>;
+    findBlockingJob: jest.Mock<Promise<PublishJob | null>, [string, string]>;
   };
   let contentRepository: {
     findById: jest.Mock<Promise<ContentAsset | null>, [string]>;
@@ -143,6 +144,7 @@ describe('ManualPostService', () => {
       >(),
       markPublished: jest.fn<Promise<PublishJob>, [MarkPublishedData]>(),
       markFailed: jest.fn<Promise<PublishJob>, [string, string]>(),
+      findBlockingJob: jest.fn<Promise<PublishJob | null>, [string, string]>(),
     };
     contentRepository = {
       findById: jest.fn<Promise<ContentAsset | null>, [string]>(),
@@ -164,6 +166,7 @@ describe('ManualPostService', () => {
     contentRepository.findById.mockResolvedValue(makeContent());
     pagesRepository.findById.mockResolvedValue(makePage());
     repository.findAssignment.mockResolvedValue(null);
+    repository.findBlockingJob.mockResolvedValue(null);
     repository.createPublishingJob.mockResolvedValue(makeJob());
     repository.markPublished.mockResolvedValue(makeJob());
     repository.markFailed.mockResolvedValue(makeJob());
@@ -264,6 +267,33 @@ describe('ManualPostService', () => {
       await service.publishNow(dto, editor);
 
       expect(publisher.publishImage).toHaveBeenCalledTimes(1);
+    });
+
+    it('ném ConflictException khi content+page đang có job FAILED — không tạo job mới', async () => {
+      repository.findBlockingJob.mockResolvedValue({
+        id: 'job-cu',
+        status: PublishStatus.FAILED,
+      } as PublishJob);
+
+      await expect(service.publishNow(dto, editor)).rejects.toThrow(
+        ConflictException,
+      );
+      await expect(service.publishNow(dto, editor)).rejects.toThrow(/Đăng lại/);
+      expect(repository.createPublishingJob).not.toHaveBeenCalled();
+      expect(publisher.publishImage).not.toHaveBeenCalled();
+    });
+
+    it('ném ConflictException khi content+page đang có job QUEUED/PUBLISHING — không tạo job mới', async () => {
+      repository.findBlockingJob.mockResolvedValue({
+        id: 'job-cu',
+        status: PublishStatus.PUBLISHING,
+      } as PublishJob);
+
+      await expect(service.publishNow(dto, editor)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(repository.createPublishingJob).not.toHaveBeenCalled();
+      expect(publisher.publishImage).not.toHaveBeenCalled();
     });
 
     it('ném BadRequestException khi page đang tạm dừng', async () => {

@@ -49,7 +49,9 @@ export class MediaController {
     }
 
     return this.mediaService.upload({
-      filename: file.originalname,
+      // Busboy (multer) decode header multipart bằng latin1 mặc định, trong khi
+      // trình duyệt gửi tên file UTF-8 ⇒ phải decode lại để tránh lỗi font.
+      filename: Buffer.from(file.originalname, 'latin1').toString('utf8'),
       mimeType: file.mimetype,
       buffer: file.buffer,
     });

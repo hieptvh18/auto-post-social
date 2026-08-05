@@ -177,6 +177,16 @@ export class EnvVars {
   @Min(1_000)
   FB_VIDEO_TIMEOUT_MS = 900_000;
 
+  /**
+   * Video đi qua Resumable Upload API (start/transfer/finish theo chunk do
+   * Facebook điều khiển offset) — số lần thử lại tối đa cho MỖI pha khi lỗi
+   * mạng/Graph thoáng qua, trước khi bỏ cuộc và báo job thất bại.
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  FB_VIDEO_CHUNK_RETRIES = 3;
+
   /** Thư mục chứa file media tải từ Drive về để nhiều page dùng chung. */
   @Transform(emptyToDefaultDir)
   @IsString()

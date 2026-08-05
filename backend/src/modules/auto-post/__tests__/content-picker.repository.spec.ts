@@ -74,7 +74,7 @@ describe('ContentPickerRepository', () => {
     expect(capturedSql()).toContain('c.is_active = TRUE');
   });
 
-  it('loại bài đang có job QUEUED/PUBLISHING trên page đó (không xếp hàng 2 lần)', async () => {
+  it('loại bài đang có job QUEUED/PUBLISHING/FAILED trên page đó (không xếp hàng 2 lần, không tự re-pick bài vừa lỗi)', async () => {
     await repository.pickForSlot({
       facebookPageId: 'page-1',
       categories: ['Review'],
@@ -84,7 +84,18 @@ describe('ContentPickerRepository', () => {
 
     const sql = capturedSql();
     expect(sql).toContain('NOT EXISTS');
-    expect(sql).toContain("j.status IN ('QUEUED', 'PUBLISHING')");
+    // FAILED bắt buộc có mặt: thiếu ⇒ tick cron sau tự re-pick bài vừa đăng lỗi,
+    // tạo job trùng âm thầm (plan 20, phát hiện 2026-08-05).
+    expect(sql).toContain("j.status IN ('QUEUED', 'PUBLISHING', 'FAILED')");
+  });
+
+  it('đếm kho theo danh mục cũng loại bài đang có job QUEUED/PUBLISHING/FAILED (khớp với picker)', async () => {
+    await repository.countByCategoryForPage('page-1');
+
+    // Lệch với picker ⇒ UI báo "còn N bài" mà cron lại không đăng được bài đó.
+    expect(capturedSql()).toContain(
+      "j.status IN ('QUEUED', 'PUBLISHING', 'FAILED')",
+    );
   });
 
   it('xếp hàng theo updated_at tăng dần và tôn trọng postCount', async () => {

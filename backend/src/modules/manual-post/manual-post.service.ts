@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { PublishStatus } from '../../../generated/prisma/client';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import type { PublishResult } from '../../infra/facebook/facebook-publisher.interface';
 import { AuditAction, AuditService } from '../audit/audit.service';
@@ -82,6 +83,24 @@ export class ManualPostService {
     if (assignment !== null && assignment.publishedAt !== null) {
       throw new ConflictException(
         `Bài "${content.title}" đã được đăng lên page "${page.pageName}" rồi`,
+      );
+    }
+
+    // Chặn tạo job trùng: bấm "Đăng bài thủ công" lần 2 sau khi lần 1 lỗi (thay
+    // vì dùng nút "Đăng lại" trên chính job đó) từng tạo ra 2 job độc lập ⇒ 2
+    // bài trùng trên Page thật khi lần 2 thành công.
+    const blockingJob = await this.repository.findBlockingJob(
+      content.id,
+      page.id,
+    );
+    if (blockingJob !== null) {
+      if (blockingJob.status === PublishStatus.FAILED) {
+        throw new ConflictException(
+          `Bài "${content.title}" từng đăng lỗi lên page "${page.pageName}" (job ${blockingJob.id}) — dùng nút "Đăng lại" trên lần đăng đó thay vì đăng thủ công lần nữa, tránh tạo bài trùng.`,
+        );
+      }
+      throw new ConflictException(
+        `Bài "${content.title}" đang được xử lý cho page "${page.pageName}" — đợi xử lý xong rồi thử lại.`,
       );
     }
 

@@ -4,17 +4,30 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-03 (Plan 19 — Multi action + `is_active` cho content)
-**Session gần nhất (mới nhất):** **M10 Kết nối Page bằng đăng nhập Facebook (plan 15) —
-code xong, chưa chạy với Meta app thật.** Đây là đường gỡ nút thắt lớn nhất của dự án:
-user chỉ được **share quyền** trên Page doanh nghiệp, không cầm System User, nên không lấy
-được Page token vĩnh viễn theo đường cũ (§6 mục 10 kẹt từ 25/07). Giải pháp (ADR-018):
-OAuth phía server → user token ngắn hạn → **user token dài hạn 60 ngày** → `/me/accounts`
-lấy Page token, và Page token dẫn xuất từ user token dài hạn thì **không có hạn dùng**.
-Bảng mới `facebook_connections` giữ user token (mã hoá) để đồng bộ page mới / lấy lại token;
-`facebook_pages` thêm `connect_mode` + `connection_id`. Luồng **dán token tay giữ nguyên**,
-và import trúng page dán tay thì phải xác nhận mới ghi đè. BE **590 test xanh (+41)**,
-lint/build 2 phía xanh. **Chưa chạy thật** vì cần Meta app + tài khoản có role Tester (§6 mục 19).
+**Cập nhật lần cuối:** 2026-08-05 (Plan 20 — Facebook resumable upload video + chặn job đăng trùng)
+**Session gần nhất (mới nhất):** **Vá 3 bug production phát hiện qua test tay plan 20:**
+(1) tên file ảnh/video tiếng Việt lên Drive bị lỗi font (mojibake) — do Busboy decode
+multipart header theo `latin1` mặc định, sửa bằng decode lại `latin1→utf8` ở
+`media.controller.ts`. (2) Video ~180MB đăng thủ công/auto-post bị `502` — do đẩy toàn bộ
+video trong 1 POST tới `graph-video.facebook.com`, Facebook cắt kết nối giữa chừng với file
+lớn. Sửa bằng chuyển `publishVideo` sang **Facebook Resumable Upload API** (start/transfer/
+finish theo chunk do Facebook điều khiển offset, retry riêng từng pha) — trả nợ kỹ thuật #22
+cũ. (3) Test tay video 180MB lộ ra `/timeline` hiện 2 record (1 lỗi + 1 thành công) cho cùng
+1 bài — **bug thật**: `ManualPostService.publishNow` không chặn tạo job trùng khi content+page
+đã có job QUEUED/PUBLISHING/FAILED, và `content-picker` (auto-post) chỉ loại QUEUED/PUBLISHING,
+**không loại FAILED** nên Bot có thể tự re-pick nội dung vừa lỗi. Đã thêm guard 409 ở cả 2
+đường + test byte-exact xác nhận resumable upload không làm hỏng video. BE **710 test xanh**,
+lint/build xanh. Phát hiện `docs/03-database-design.md` lệch code (thiếu `FAILED` trong mẫu
+SQL) — ghi nợ §6 mục 27, **không tự sửa `docs/`** theo rule 00. **User test tay 3 video thật
+(162.5MB, 130.5MB, 48MB): không còn 502 lần nào.** Điều tra tốc độ (~5.5-7.4 Mbps, chỉ bằng
+1/40 so với ~310 Mbps băng thông thô đo bằng `curl`) đã **ĐÓNG**: log chi tiết chunk đầu
+(1622ms) so với TB chunk sau (1425ms) chỉ chênh ~14% (loại bỏ giả thuyết lỗi tái dùng kết nối
+trong code), biên độ chunk sau chênh ~7 lần (881-6300ms) là dấu hiệu Facebook rate-limit kiểu
+bucket cho phiên Resumable Upload — kết luận: giới hạn từ phía Meta, không sửa được bằng code.
+Xem plan 20 §4c-§4d. Việc còn lại trước khi đóng plan 20: test 409 chặn job trùng trên UI thật
++ đo RSS khi upload video lớn (§6 mục 22).
+
+---
 
 ---
 
@@ -813,6 +826,96 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 
 ---
 
+### Fix mojibake tên file khi upload Drive — ✅ 2026-08-05
+
+- **Phạm vi:** bug tên file ảnh/video tiếng Việt lên Google Drive bị lỗi font
+  (mojibake) sau khi upload.
+- **Nguyên nhân:** Busboy (multer) decode header multipart theo `latin1` mặc
+  định, trong khi trình duyệt gửi tên file UTF-8 ⇒ `file.originalname` đã sai
+  ngay khi vào controller, Drive adapter chỉ forward nguyên chuỗi hỏng.
+- **File chính:** `backend/src/modules/media/media.controller.ts` — decode lại
+  `Buffer.from(file.originalname, 'latin1').toString('utf8')` trước khi truyền
+  vào `mediaService.upload`.
+- **Test:** không thêm unit test riêng (controller mỏng, chỉ chuyển field —
+  thuộc diện CRUD/delegate không bắt buộc test theo rule 02). Lint/build xanh.
+- **Còn nợ:** chưa test tay upload 1 file tên tiếng Việt thật trên UI để xác
+  nhận hiển thị đúng trên Drive.
+
+### Facebook resumable upload cho video lớn (Plan 20) — 🟡 2026-08-05
+
+- **Phạm vi:** video ~180MB đăng thủ công/auto-post bị `502` (`code=undefined
+  subcode=undefined ...` — body lỗi không phải JSON) vì code cũ đẩy **toàn bộ
+  video trong 1 POST** tới `graph-video.facebook.com/{pageId}/videos`, endpoint
+  đồng bộ này không ổn định với file lớn. Trả nợ kỹ thuật #22 cũ.
+- **Thiết kế:** chuyển `publishVideo` sang **Facebook Resumable Upload API** —
+  3 pha `start` (gửi `file_size`, nhận `video_id`/`upload_session_id`/offset
+  đầu) → `transfer` (lặp theo `start_offset`/`end_offset` do chính Facebook
+  điều khiển, cắt chunk bằng `blob.slice()` trên Blob từ `openAsBlob`, không
+  đọc file vào RAM) → `finish`. Mỗi pha retry riêng tối đa
+  `FB_VIDEO_CHUNK_RETRIES` lần (mặc định 3), không delay giữa các lần thử.
+  Guard offset không tiến ⇒ ném lỗi domain thay vì loop vô hạn.
+- **File chính:** `backend/src/infra/facebook/facebook-publisher.client.ts`
+  (`publishVideo` viết lại hoàn toàn, thêm `startVideoUpload`/
+  `transferVideoChunk`/`finishVideoUpload`/`withRetry`),
+  `backend/src/infra/facebook/facebook-publisher.interface.ts`
+  (`PublishFileInput.size`), `backend/src/modules/publish-jobs/publish-media.service.ts`
+  (truyền `file.size` từ `MediaCacheService`), `backend/src/config/env.validation.ts`
+  + `app-config.service.ts` (`FB_VIDEO_CHUNK_RETRIES`).
+- **Test:** 9 test mới `facebook-publisher.client.spec.ts` (1 chunk · nhiều
+  chunk · start lỗi Graph retry đúng số lần · transfer lỗi mạng rồi retry
+  thành công · transfer hết retry vẫn lỗi (không gọi finish) · finish
+  `success:false` · offset không tiến (chặn loop vô hạn) · start thiếu
+  `video_id` · ảnh `publishImage` không đổi hành vi). Toàn bộ 706 test BE xanh,
+  lint/build xanh.
+- **Còn nợ:** chưa test tay trên VPS thật với video ≥180MB (đăng thủ công lẫn
+  auto-post) — xem §6 mục 22. Chưa làm resume-sau-crash (giữ
+  `upload_session_id` để tiếp tục job dở khi process crash giữa chừng).
+
+### Plan 20 §4b — chặn tạo job đăng trùng + test video toàn vẹn — ✅ 2026-08-05
+
+- **Phạm vi:** user test tay video 180MB, `/timeline` hiện 2 record cùng bài
+  (1 Thất bại + 1 Thành công). Điều tra: **không phải bug hiển thị** — là 2
+  `publish_jobs` row thật, vì `ManualPostService.publishNow` không chặn tạo job
+  mới khi content+page đã có job đang chờ/lỗi (bấm "Đăng bài thủ công" lần 2
+  sau khi lần 1 lỗi, thay vì bấm "Đăng lại" trên chính job đó). Nhân tiện phát
+  hiện `content-picker` (auto-post) có cùng lỗ hổng: chỉ loại content có job
+  `QUEUED`/`PUBLISHING`, **không loại `FAILED`** — Bot có thể tự re-pick nội
+  dung vừa lỗi ở tick sau, rủi ro nặng hơn vì không ai bấm nút.
+- **Fix:**
+  1. `ManualPostRepository.findBlockingJob(contentId, pageId)` — job mới nhất
+     đang `QUEUED`/`PUBLISHING`/`FAILED`. `ManualPostService.publishNow` ném
+     `ConflictException` (409) nếu có, message khác nhau theo trạng thái (đang
+     xử lý / dùng nút "Đăng lại").
+  2. `content-picker.repository.ts` — cả `pickForSlot` **và**
+     `countByCategoryForPage` (2 câu phải giống hệt nhau, đã có comment cảnh
+     báo sẵn) thêm `FAILED` vào danh sách loại trừ.
+  3. Test byte-exact trong `facebook-publisher.client.spec.ts`: ghi file 12
+     byte phân biệt (0..11), giả lập Facebook chia 3 chunk, đọc lại đúng
+     `video_file_chunk` Blob đã gửi ở mỗi lần `transfer` và ghép lại — xác nhận
+     100% khớp file gốc (`Blob.slice()` trên Node không làm hỏng/lệch dữ liệu).
+  4. Log thời lượng + số chunk + Mbps ước tính ở cuối `publishVideo` (thành
+     công lẫn thất bại) — dùng để lần test tay sau phân biệt "nghẽn băng thông
+     VPS" (ít chunk, thời lượng tỉ lệ file size) với "nghẽn giao thức" (nhiều
+     chunk/round-trip). Trả lời câu hỏi tốc độ ~4 phút/180MB: tính ra khớp
+     ~6 Mbps sustained — nhiều khả năng là băng thông thật của VPS chứ không
+     phải overhead giao thức (mỗi `fetch` dùng chung connection pool của
+     undici), nhưng cần log thật để xác nhận, chưa đo được trên VPS thật.
+- **File chính:** `backend/src/modules/manual-post/manual-post.repository.ts`
+  (`findBlockingJob`), `manual-post.service.ts` (guard),
+  `backend/src/modules/auto-post/content-picker.repository.ts` (thêm `FAILED`,
+  2 câu SQL), `backend/src/infra/facebook/facebook-publisher.client.ts` (log
+  timing, `describeUploadTiming`).
+- **Test:** +4 test (2 `manual-post.service.spec.ts` — job FAILED/PUBLISHING
+  chặn tạo mới; 1 `content-picker.repository.spec.ts` — `countByCategoryForPage`
+  khớp picker; 1 `facebook-publisher.client.spec.ts` — byte-exact). **710 test
+  BE xanh**, lint/build xanh.
+- **Nợ phát sinh:** `docs/03-database-design.md:381` mẫu SQL picker chỉ có
+  `('QUEUED', 'PUBLISHING')`, thiếu `FAILED` — code giờ đúng hơn spec, **không
+  tự sửa `docs/`** theo rule 00 (xem §6 mục 27). Chưa đo tốc độ upload thật
+  trên VPS bằng log mới thêm.
+
+---
+
 ## 6. Việc đang dở / nợ kỹ thuật
 
 | # | Việc | Chi tiết |
@@ -840,7 +943,8 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 19 | **M10 Kết nối Facebook chưa smoke với Meta app thật** | Code BE+FE xong (plan 15, BE 590 test xanh, +41 test mới), nhưng **chưa chạy lần nào với Meta app thật** vì cần user tạo app + tự thêm mình vào **App roles → Tester** (nếu không, đăng nhập vẫn thành công nhưng `/me/accounts` rỗng — đúng cái bẫy đã gặp ở mục 10). Cần: `/settings` tab "Facebook App" nhập App ID/Secret, copy Redirect URI dán vào Meta (Facebook Login → Valid OAuth Redirect URIs), `/pages` bấm "Kết nối bằng Facebook" → consent → modal chọn page → import. **Bằng chứng làm đúng: page vừa import phải hiện "Hết hạn: Vĩnh viễn" và Test kết nối trả `tokenType=PAGE`, `expiresAt=null`.** Nếu ra một ngày cụ thể ⇒ bước đổi long-lived hỏng. Sau đó trả nốt mục 10/11/15 (đăng thật lên Page). Xong thì `git mv plans/15-facebook-login-connect.md plans/DONE/`. |
 | 20 | **Plan 17 chưa smoke trên VPS thật** | Cache media + stream đã xong, 644 test xanh, nhưng **chưa chạy lần nào với video lớn thật**. Cần: 1 video ~300MB phân bổ 4 page, cùng mốc giờ. Bằng chứng làm đúng: log `Đã tải file <id> (300MB) xuống cache` xuất hiện **đúng 1 lần** cho 4 job; `pm2 monit` RSS **không** vọt lên ~1GB; 4 bài lên đủ 4 page. Kiểm luôn `MEDIA_CACHE_DIR` không phình sau vài ngày (cron dọn 10 phút/lần). Xong thì `git mv plans/17-publish-media-optimize.md plans/DONE/`. |
 | 21 | **Đường UPLOAD vẫn buffer toàn bộ vào RAM** | `media.controller.ts` dùng multer `memoryStorage()` ⇒ file 300MB chiếm ~300MB RAM, cộng bản copy khi đẩy lên Drive là ~600MB **cho một request**. Plan 17 chỉ vá chiều **đăng bài** (Drive→FB), chưa vá chiều **upload** (browser→Drive). VPS dưới 2GB có thể OOM khi vừa upload vừa đăng. Hướng xử lý: stream thẳng request → Google Drive resumable upload, hoặc ghi ra file tạm rồi stream lên. |
-| 22 | **Facebook resumable upload cho video lớn** | Hiện đẩy video trong **một** POST tới `graph-video.facebook.com`. Meta khuyến nghị chunked/resumable cho video lớn; một POST 300MB dễ đứt giữa chừng và phải làm lại từ đầu. Cần plan riêng (dự kiến plan 18). |
+| 22 | **Plan 20 (resumable upload video) — hết 502, tốc độ đã điều tra xong; còn 2 việc nhỏ trước khi đóng plan** | Code xong (BE **710** test xanh) — `publishVideo` dùng Facebook Resumable Upload API, guard chặn job đăng trùng (manual + auto-post picker), video không bị hỏng khi chia chunk (test byte-exact). **Đã test tay 2 lần trên video thật (162.5MB, 130.5MB, 48MB, 2026-08-05): không còn 502 lần nào.** **Tốc độ ~5.5-7.4 Mbps đã điều tra xong và ĐÓNG (plan 20 §4c-§4d):** đối chiếu `curl` upload thô ra ~310 Mbps (chênh ~42 lần) loại bỏ giả thuyết băng thông VPS yếu; log chi tiết chunk đầu (1622ms) so với TB chunk sau (1425ms) chỉ chênh ~14% (loại bỏ giả thuyết lỗi tái dùng kết nối trong code); biên độ chunk sau chênh ~7 lần (881-6300ms) là dấu hiệu Facebook rate-limit kiểu bucket cho phiên Resumable Upload — **kết luận: giới hạn từ phía Meta, không sửa được bằng code, không cần điều tra thêm.** **Việc còn lại trước khi đóng plan:** thử bấm "Đăng bài thủ công" 2 lần liên tiếp cùng bài+page trên UI thật để xác nhận lần 2 bị 409 thay vì tạo bài trùng; `pm2 monit` RSS không vọt khi upload video lớn (đo thật, chưa làm). Xong thì `git mv plans/20-facebook-resumable-upload.md plans/DONE/`. |
+| 27 | **`docs/03-database-design.md` lệch code sau plan 20 §4b** | Dòng 381, mẫu SQL picker chỉ ghi `j.status IN ('QUEUED', 'PUBLISHING')`, thiếu `FAILED` — code (`content-picker.repository.ts`) giờ đã thêm `FAILED` để tránh Bot tự re-pick nội dung vừa đăng lỗi (đúng hành vi hơn, spec cũ thiếu case này). Theo rule 00 §1, không tự sửa `docs/` khi đang code — cần user xác nhận rồi cập nhật `docs/03-database-design.md` dòng 381 cho khớp. |
 | 23 | **Worker concurrency vẫn = 1, chưa tách queue ảnh/video** | Giữ 1 là đúng khi RAM còn phình; sau plan 17 RAM đã phẳng nên nâng được, nhưng phải đo rate limit Meta trước. Hệ quả hiện tại: một video 300MB chiếm hàng đợi vài phút, mọi bài **ảnh** của page khác xếp sau phải chờ. Cân nhắc 2 queue riêng + `limiter` của BullMQ. |
 | 26 | **Multi action (plan 19) chưa smoke UI thật** | Code BE+FE xong (BE 687 test xanh), đã smoke API đủ case (xem plan 19 §6). **Chưa bấm tay UI**: `/content` — chọn nhiều dòng (dòng đã đăng phải **mờ checkbox**), thanh "Đã chọn N bài" hiện đúng, bấm **Ngưng dùng** ⇒ dòng mờ + tag, bấm **Xoá** với lô có bài đã đăng ⇒ notification liệt kê bài bị bỏ qua kèm lý do; ô lọc "Trạng thái dùng"; Switch "Đang dùng" trong Drawer sửa. Sau đó `POST /auto-post/run-now` xác nhận Bot **không** lấy bài đã ngưng. Đăng nhập CONTENT kiểm chỉ thao tác được trên bài của mình. Xong thì `git mv plans/19-bulk-actions.md plans/DONE/`. |
 | 24 | **Cột "Editor" chưa smoke UI thật** | Code BE+FE xong (plan 18, BE 653 test xanh), đã smoke API qua curl đủ case 400/gán/lọc/gỡ. **Chưa bấm tay UI**: `/content` — mở Modal upload chọn Editor (bỏ trống vẫn upload được), Drawer sửa đổi/gỡ Editor, cột "Editor" hiện đúng tên (bài chưa gán hiện "—"), ô filter "Editor" lọc đúng và gõ tìm được theo tên. Kiểm bằng account **CONTENT** (phải thấy danh sách Editor dù không có quyền `/users`). Lưu ý: DB dev hiện **không có EDITOR nào đang active** ⇒ dropdown rỗng là đúng, phải tạo 1 account role Editor ở `/users` trước. Xong thì `git mv plans/18-content-editor-field.md plans/DONE/`. |
@@ -880,3 +984,6 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | Nới `client_max_body_size` xong, upload file lớn vẫn chết — lần này là `504`/`408` (2026-08-03) | **Node có timeout riêng mà Nginx không cứu được:** `server.requestTimeout` mặc định **300_000ms** = tổng thời gian nhận trọn 1 request **kể cả body**. Với `proxy_request_buffering off`, backend nhận file theo đúng tốc độ mạng người upload ⇒ video 300MB từ đường <8 Mbps vượt 300s, **Node trả 408 và huỷ request** dù `proxy_read_timeout` để 600s. Xử lý: `common/http/server-timeouts.ts` + `HTTP_REQUEST_TIMEOUT_MS` (mặc định 900_000), gọi trong `main.ts` **trước** `app.listen()`. **Bài học: timeout upload có 4 tầng — Nginx, Node `requestTimeout`, `headersTimeout`, và CDN nếu có. Sửa mỗi Nginx là sửa được đúng 1/4.** Lưu ý phụ: Node quét connection quá hạn theo `connectionsCheckingInterval` (mặc định 30s) nên test hành vi phải hạ giá trị này xuống mới quan sát được. |
 | Đổi `TOKEN_ENCRYPTION_KEY` ⇒ UI báo *"Không giải mã được dữ liệu — sai khoá mã hoá..."* ở nhiều màn khác nhau (2026-07-28) | Mọi secret trong `app_settings`/`facebook_pages` mã hoá bằng khoá cũ thành rác. Commit `ee4a062` mới vá **một** đường (Drive settings), nên lỗi lại nổi ở `/pages` → nút "Kết nối lại" (đường `getFacebookAppCredentials` giải mã `appSecretEnc`). Xử lý gốc: thêm `CryptoService.tryDecrypt()` (null thay vì ném lỗi) + `SettingsService.decryptSecret(enc, label, howToFix)` ném **400 nói rõ phải nhập lại secret nào ở đâu**; áp cho cả 4 secret (SA JSON, Drive client secret, Drive refresh token, Meta app secret) và `FacebookPagesService.getDecryptedToken`. **Bài học: khi vá lỗi do đổi khoá mã hoá, phải quét `grep -rn "\.decrypt("` và xử lý toàn bộ call site — vá lẻ từng chỗ thì lỗi chỉ đổi màn hình.** |
 | Upload Drive báo `invalid_grant`, UI vẫn hiện "đã kết nối" (2026-08-03) | `invalid_grant` không phải lỗi Drive API mà là lỗi bước đổi **refresh token → access token**, nên không có `code`/`reason` như lỗi Drive thường ⇒ rơi xuống nhánh cuối `mapDriveError` thành **500** với message thô. Nguyên nhân gốc hay gặp nhất: OAuth consent screen còn ở chế độ **Testing** ⇒ Google thu hồi refresh token sau **7 ngày** (phải Publish app). Xử lý: `DriveAuthExpiredError` (502, message hướng dẫn kết nối lại) nhận diện qua `response.data.error` **lẫn** `message`; `DriveStorageFactory` bọc storage OAuth2 để khi gặp lỗi này thì gọi `SettingsService.clearOauthTokens()` (xoá `oauthRefreshTokenEnc` + email, actor = null) và bỏ client đang cache. **Bài học: token chết mà không xoá thì `oauthConnected` vẫn `true` và client hỏng còn nằm trong cache cho tới khi restart — lỗi xác thực phải dọn state, không chỉ đổi message.** |
+| Tên file tiếng Việt upload lên Drive bị lỗi font (mojibake) (2026-08-05) | Busboy (multer) decode header multipart theo **`latin1` mặc định**, trong khi trình duyệt gửi tên file **UTF-8** ⇒ `file.originalname` đã sai byte-for-byte ngay khi vào controller — Drive adapter chỉ forward nguyên chuỗi hỏng, không phải chỗ gây lỗi. Xử lý: `Buffer.from(file.originalname, 'latin1').toString('utf8')` ngay tại nơi đọc `originalname` trong controller. **Bài học: multer không có option bật UTF-8 cho `originalname` — phải tự decode lại thủ công ở nơi tiêu thụ, không phải trong cấu hình `FileInterceptor`.** |
+| Video ~180MB đăng bài báo `502` với log `code=undefined subcode=undefined trace=undefined message=undefined` (2026-08-05) | Log này nghĩa là request **đã tới được** `graph-video.facebook.com` và nhận response `!ok`, nhưng body không phải JSON hợp lệ (`response.json()` throw, bị nuốt thành `null`) ⇒ `mapFacebookError` không đọc được `code/message` nên in ra toàn `undefined`. **Không phải** lỗi Nginx/Node timeout (nếu là Nginx timeout thì log app còn không thấy `HttpExceptionFilter` xử lý). Nguyên nhân thật: code cũ đẩy **toàn bộ video trong 1 POST multipart** — endpoint đồng bộ này của Meta không ổn định với file lớn, hạ tầng Facebook tự cắt kết nối giữa chừng. Xử lý gốc (plan 20): chuyển sang **Facebook Resumable Upload API** (start/transfer/finish theo chunk). **Bài học: `code=undefined` ở log lỗi Graph không có nghĩa "không có lỗi" — nghĩa là body lỗi không đúng shape kỳ vọng, thường vì response đến từ một tầng trung gian (edge/proxy của chính Facebook) chứ không phải Graph API thật.** |
+| `npm run build` chạy qua Bash tool của Claude "thành công" nhưng PM2 (`nest-api`) vẫn báo `Cannot find module dist/main.js`, crash-loop 33 lần (2026-08-05) | Bash tool của Claude chạy **sandbox cô lập** khi không có cờ `dangerouslyDisableSandbox` — lệnh `npm run build` báo exit code 0 và không có lỗi, nhưng `dist/` được ghi vào bản sao cô lập, **không** ghi xuống ổ đĩa thật mà tiến trình PM2 đang dùng. Edit/Write tool thì ghi thật (source code sửa đúng), chỉ riêng kết quả các lệnh Bash (build output, v.v.) mới đáng ngờ. Xử lý: user tự chạy `npm run build` + `pm2 restart nest-api` trên máy thật. **Bài học: sau khi sửa code, đừng tin `npm run build` chạy qua Bash tool là đã cập nhật tiến trình đang chạy thật — luôn nhờ user (hoặc dùng `dangerouslyDisableSandbox: true` nếu được phép) build lại trên chính máy host, đặc biệt trước khi yêu cầu user test tay một tiến trình PM2/service đang chạy nền.** |

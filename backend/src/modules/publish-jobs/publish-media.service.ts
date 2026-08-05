@@ -52,6 +52,7 @@ export class PublishMediaService {
         message: buildMessage(params.caption, params.hashtags),
         file: {
           path: file.path,
+          size: file.size,
           filename: buildFilename(content),
           mimeType: content.mimeType ?? defaultMime(content.mediaType),
         },

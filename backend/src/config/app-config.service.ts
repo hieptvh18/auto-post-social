@@ -92,6 +92,7 @@ export class AppConfigService {
     graphVersion: string;
     imageTimeoutMs: number;
     videoTimeoutMs: number;
+    videoChunkRetries: number;
   } {
     return {
       appId: this.get('META_APP_ID'),
@@ -99,6 +100,7 @@ export class AppConfigService {
       graphVersion: this.get('META_GRAPH_API_VERSION'),
       imageTimeoutMs: this.get('FB_IMAGE_TIMEOUT_MS'),
       videoTimeoutMs: this.get('FB_VIDEO_TIMEOUT_MS'),
+      videoChunkRetries: this.get('FB_VIDEO_CHUNK_RETRIES'),
     };
   }
 

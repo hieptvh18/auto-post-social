@@ -47,6 +47,12 @@ export interface PickForSlotParams {
  * Query chọn bài cho Bot — **hàm dễ sai nhất hệ thống** (picker sai ⇒ đăng lặp
  * hoặc bỏ sót). Viết raw vì Prisma không diễn tả gọn `NOT EXISTS` + `= ANY`.
  * Bám đúng `docs/03-database-design.md` §7.
+ *
+ * `publish_jobs.status IN ('QUEUED','PUBLISHING','FAILED')` bị loại khỏi diện
+ * pick — **FAILED cũng phải loại** (plan 20, phát hiện 2026-08-05): nếu không,
+ * tick cron sau sẽ tự re-pick nội dung vừa đăng lỗi và tạo job trùng một cách
+ * âm thầm. Muốn đăng lại nội dung lỗi thì dùng nút "Đăng lại"/"Chạy lại mốc này"
+ * (tự re-dùng job cũ), không phải để Bot tự chọn lại.
  */
 @Injectable()
 export class ContentPickerRepository {
@@ -115,7 +121,7 @@ export class ContentPickerRepository {
            SELECT 1 FROM publish_jobs j
             WHERE j.content_asset_id = c.id
               AND j.facebook_page_id = ${facebookPageId}::uuid
-              AND j.status IN ('QUEUED', 'PUBLISHING')
+              AND j.status IN ('QUEUED', 'PUBLISHING', 'FAILED')
          )
        GROUP BY c.category
     `;
@@ -150,7 +156,7 @@ export class ContentPickerRepository {
            SELECT 1 FROM publish_jobs j
             WHERE j.content_asset_id = c.id
               AND j.facebook_page_id = ${params.facebookPageId}::uuid
-              AND j.status IN ('QUEUED', 'PUBLISHING')
+              AND j.status IN ('QUEUED', 'PUBLISHING', 'FAILED')
          )
        ORDER BY c.updated_at ASC
        LIMIT ${params.limit}
