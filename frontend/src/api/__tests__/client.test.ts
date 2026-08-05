@@ -125,4 +125,53 @@ describe('apiRequest', () => {
     const result = await apiRequest('/pages/x', { method: 'DELETE' });
     expect(result).toBeUndefined();
   });
+
+  describe('lỗi không phải JSON (413 từ Nginx/proxy đứng trước backend)', () => {
+    /** HTTP/2 bỏ hẳn reason phrase ⇒ statusText luôn rỗng, khác HTTP/1.1. */
+    function htmlErrorResponse(status: number, statusText = ''): Response {
+      return new Response('<html><body>413 Request Entity Too Large</body></html>', {
+        status,
+        statusText,
+        headers: { 'Content-Type': 'text/html' },
+      });
+    }
+
+    it('413 dạng HTML (statusText rỗng, kiểu HTTP/2) ⇒ báo rõ nguyên nhân file quá lớn', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(htmlErrorResponse(413));
+
+      await expect(apiRequest('/media/upload', { method: 'POST' })).rejects.toMatchObject({
+        statusCode: 413,
+        message: expect.stringContaining('quá lớn'),
+      });
+    });
+
+    it('413 dạng HTML nhưng statusText có sẵn (HTTP/1.1) vẫn ưu tiên message cụ thể', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        htmlErrorResponse(413, 'Request Entity Too Large'),
+      );
+
+      await expect(apiRequest('/media/upload', { method: 'POST' })).rejects.toMatchObject({
+        statusCode: 413,
+        message: expect.stringContaining('quá lớn'),
+      });
+    });
+
+    it('504 dạng HTML ⇒ báo timeout thay vì chung chung', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(htmlErrorResponse(504));
+
+      await expect(apiRequest('/media/upload', { method: 'POST' })).rejects.toMatchObject({
+        statusCode: 504,
+        message: expect.stringContaining('504'),
+      });
+    });
+
+    it('mã lỗi lạ, không JSON, không statusText ⇒ vẫn kèm mã lỗi thay vì mù mờ hoàn toàn', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(htmlErrorResponse(418));
+
+      await expect(apiRequest('/media/upload', { method: 'POST' })).rejects.toMatchObject({
+        statusCode: 418,
+        message: 'Lỗi không xác định (mã 418)',
+      });
+    });
+  });
 });

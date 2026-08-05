@@ -40,12 +40,30 @@ function buildUrl(path: string): string {
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+/**
+ * Lỗi từ hạ tầng đứng trước backend (Nginx/CDN) — không phải JSON của app nên
+ * `res.json()` ném lỗi, rơi vào nhánh catch của `parseError`. Riêng HTTP/2 (phổ
+ * biến qua HTTPS) bỏ hẳn reason phrase nên `res.statusText` luôn rỗng — không
+ * còn gì để hiện ngoài "Lỗi không xác định", dù nguyên nhân (vd file quá lớn)
+ * hoàn toàn xác định được qua mã trạng thái.
+ */
+const NON_JSON_STATUS_MESSAGES: Record<number, string> = {
+  413: 'File tải lên quá lớn, vượt quá giới hạn cho phép của server/proxy. Vui lòng nén hoặc chia nhỏ file rồi thử lại.',
+  502: 'Server tạm thời không phản hồi (502 Bad Gateway). Vui lòng thử lại sau.',
+  503: 'Server đang quá tải hoặc bảo trì (503). Vui lòng thử lại sau.',
+  504: 'Quá thời gian chờ phản hồi (504 Gateway Timeout) — file lớn có thể cần nhiều thời gian hơn. Vui lòng thử lại.',
+};
+
 async function parseError(res: Response): Promise<ApiError> {
   try {
     const body = (await res.json()) as { message?: string | string[] };
     return new ApiError(res.status, body.message ?? res.statusText);
   } catch {
-    return new ApiError(res.status, res.statusText || 'Lỗi không xác định');
+    const message =
+      NON_JSON_STATUS_MESSAGES[res.status] ??
+      res.statusText ??
+      `Lỗi không xác định (mã ${res.status})`;
+    return new ApiError(res.status, message || `Lỗi không xác định (mã ${res.status})`);
   }
 }
 

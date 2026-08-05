@@ -137,7 +137,7 @@ export class EnvVars {
   @Transform(toInt)
   @IsInt()
   @Min(1)
-  MAX_UPLOAD_MB = 300;
+  MAX_UPLOAD_MB = 500;
 
   /**
    * Tổng thời gian Node cho phép nhận trọn 1 request, kể cả body upload.

@@ -73,6 +73,15 @@ describe('validateEnv', () => {
       expect(result.MAX_POST_PER_SLOT).toBe(20);
     });
 
+    it('MAX_UPLOAD_MB mặc định 500MB khi không khai trong env', () => {
+      const env = validEnv();
+      delete env.MAX_UPLOAD_MB;
+
+      const result = validateEnv(env);
+
+      expect(result.MAX_UPLOAD_MB).toBe(500);
+    });
+
     it('giữ nguyên giá trị boolean khi env đã là boolean', () => {
       const result = validateEnv({ ...validEnv(), AUTOPOST_ENABLED: false });
       expect(result.AUTOPOST_ENABLED).toBe(false);

@@ -4,8 +4,31 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-05 (Dashboard — thêm 3 chart xu hướng/xếp hạng, ngoài task chính plan 20)
-**Session gần nhất (mới nhất):** **Dashboard (plan 14) — thêm 3 chart theo yêu cầu user:**
+**Cập nhật lần cuối:** 2026-08-05 (Fix toast lỗi upload không rõ nguyên nhân + nâng MAX_UPLOAD_MB 300→500)
+**Session gần nhất (mới nhất):** **Fix bug + nâng giới hạn upload (ngoài scope plan, theo yêu cầu user):**
+User test tay upload video ~450MB gặp `413 Content Too Large` nhưng toast chỉ hiện "Lỗi không
+xác định". **Nguyên nhân:** lỗi 413 này chặn ở tầng proxy đứng trước backend (Nginx/CDN theo
+`client_max_body_size`, không phải Nest/Multer — `MediaController` dùng `memoryStorage()` không
+giới hạn size cứng, size thật được `MediaService.upload()` check ĐỘNG theo `maxUploadMb` từ
+Settings/DB, và exception đó vẫn trả JSON message rõ ràng bình thường). Phản hồi 413 từ proxy là
+HTML, không phải JSON của app ⇒ `parseError()` ở `frontend/src/api/client.ts` rơi vào nhánh catch,
+dùng `res.statusText` — với response HTTP/2 (phổ biến qua HTTPS) statusText luôn rỗng (RFC 7540 bỏ
+reason phrase) ⇒ hiện "Lỗi không xác định" dù nguyên nhân xác định được qua status code. **Fix:**
+thêm map `NON_JSON_STATUS_MESSAGES` (413/502/503/504) trong `client.ts`, fallback cuối cùng luôn
+kèm mã lỗi thay vì mù mờ hoàn toàn. **Nâng giới hạn:** `MAX_UPLOAD_MB` mặc định 300→500 ở
+`backend/src/config/env.validation.ts` + `.env`/`.env.example`/`.env.production.example` (validate
+DTO `UpdateDriveSettingsDto.maxUploadMb` đã cho phép tới 2048 nên không cần đổi). **Lưu ý quan
+trọng:** nếu bảng `app_settings` (key `google_drive`) đã có bản ghi, giá trị `maxUploadMb` lưu
+trong DB **ghi đè** giá trị mặc định từ env — nếu vậy phải vào `/settings` → tab Google Drive sửa
+tay ô "Giới hạn dung lượng 1 file upload" thành 500 (chưa kiểm tra DB thật). Nginx/timeout mạng
+(`client_max_body_size`, proxy buffering, LB timeout) là việc user tự cấu hình, không đụng ở đây.
+BE +1 test (`env.validation.spec.ts`, 715 tổng), FE +4 test (`client.test.ts`, 39 tổng), lint/build
+2 phía xanh. Chưa smoke lại bằng file 450MB thật (không có môi trường proxy để tái hiện 413 tại
+đây) — nợ vào §6 nếu cần xác nhận sau khi user chỉnh Nginx.
+
+---
+
+**Session trước đó:** **Dashboard (plan 14) — thêm 3 chart theo yêu cầu user:**
 (1) line chart "Tỷ lệ thành công/thất bại theo ngày" (%) — tính lại từ dữ liệu
 `GET /dashboard/chart/daily` đã fetch sẵn, không gọi thêm API; ngày chưa có job đóng sổ ⇒
 `null` (khoảng trống trên line), khác `0%`. (2) bar chart "Tổng bài đăng thành công theo page"
