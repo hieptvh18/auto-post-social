@@ -50,6 +50,7 @@ const makeSlot = (overrides: Partial<AutoPostSlot> = {}): SlotWithPage => ({
   categories: ['Review'],
   mediaType: SlotMediaType.all,
   postCount: 2,
+  assetsPerPost: 1,
   enabled: true,
   createdAt: NOW,
   updatedAt: NOW,
@@ -179,6 +180,90 @@ describe('AutoPostSchedulerService', () => {
         mediaType: 'video',
         limit: 3,
       });
+    });
+
+    it('assetsPerPost > 1 ⇒ lấy postCount × assetsPerPost bài, gom thành ÍT job hơn', async () => {
+      configsRepository.findDueSlots.mockResolvedValue([
+        makeSlot({
+          postCount: 2,
+          assetsPerPost: 3,
+          mediaType: SlotMediaType.image,
+        }),
+      ]);
+      picker.pickForSlot.mockResolvedValue([
+        makeContent('c1'),
+        makeContent('c2'),
+        makeContent('c3'),
+        makeContent('c4'),
+        makeContent('c5'),
+        makeContent('c6'),
+      ]);
+
+      const result = await service.tick(NOW);
+
+      expect(picker.pickForSlot.mock.calls[0][0].limit).toBe(6);
+      // 6 ảnh / 3 ảnh mỗi bài = 2 bài, không phải 6 bài.
+      expect(publishJobs.createQueuedJob).toHaveBeenCalledTimes(2);
+      expect(result.results[0].jobCreatedCount).toBe(2);
+    });
+
+    it('album lấy ảnh theo đúng thứ tự picker trả về, ảnh đầu là bài chính', async () => {
+      configsRepository.findDueSlots.mockResolvedValue([
+        makeSlot({
+          postCount: 1,
+          assetsPerPost: 3,
+          mediaType: SlotMediaType.image,
+        }),
+      ]);
+      picker.pickForSlot.mockResolvedValue([
+        makeContent('c1'),
+        makeContent('c2'),
+        makeContent('c3'),
+      ]);
+
+      await service.tick(NOW);
+
+      const job = publishJobs.createQueuedJob.mock.calls[0][0];
+      expect(job.contentAssetId).toBe('c1');
+      expect(job.extraContentAssetIds).toEqual(['c2', 'c3']);
+    });
+
+    it('kho còn ít hơn assetsPerPost ⇒ vẫn đăng nhóm thiếu, không bỏ bài lại', async () => {
+      configsRepository.findDueSlots.mockResolvedValue([
+        makeSlot({
+          postCount: 2,
+          assetsPerPost: 3,
+          mediaType: SlotMediaType.image,
+        }),
+      ]);
+      picker.pickForSlot.mockResolvedValue([
+        makeContent('c1'),
+        makeContent('c2'),
+        makeContent('c3'),
+        makeContent('c4'),
+      ]);
+
+      await service.tick(NOW);
+
+      expect(publishJobs.createQueuedJob).toHaveBeenCalledTimes(2);
+      const second = publishJobs.createQueuedJob.mock.calls[1][0];
+      expect(second.contentAssetId).toBe('c4');
+      expect(second.extraContentAssetIds).toEqual([]);
+    });
+
+    it('assetsPerPost = 1 ⇒ mỗi bài một ảnh, không gửi ảnh phụ', async () => {
+      configsRepository.findDueSlots.mockResolvedValue([makeSlot()]);
+      picker.pickForSlot.mockResolvedValue([
+        makeContent('c1'),
+        makeContent('c2'),
+      ]);
+
+      await service.tick(NOW);
+
+      expect(publishJobs.createQueuedJob).toHaveBeenCalledTimes(2);
+      expect(
+        publishJobs.createQueuedJob.mock.calls[0][0].extraContentAssetIds,
+      ).toEqual([]);
     });
 
     it('mediaType "all" của slot ⇒ picker không lọc theo loại media', async () => {

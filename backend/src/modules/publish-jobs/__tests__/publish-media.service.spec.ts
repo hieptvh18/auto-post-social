@@ -12,6 +12,7 @@ import type { DriveStorageFactory } from '../../../infra/drive/drive-storage.fac
 import type { DriveStorage } from '../../../infra/drive/drive-storage.interface';
 import type { FacebookPublisherClient } from '../../../infra/facebook/facebook-publisher.client';
 import type {
+  PublishAlbumInput,
   PublishMediaInput,
   PublishResult,
 } from '../../../infra/facebook/facebook-publisher.interface';
@@ -39,12 +40,13 @@ describe('PublishMediaService', () => {
   let publisher: {
     publishImage: jest.Mock<Promise<PublishResult>, [PublishMediaInput]>;
     publishVideo: jest.Mock<Promise<PublishResult>, [PublishMediaInput]>;
+    publishImageAlbum: jest.Mock<Promise<PublishResult>, [PublishAlbumInput]>;
   };
   let service: PublishMediaService;
 
   const publishTo = (pageId: string): Promise<PublishResult> =>
     service.publish({
-      content: makeContent(),
+      contents: [makeContent()],
       pageId,
       accessToken: 'token',
       caption: 'Caption gốc',
@@ -66,6 +68,9 @@ describe('PublishMediaService', () => {
       publishVideo: jest
         .fn<Promise<PublishResult>, [PublishMediaInput]>()
         .mockResolvedValue({ postId: 'video-1' }),
+      publishImageAlbum: jest
+        .fn<Promise<PublishResult>, [PublishAlbumInput]>()
+        .mockResolvedValue({ postId: 'album-1' }),
     };
 
     const clock: ClockService = { now: () => NOW };
@@ -133,12 +138,14 @@ describe('PublishMediaService', () => {
 
     it('bài ảnh ⇒ publishImage với mimeType và tên file theo content', async () => {
       await service.publish({
-        content: makeContent({
-          id: 'content-anh',
-          mediaType: MediaType.image,
-          mimeType: 'image/png',
-          driveFileId: 'drive-anh',
-        }),
+        contents: [
+          makeContent({
+            id: 'content-anh',
+            mediaType: MediaType.image,
+            mimeType: 'image/png',
+            driveFileId: 'drive-anh',
+          }),
+        ],
         pageId: 'page-1',
         accessToken: 'token',
         caption: 'Chỉ caption',
@@ -153,7 +160,7 @@ describe('PublishMediaService', () => {
 
     it('mimeType null ⇒ suy ra từ mediaType, không gửi undefined lên Graph', async () => {
       await service.publish({
-        content: makeContent({ mimeType: null }),
+        contents: [makeContent({ mimeType: null })],
         pageId: 'page-1',
         accessToken: 'token',
         caption: 'Caption',
@@ -177,6 +184,88 @@ describe('PublishMediaService', () => {
       await publishTo('page-2');
 
       expect(storage.createReadStream).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('publish — bài nhiều ảnh (album)', () => {
+    const albumImages = [
+      makeContent({
+        id: 'anh-1',
+        mediaType: MediaType.image,
+        mimeType: 'image/jpeg',
+        driveFileId: 'drive-1',
+      }),
+      makeContent({
+        id: 'anh-2',
+        mediaType: MediaType.image,
+        mimeType: 'image/jpeg',
+        driveFileId: 'drive-2',
+      }),
+      makeContent({
+        id: 'anh-3',
+        mediaType: MediaType.image,
+        mimeType: 'image/jpeg',
+        driveFileId: 'drive-3',
+      }),
+    ];
+
+    const publishAlbum = (
+      contents: ContentAsset[] = albumImages,
+    ): Promise<PublishResult> =>
+      service.publish({
+        contents,
+        pageId: 'page-1',
+        accessToken: 'token',
+        caption: 'Caption chung',
+        hashtags: '#a',
+      });
+
+    it('nhiều ảnh ⇒ MỘT bài album, không phải nhiều bài ảnh lẻ', async () => {
+      const result = await publishAlbum();
+
+      expect(publisher.publishImage).not.toHaveBeenCalled();
+      expect(publisher.publishImageAlbum).toHaveBeenCalledTimes(1);
+      expect(result.postId).toBe('album-1');
+    });
+
+    it('truyền đủ số ảnh và message ghép hashtag một lần cho cả bài', async () => {
+      await publishAlbum();
+
+      const [input] = publisher.publishImageAlbum.mock.calls[0];
+      expect(input.files.count).toBe(3);
+      expect(input.message).toBe('Caption chung\n\n#a');
+    });
+
+    it('mượn file THEO YÊU CẦU đúng thứ tự — không tải sẵn cả nhóm', async () => {
+      const filenames: string[] = [];
+      publisher.publishImageAlbum.mockImplementation(async (input) => {
+        for (let i = 0; i < input.files.count; i += 1) {
+          await input.files.withFile(i, (file) => {
+            filenames.push(file.filename);
+            return Promise.resolve();
+          });
+        }
+        return { postId: 'album-1' };
+      });
+
+      await publishAlbum();
+
+      expect(filenames).toEqual(['anh-1.jpg', 'anh-2.jpg', 'anh-3.jpg']);
+      expect(storage.createReadStream).toHaveBeenCalledTimes(3);
+    });
+
+    it('lẫn video trong nhóm ⇒ ném lỗi, không gọi Graph', async () => {
+      await expect(
+        publishAlbum([albumImages[0], makeContent({ id: 'video-x' })]),
+      ).rejects.toThrow('chỉ ghép được ảnh');
+      expect(publisher.publishImageAlbum).not.toHaveBeenCalled();
+    });
+
+    it('nhóm 1 phần tử vẫn đi đường ảnh đơn như cũ', async () => {
+      await publishAlbum([albumImages[0]]);
+
+      expect(publisher.publishImage).toHaveBeenCalledTimes(1);
+      expect(publisher.publishImageAlbum).not.toHaveBeenCalled();
     });
   });
 

@@ -169,6 +169,7 @@ model ContentAsset {
   editor      User?                   @relation("ContentEditor", fields: [editorId], references: [id])
   publishJobs PublishJob[]
   assignments ContentPageAssignment[]
+  albumSlots  PublishJobAsset[] // vị trí ảnh phụ trong các bài album
 
   @@index([status])
   @@index([editorId]) // filter "Editor" trên màn Quản lý Ảnh/Video
@@ -208,6 +209,9 @@ model AutoPostSlot {
   categories     String[]
   mediaType      SlotMediaType @default(all) @map("media_type")
   postCount      Int           @default(1) @map("post_count")
+  /// Số ảnh gom vào MỘT bài (album). 1 = mỗi bài 1 ảnh như cũ. > 1 chỉ hợp lệ khi
+  /// mediaType = image — Graph API không ghép nhiều video vào một bài feed.
+  assetsPerPost  Int           @default(1) @map("assets_per_post")
   enabled        Boolean       @default(true)
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
@@ -263,11 +267,32 @@ model PublishJob {
   contentAsset ContentAsset       @relation(fields: [contentAssetId], references: [id])
   facebookPage FacebookPage       @relation(fields: [facebookPageId], references: [id])
   events       PublishJobEvent[]
+  extraAssets  PublishJobAsset[]
 
   @@index([status])
   @@index([scheduleTime])
   @@index([contentAssetId, facebookPageId])
   @@map("publish_jobs")
+}
+
+/// Ảnh **phụ** của một bài album (plan 21). Ảnh đầu tiên vẫn là
+/// `publish_jobs.content_asset_id` (vị trí 0) nên bảng này chỉ chứa `position >= 1`
+/// — nhờ vậy mọi query cũ (timeline, dashboard, đăng tay, retry) không phải sửa và
+/// job cũ không cần backfill. Danh sách asset đầy đủ của job chỉ được ghép ở
+/// `PublishJobsRepository`, không nơi nào khác tự nối tay.
+model PublishJobAsset {
+  id             String @id @default(uuid()) @db.Uuid
+  publishJobId   String @map("publish_job_id") @db.Uuid
+  contentAssetId String @map("content_asset_id") @db.Uuid
+  position       Int
+
+  publishJob   PublishJob   @relation(fields: [publishJobId], references: [id], onDelete: Cascade)
+  contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id])
+
+  @@unique([publishJobId, contentAssetId])
+  @@unique([publishJobId, position])
+  @@index([contentAssetId])
+  @@map("publish_job_assets")
 }
 
 /// Nhật ký kỹ thuật của publish job: mỗi lần thử đăng ghi lại đã tới bước nào,

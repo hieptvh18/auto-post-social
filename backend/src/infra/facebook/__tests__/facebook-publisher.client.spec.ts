@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import type { AppConfigService } from '../../../config/app-config.service';
 import { FacebookPublisherClient } from '../facebook-publisher.client';
 import { FacebookGraphError } from '../facebook.errors';
-import type { PublishMediaInput } from '../facebook-publisher.interface';
+import type {
+  PublishAlbumInput,
+  PublishMediaInput,
+} from '../facebook-publisher.interface';
 
 const buildConfig = (videoChunkRetries = 3): AppConfigService =>
   ({
@@ -97,6 +100,83 @@ describe('FacebookPublisherClient', () => {
       expect(result).toEqual({ postId: 'post-1' });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock.mock.calls[0][0]).toContain('/page-1/photos');
+    });
+  });
+
+  describe('publishImageAlbum — nhiều ảnh một bài', () => {
+    /** Mượn file giả: mọi ảnh dùng chung một file trên đĩa, khác nhau ở tên. */
+    const albumInput = (count: number): PublishAlbumInput => {
+      writeFileSync(filePath, Buffer.alloc(10, 'a'));
+      return {
+        pageId: 'page-1',
+        accessToken: 'tok',
+        message: 'caption chung',
+        files: {
+          count,
+          withFile: (index, fn) =>
+            fn({
+              path: filePath,
+              filename: `anh-${index}.jpg`,
+              mimeType: 'image/jpeg',
+              size: 10,
+            }),
+        },
+      };
+    };
+
+    it('upload từng ảnh published=false rồi tạo 1 bài feed kèm attached_media', async () => {
+      client = new FacebookPublisherClient(buildConfig());
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(200, { id: 'photo-1' }))
+        .mockResolvedValueOnce(jsonResponse(200, { id: 'photo-2' }))
+        .mockResolvedValueOnce(jsonResponse(200, { id: 'photo-3' }))
+        .mockResolvedValueOnce(jsonResponse(200, { id: 'post-1' }));
+
+      const result = await client.publishImageAlbum(albumInput(3));
+
+      expect(result).toEqual({ postId: 'post-1' });
+      // 3 lần /photos + đúng 1 lần /feed — không phải 3 bài riêng lẻ.
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      const urls = fetchMock.mock.calls.map((call) => call[0]);
+      expect(urls.slice(0, 3).every((url) => url.includes('/photos'))).toBe(
+        true,
+      );
+      expect(urls[3]).toContain('/page-1/feed');
+
+      const photoForm = fetchMock.mock.calls[0][1].body as FormData;
+      expect(photoForm.get('published')).toBe('false');
+
+      const feedForm = fetchMock.mock.calls[3][1].body as FormData;
+      expect(feedForm.get('message')).toBe('caption chung');
+      expect(feedForm.get('attached_media[0]')).toBe(
+        JSON.stringify({ media_fbid: 'photo-1' }),
+      );
+      expect(feedForm.get('attached_media[2]')).toBe(
+        JSON.stringify({ media_fbid: 'photo-3' }),
+      );
+    });
+
+    it('một ảnh upload lỗi ⇒ dừng luôn, KHÔNG tạo bài feed cụt', async () => {
+      client = new FacebookPublisherClient(buildConfig());
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(200, { id: 'photo-1' }))
+        .mockResolvedValueOnce(
+          jsonResponse(400, { error: { message: 'Ảnh hỏng' } }),
+        );
+
+      await expect(client.publishImageAlbum(albumInput(3))).rejects.toThrow(
+        FacebookGraphError,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('ảnh trả về không có id ⇒ FacebookGraphError, không đăng bài', async () => {
+      client = new FacebookPublisherClient(buildConfig());
+      fetchMock.mockResolvedValue(jsonResponse(200, {}));
+
+      await expect(client.publishImageAlbum(albumInput(2))).rejects.toThrow(
+        FacebookGraphError,
+      );
     });
   });
 

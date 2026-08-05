@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../config/app-config.service';
 import type {
   FacebookPublisher,
+  PublishAlbumInput,
   PublishMediaInput,
   PublishResult,
 } from './facebook-publisher.interface';
@@ -113,6 +114,73 @@ export class FacebookPublisherClient implements FacebookPublisher {
 
     // Edge /photos trả cả `id` (photo) lẫn `post_id` (bài viết) — cần `post_id`.
     return { postId: this.readId(body, ['post_id', 'id']) };
+  }
+
+  /**
+   * Album nhiều ảnh = 2 pha, đúng cách Facebook yêu cầu:
+   * 1. Upload từng ảnh vào `/{page}/photos` với `published=false` ⇒ ảnh **không**
+   *    lên tường, chỉ trả về `id` (media_fbid).
+   * 2. `POST /{page}/feed` kèm `message` + `attached_media[i]` ⇒ ra đúng **một**
+   *    bài viết chứa toàn bộ ảnh, theo thứ tự truyền vào.
+   *
+   * Upload tuần tự (không `Promise.all`): mỗi lúc chỉ giữ một file trên tay, giữ
+   * RAM/đĩa phẳng như luồng 1 ảnh — cùng lý do với `openAsBlob` ở `baseForm`.
+   * Hỏng giữa chừng thì mấy ảnh đã upload nằm lại dạng unpublished (không hiện
+   * trên tường), log lại id để dọn tay nếu cần.
+   */
+  async publishImageAlbum(input: PublishAlbumInput): Promise<PublishResult> {
+    const mediaFbids: string[] = [];
+
+    for (let index = 0; index < input.files.count; index += 1) {
+      const mediaFbid = await input.files.withFile(index, async (file) => {
+        const form = new FormData();
+        const blob = await openAsBlob(file.path, { type: file.mimeType });
+        form.set('source', blob, file.filename);
+        form.set('published', 'false');
+        // `temporary=false`: ảnh phải sống đủ lâu để gắn vào bài feed ngay sau đó.
+        form.set('temporary', 'false');
+
+        const body = await this.post(
+          `${GRAPH_BASE_URL}/${this.version}/${encodeURIComponent(
+            input.pageId,
+          )}/photos`,
+          form,
+          input.accessToken,
+          `tải ảnh thứ ${index + 1} của bài nhiều ảnh`,
+          this.config.facebook.imageTimeoutMs,
+        );
+        return this.readId(body, ['id']);
+      });
+
+      mediaFbids.push(mediaFbid);
+    }
+
+    const feedForm = new FormData();
+    feedForm.set('message', input.message);
+    mediaFbids.forEach((mediaFbid, index) => {
+      feedForm.set(
+        `attached_media[${index}]`,
+        JSON.stringify({ media_fbid: mediaFbid }),
+      );
+    });
+
+    try {
+      const body = await this.post(
+        `${GRAPH_BASE_URL}/${this.version}/${encodeURIComponent(
+          input.pageId,
+        )}/feed`,
+        feedForm,
+        input.accessToken,
+        `đăng bài ${mediaFbids.length} ảnh lên Page`,
+        this.config.facebook.imageTimeoutMs,
+      );
+      return { postId: this.readId(body, ['id', 'post_id']) };
+    } catch (error) {
+      this.logger.warn(
+        `Bài ${mediaFbids.length} ảnh không tạo được; ảnh đã tải lên (chưa hiển thị): ${mediaFbids.join(', ')}`,
+      );
+      throw error;
+    }
   }
 
   /**

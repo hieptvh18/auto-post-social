@@ -26,6 +26,8 @@ export interface AutoPostSlotResponse {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
+  /** Số ảnh gom vào 1 bài (album). 1 = mỗi bài 1 ảnh. */
+  assetsPerPost: number;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -68,6 +70,7 @@ export function toAutoPostSlotResponse(
     categories: slot.categories,
     mediaType: slot.mediaType,
     postCount: slot.postCount,
+    assetsPerPost: slot.assetsPerPost,
     enabled: slot.enabled,
     createdAt: slot.createdAt,
     updatedAt: slot.updatedAt,

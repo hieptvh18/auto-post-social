@@ -31,6 +31,13 @@ import type { CreateAutoPostSlotDto } from './dto/create-auto-post-slot.dto';
 import type { UpdateAutoPostConfigDto } from './dto/update-auto-post-config.dto';
 import type { UpdateAutoPostSlotDto } from './dto/update-auto-post-slot.dto';
 
+/**
+ * Trần số ảnh trong một bài album. Facebook chỉ nhận tối đa 10 `attached_media`
+ * cho một bài feed — để hằng số trong code (không phải env) vì đây là giới hạn
+ * của Meta, không phải lựa chọn vận hành của mình.
+ */
+export const MAX_ASSETS_PER_POST = 10;
+
 /** PATCH config: cảnh báo (không chặn) khi bật auto mà page chưa có mốc giờ nào. */
 export interface UpdateAutoPostConfigResponse extends AutoPostConfigResponse {
   warning: string | null;
@@ -174,6 +181,7 @@ export class AutoPostConfigsService {
   ): Promise<AutoPostSlotResponse> {
     await this.getPageOrFail(pageId);
     this.assertPostCountInRange(dto.postCount);
+    this.assertAlbumConfigValid(dto.assetsPerPost ?? 1, dto.mediaType);
 
     const duplicate = await this.repository.findSlotByPageAndTime(
       pageId,
@@ -191,6 +199,7 @@ export class AutoPostConfigsService {
       categories: dto.categories,
       mediaType: dto.mediaType,
       postCount: dto.postCount,
+      assetsPerPost: dto.assetsPerPost,
       enabled: dto.enabled,
     });
 
@@ -204,6 +213,7 @@ export class AutoPostConfigsService {
         categories: slot.categories,
         mediaType: slot.mediaType,
         postCount: slot.postCount,
+        assetsPerPost: slot.assetsPerPost,
       },
     });
 
@@ -219,6 +229,12 @@ export class AutoPostConfigsService {
     if (dto.postCount !== undefined) {
       this.assertPostCountInRange(dto.postCount);
     }
+    // Kiểm trên **giá trị sau khi sửa**: đổi riêng mediaType sang video trên một
+    // mốc giờ đang để 3 ảnh/bài cũng là cấu hình không đăng được.
+    this.assertAlbumConfigValid(
+      dto.assetsPerPost ?? current.assetsPerPost,
+      dto.mediaType ?? current.mediaType,
+    );
 
     if (dto.time !== undefined && dto.time !== current.time) {
       const duplicate = await this.repository.findSlotByPageAndTime(
@@ -237,6 +253,7 @@ export class AutoPostConfigsService {
       categories: dto.categories,
       mediaType: dto.mediaType,
       postCount: dto.postCount,
+      assetsPerPost: dto.assetsPerPost,
       enabled: dto.enabled,
     });
 
@@ -249,6 +266,7 @@ export class AutoPostConfigsService {
         categories: current.categories,
         mediaType: current.mediaType,
         postCount: current.postCount,
+        assetsPerPost: current.assetsPerPost,
         enabled: current.enabled,
       },
       afterValue: {
@@ -256,6 +274,7 @@ export class AutoPostConfigsService {
         categories: updated.categories,
         mediaType: updated.mediaType,
         postCount: updated.postCount,
+        assetsPerPost: updated.assetsPerPost,
         enabled: updated.enabled,
       },
     });
@@ -288,6 +307,29 @@ export class AutoPostConfigsService {
     if (postCount > max) {
       throw new BadRequestException(
         `Số bài mỗi lần đăng tối đa là ${max} (MAX_POST_PER_SLOT)`,
+      );
+    }
+  }
+
+  /**
+   * Album chỉ ghép được ảnh: Graph API không cho nhiều video vào một bài feed, và
+   * trộn ảnh + video trong `attached_media` cũng không được. Nên `mediaType = all`
+   * cũng bị chặn — nếu cho qua, Bot sẽ bốc trúng video và bài đó chết lúc đăng.
+   */
+  private assertAlbumConfigValid(
+    assetsPerPost: number,
+    mediaType: SlotMediaType,
+  ): void {
+    if (!Number.isInteger(assetsPerPost) || assetsPerPost <= 1) return;
+
+    if (assetsPerPost > MAX_ASSETS_PER_POST) {
+      throw new BadRequestException(
+        `Một bài chỉ ghép được tối đa ${MAX_ASSETS_PER_POST} ảnh (giới hạn của Facebook)`,
+      );
+    }
+    if (mediaType !== SlotMediaType.image) {
+      throw new BadRequestException(
+        'Đăng nhiều tài nguyên trong 1 bài chỉ áp dụng cho ảnh — đổi "Loại media" sang Ảnh, hoặc để số ảnh/bài = 1',
       );
     }
   }

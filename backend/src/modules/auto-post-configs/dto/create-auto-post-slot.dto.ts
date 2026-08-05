@@ -54,6 +54,18 @@ export class CreateAutoPostSlotDto {
   @Min(1)
   postCount!: number;
 
+  @ApiPropertyOptional({
+    default: 1,
+    example: 3,
+    description:
+      'Số ảnh gom vào MỘT bài (album). 1 = mỗi bài 1 ảnh. > 1 chỉ hợp lệ khi ' +
+      'mediaType = image; chặn trên bằng MAX_ASSETS_PER_POST.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  assetsPerPost?: number;
+
   @ApiPropertyOptional({ default: true })
   @IsOptional()
   @IsBoolean()

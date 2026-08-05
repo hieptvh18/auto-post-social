@@ -44,6 +44,10 @@ export interface PickForSlotParams {
  * Mọi câu ở đây đều phải có `is_active = TRUE` (plan 19 §2.2): bài đã "ngưng dùng"
  * mà lọt vào picker là Bot đăng thật lên page.
  *
+ * Bài đang là **ảnh phụ** của một album chờ đăng (`publish_job_assets`) cũng phải
+ * bị loại y như bài đang là job chính (plan 21) — không thì tick sau Bot chọn lại
+ * đúng những ảnh vừa gom vào album trước và đăng chúng thêm một lần nữa.
+ *
  * Query chọn bài cho Bot — **hàm dễ sai nhất hệ thống** (picker sai ⇒ đăng lặp
  * hoặc bỏ sót). Viết raw vì Prisma không diễn tả gọn `NOT EXISTS` + `= ANY`.
  * Bám đúng `docs/03-database-design.md` §7.
@@ -123,6 +127,13 @@ export class ContentPickerRepository {
               AND j.facebook_page_id = ${facebookPageId}::uuid
               AND j.status IN ('QUEUED', 'PUBLISHING', 'FAILED')
          )
+         AND NOT EXISTS (
+           SELECT 1 FROM publish_job_assets ja
+             JOIN publish_jobs j2 ON j2.id = ja.publish_job_id
+            WHERE ja.content_asset_id = c.id
+              AND j2.facebook_page_id = ${facebookPageId}::uuid
+              AND j2.status IN ('QUEUED', 'PUBLISHING', 'FAILED')
+         )
        GROUP BY c.category
     `;
   }
@@ -157,6 +168,13 @@ export class ContentPickerRepository {
             WHERE j.content_asset_id = c.id
               AND j.facebook_page_id = ${params.facebookPageId}::uuid
               AND j.status IN ('QUEUED', 'PUBLISHING', 'FAILED')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM publish_job_assets ja
+             JOIN publish_jobs j2 ON j2.id = ja.publish_job_id
+            WHERE ja.content_asset_id = c.id
+              AND j2.facebook_page_id = ${params.facebookPageId}::uuid
+              AND j2.status IN ('QUEUED', 'PUBLISHING', 'FAILED')
          )
        ORDER BY c.updated_at ASC
        LIMIT ${params.limit}

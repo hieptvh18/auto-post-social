@@ -47,6 +47,16 @@ export class UpdateAutoPostSlotDto {
   @Min(1)
   postCount?: number;
 
+  @ApiPropertyOptional({
+    example: 3,
+    description:
+      'Số ảnh trong 1 bài album — xem ghi chú ở CreateAutoPostSlotDto',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  assetsPerPost?: number;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()

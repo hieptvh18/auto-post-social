@@ -231,6 +231,8 @@ export interface AutoPostSlot {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
+  /** Số ảnh gom vào 1 bài (album). 1 = mỗi bài 1 ảnh. */
+  assetsPerPost: number;
   enabled: boolean;
 }
 
@@ -273,6 +275,8 @@ export interface AutoPostSlotResponse {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
+  /** Số ảnh gom vào 1 bài (album). 1 = mỗi bài 1 ảnh. */
+  assetsPerPost: number;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -317,6 +321,8 @@ export interface CreateAutoPostSlotBody {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
+  /** Bỏ trống ⇒ backend hiểu là 1. > 1 chỉ hợp lệ khi mediaType = 'image'. */
+  assetsPerPost?: number;
   enabled?: boolean;
 }
 

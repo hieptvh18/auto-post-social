@@ -4,7 +4,6 @@ import {
   PublishStatus,
   type ContentAsset,
   type FacebookPage,
-  type PublishJob,
 } from '../../../../generated/prisma/client';
 import type { AuditService } from '../../audit/audit.service';
 import type { FacebookPagesService } from '../../facebook-pages/facebook-pages.service';
@@ -15,7 +14,7 @@ import {
 } from '../publish-executor.service';
 import type { PublishJobEventsService } from '../publish-job-events.service';
 import type {
-  JobWithContext,
+  JobWithAssets,
   PublishJobsRepository,
 } from '../publish-jobs.repository';
 import type { PublishMediaService } from '../publish-media.service';
@@ -44,7 +43,7 @@ const makePage = (): FacebookPage =>
     isActive: true,
   }) as FacebookPage;
 
-const makeJob = (overrides: Partial<PublishJob> = {}): JobWithContext => ({
+const makeJob = (overrides: Partial<JobWithAssets> = {}): JobWithAssets => ({
   id: 'job-1',
   contentAssetId: 'content-1',
   facebookPageId: 'page-1',
@@ -62,6 +61,7 @@ const makeJob = (overrides: Partial<PublishJob> = {}): JobWithContext => ({
   updatedAt: NOW,
   contentAsset: makeContent(),
   facebookPage: makePage(),
+  assets: [makeContent()],
   ...overrides,
 });
 
@@ -118,7 +118,7 @@ describe('PublishExecutorService', () => {
 
       expect(repository.markPublishing).toHaveBeenCalledWith(
         'job-1',
-        'content-1',
+        ['content-1'],
         1,
       );
       expect(publishMedia.publish).toHaveBeenCalledTimes(1);
@@ -132,7 +132,8 @@ describe('PublishExecutorService', () => {
       repository.findForExecution.mockResolvedValue(
         makeJob({
           contentAsset: makeContent({ mediaType: MediaType.video }),
-        } as Partial<PublishJob>),
+          assets: [makeContent({ mediaType: MediaType.video })],
+        }),
       );
 
       await service.execute({
@@ -141,9 +142,65 @@ describe('PublishExecutorService', () => {
         isLastAttempt: false,
       });
 
-      expect(publishMedia.publish.mock.calls[0][0].content.mediaType).toBe(
+      expect(publishMedia.publish.mock.calls[0][0].contents[0].mediaType).toBe(
         MediaType.video,
       );
+    });
+
+    it('bài album: MỌI ảnh trong bài đều được đánh dấu đăng, không chỉ ảnh đầu', async () => {
+      repository.findForExecution.mockResolvedValue(
+        makeJob({
+          assets: [
+            makeContent({ id: 'content-1' }),
+            makeContent({ id: 'content-2' }),
+            makeContent({ id: 'content-3' }),
+          ],
+        }),
+      );
+
+      await service.execute({
+        publishJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(repository.markPublishing).toHaveBeenCalledWith(
+        'job-1',
+        ['content-1', 'content-2', 'content-3'],
+        1,
+      );
+      expect(repository.markSuccess.mock.calls[0][0].contentAssetIds).toEqual([
+        'content-1',
+        'content-2',
+        'content-3',
+      ]);
+      // Album là MỘT bài viết ⇒ đúng một lần gọi Graph cho cả nhóm.
+      expect(publishMedia.publish).toHaveBeenCalledTimes(1);
+    });
+
+    it('album đăng hỏng ⇒ cả nhóm ảnh cùng quay về trạng thái cũ', async () => {
+      repository.findForExecution.mockResolvedValue(
+        makeJob({
+          assets: [
+            makeContent({ id: 'content-1' }),
+            makeContent({ id: 'content-2' }),
+          ],
+        }),
+      );
+      publishMedia.publish.mockRejectedValue(new Error('Graph 400'));
+
+      await expect(
+        service.execute({
+          publishJobId: 'job-1',
+          attemptNo: 3,
+          isLastAttempt: true,
+        }),
+      ).rejects.toThrow('Graph 400');
+
+      expect(repository.markFailure.mock.calls[0][1].contentAssetIds).toEqual([
+        'content-1',
+        'content-2',
+      ]);
     });
 
     it('ghi audit AUTO_PUBLISH với userId null vì actor là Bot', async () => {

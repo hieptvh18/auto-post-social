@@ -18,6 +18,8 @@ export interface CreateSlotData {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
+  /** Số ảnh gom vào 1 bài album; bỏ trống ⇒ DB default 1. */
+  assetsPerPost?: number;
   enabled?: boolean;
 }
 
@@ -26,6 +28,7 @@ export interface UpdateSlotData {
   categories?: string[];
   mediaType?: SlotMediaType;
   postCount?: number;
+  assetsPerPost?: number;
   enabled?: boolean;
 }
 

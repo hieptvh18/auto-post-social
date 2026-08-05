@@ -15,8 +15,16 @@ export type JobWithContext = PublishJob & {
   facebookPage: FacebookPage;
 };
 
+/**
+ * Job kèm **toàn bộ** ảnh của bài, đã đúng thứ tự đăng: `contentAsset` là ảnh đầu
+ * (vị trí 0), rồi tới ảnh phụ theo `position`. Bài thường ⇒ mảng 1 phần tử.
+ */
+export type JobWithAssets = JobWithContext & { assets: ContentAsset[] };
+
 export interface CreateJobData {
   contentAssetId: string;
+  /** Ảnh phụ của bài album, đúng thứ tự đăng. Bỏ trống = bài 1 ảnh như cũ. */
+  extraContentAssetIds?: string[];
   facebookPageId: string;
   caption: string;
   hashtags?: string | null;
@@ -28,7 +36,8 @@ export interface CreateJobData {
 
 export interface MarkSuccessData {
   jobId: string;
-  contentAssetId: string;
+  /** **Mọi** ảnh của bài (album ⇒ nhiều) — tất cả đều phải sang PUBLISHED. */
+  contentAssetIds: string[];
   facebookPageId: string;
   facebookPostId: string;
   publishedAt: Date;
@@ -75,7 +84,12 @@ function buildJobsWhere(filter: FindJobsFilter): Prisma.PublishJobWhereInput {
 export class PublishJobsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Ảnh phụ ghi luôn trong cùng `create` (nested write ⇒ một transaction): job có
+   * mặt mà thiếu ảnh phụ nghĩa là đăng ra một bài album cụt.
+   */
   create(data: CreateJobData): Promise<PublishJob> {
+    const extras = data.extraContentAssetIds ?? [];
     return this.prisma.publishJob.create({
       data: {
         contentAssetId: data.contentAssetId,
@@ -85,6 +99,13 @@ export class PublishJobsRepository {
         scheduleTime: data.scheduleTime,
         status: data.status,
         createdBy: data.createdBy,
+        extraAssets: {
+          create: extras.map((contentAssetId, index) => ({
+            contentAssetId,
+            // Vị trí 0 là `contentAssetId` của chính job ⇒ ảnh phụ bắt đầu từ 1.
+            position: index + 1,
+          })),
+        },
       },
     });
   }
@@ -100,11 +121,29 @@ export class PublishJobsRepository {
     return this.prisma.publishJob.findUnique({ where: { id: jobId } });
   }
 
-  findForExecution(jobId: string): Promise<JobWithContext | null> {
-    return this.prisma.publishJob.findUnique({
+  /**
+   * Nơi **duy nhất** ghép danh sách ảnh đầy đủ của job (`content_asset_id` + bảng
+   * `publish_job_assets`). Chỗ khác tự nối tay là sớm muộn cũng quên ảnh phụ.
+   */
+  async findForExecution(jobId: string): Promise<JobWithAssets | null> {
+    const job = await this.prisma.publishJob.findUnique({
       where: { id: jobId },
-      include: { contentAsset: true, facebookPage: true },
+      include: {
+        contentAsset: true,
+        facebookPage: true,
+        extraAssets: {
+          orderBy: { position: 'asc' },
+          include: { contentAsset: true },
+        },
+      },
     });
+    if (job === null) return null;
+
+    const { extraAssets, ...rest } = job;
+    return {
+      ...rest,
+      assets: [job.contentAsset, ...extraAssets.map((a) => a.contentAsset)],
+    };
   }
 
   findMany(
@@ -207,7 +246,7 @@ export class PublishJobsRepository {
    */
   async markPublishing(
     jobId: string,
-    contentAssetId: string,
+    contentAssetIds: string[],
     attemptCount: number,
   ): Promise<void> {
     await this.prisma.$transaction([
@@ -215,8 +254,8 @@ export class PublishJobsRepository {
         where: { id: jobId },
         data: { status: PublishStatus.PUBLISHING, attemptCount },
       }),
-      this.prisma.contentAsset.update({
-        where: { id: contentAssetId },
+      this.prisma.contentAsset.updateMany({
+        where: { id: { in: contentAssetIds } },
         data: { status: ContentStatus.PUBLISHING },
       }),
     ]);
@@ -225,6 +264,9 @@ export class PublishJobsRepository {
   /**
    * Đăng thành công: job + assignment + trạng thái content phải đi cùng nhau,
    * nếu không sẽ có bài đã lên Facebook nhưng hệ thống tưởng là chưa đăng.
+   *
+   * Album: **mọi** ảnh trong bài đều nhận cùng một `facebook_post_id` — chúng nằm
+   * chung một bài viết, không phải mỗi ảnh một bài.
    */
   async markSuccess(data: MarkSuccessData): Promise<PublishJob> {
     const [job] = await this.prisma.$transaction([
@@ -237,26 +279,28 @@ export class PublishJobsRepository {
           errorMessage: null,
         },
       }),
-      this.prisma.contentPageAssignment.upsert({
-        where: {
-          contentAssetId_facebookPageId: {
-            contentAssetId: data.contentAssetId,
-            facebookPageId: data.facebookPageId,
+      ...data.contentAssetIds.map((contentAssetId) =>
+        this.prisma.contentPageAssignment.upsert({
+          where: {
+            contentAssetId_facebookPageId: {
+              contentAssetId,
+              facebookPageId: data.facebookPageId,
+            },
           },
-        },
-        create: {
-          contentAssetId: data.contentAssetId,
-          facebookPageId: data.facebookPageId,
-          publishedAt: data.publishedAt,
-          facebookPostId: data.facebookPostId,
-        },
-        update: {
-          publishedAt: data.publishedAt,
-          facebookPostId: data.facebookPostId,
-        },
-      }),
-      this.prisma.contentAsset.update({
-        where: { id: data.contentAssetId },
+          create: {
+            contentAssetId,
+            facebookPageId: data.facebookPageId,
+            publishedAt: data.publishedAt,
+            facebookPostId: data.facebookPostId,
+          },
+          update: {
+            publishedAt: data.publishedAt,
+            facebookPostId: data.facebookPostId,
+          },
+        }),
+      ),
+      this.prisma.contentAsset.updateMany({
+        where: { id: { in: data.contentAssetIds } },
         data: { status: ContentStatus.PUBLISHED },
       }),
     ]);
@@ -271,18 +315,30 @@ export class PublishJobsRepository {
   async markFailure(
     jobId: string,
     data: {
-      contentAssetId: string;
+      /** **Mọi** ảnh của bài — album hỏng thì cả nhóm phải quay về trạng thái cũ. */
+      contentAssetIds: string[];
       status: PublishStatus;
       errorMessage: string;
       attemptCount: number;
     },
   ): Promise<void> {
-    const publishedCount = await this.prisma.contentPageAssignment.count({
-      where: {
-        contentAssetId: data.contentAssetId,
-        publishedAt: { not: null },
+    // Ảnh nào đã đăng thành công ở page khác thì giữ PUBLISHED, số còn lại về APPROVED.
+    const publishedElsewhere = await this.prisma.contentPageAssignment.findMany(
+      {
+        where: {
+          contentAssetId: { in: data.contentAssetIds },
+          publishedAt: { not: null },
+        },
+        select: { contentAssetId: true },
+        distinct: ['contentAssetId'],
       },
-    });
+    );
+    const publishedIds = new Set(
+      publishedElsewhere.map((row) => row.contentAssetId),
+    );
+    const approvedIds = data.contentAssetIds.filter(
+      (id) => !publishedIds.has(id),
+    );
 
     await this.prisma.$transaction([
       this.prisma.publishJob.update({
@@ -293,14 +349,13 @@ export class PublishJobsRepository {
           attemptCount: data.attemptCount,
         },
       }),
-      this.prisma.contentAsset.update({
-        where: { id: data.contentAssetId },
-        data: {
-          status:
-            publishedCount > 0
-              ? ContentStatus.PUBLISHED
-              : ContentStatus.APPROVED,
-        },
+      this.prisma.contentAsset.updateMany({
+        where: { id: { in: [...publishedIds] } },
+        data: { status: ContentStatus.PUBLISHED },
+      }),
+      this.prisma.contentAsset.updateMany({
+        where: { id: { in: approvedIds } },
+        data: { status: ContentStatus.APPROVED },
       }),
     ]);
   }

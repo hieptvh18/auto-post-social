@@ -118,7 +118,8 @@ export class ManualPostService {
     try {
       // Đường đăng dùng chung với Bot tự động (plan 07) — không copy logic ra đây.
       published = await this.publishMedia.publish({
-        content,
+        // Đăng tay luôn 1 bài = 1 tài nguyên; album chỉ có ở mốc giờ tự động.
+        contents: [content],
         pageId: page.pageId,
         accessToken: token,
         caption: dto.caption,

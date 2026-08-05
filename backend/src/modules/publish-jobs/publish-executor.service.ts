@@ -70,12 +70,16 @@ export class PublishExecutorService {
       };
     }
 
-    await this.repository.markPublishing(job.id, job.contentAssetId, attemptNo);
+    const assetIds = job.assets.map((asset) => asset.id);
+    await this.repository.markPublishing(job.id, assetIds, attemptNo);
     await this.events.log({
       publishJobId: job.id,
       attemptNo,
       event: PublishJobEventType.STARTED,
-      message: `Bắt đầu đăng "${job.contentAsset.title}" lên page "${job.facebookPage.pageName}"`,
+      message:
+        `Bắt đầu đăng "${job.contentAsset.title}"` +
+        (assetIds.length > 1 ? ` + ${assetIds.length - 1} ảnh nữa` : '') +
+        ` lên page "${job.facebookPage.pageName}"`,
     });
 
     try {
@@ -83,7 +87,7 @@ export class PublishExecutorService {
         job.facebookPageId,
       );
       const published = await this.publishMedia.publish({
-        content: job.contentAsset,
+        contents: job.assets,
         pageId: job.facebookPage.pageId,
         accessToken: token,
         caption: job.caption,
@@ -93,7 +97,7 @@ export class PublishExecutorService {
       const publishedAt = new Date();
       await this.repository.markSuccess({
         jobId: job.id,
-        contentAssetId: job.contentAssetId,
+        contentAssetIds: assetIds,
         facebookPageId: job.facebookPageId,
         facebookPostId: published.postId,
         publishedAt,
@@ -126,7 +130,7 @@ export class PublishExecutorService {
       const willRetry = !isLastAttempt;
 
       await this.repository.markFailure(job.id, {
-        contentAssetId: job.contentAssetId,
+        contentAssetIds: assetIds,
         // Còn lượt thử ⇒ về QUEUED để lần retry sau đi qua đúng cửa idempotent ở trên.
         status: willRetry ? PublishStatus.QUEUED : PublishStatus.FAILED,
         errorMessage: reason,

@@ -1,12 +1,19 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { MediaType, type ContentAsset } from '../../../generated/prisma/client';
 import { FacebookPublisherClient } from '../../infra/facebook/facebook-publisher.client';
-import type { PublishResult } from '../../infra/facebook/facebook-publisher.interface';
+import type {
+  PublishFileInput,
+  PublishResult,
+} from '../../infra/facebook/facebook-publisher.interface';
 import { FacebookGraphError } from '../../infra/facebook/facebook.errors';
 import { MediaCacheService } from '../../infra/media-cache/media-cache.service';
 
 export interface PublishMediaParams {
-  content: ContentAsset;
+  /**
+   * Ảnh của bài, đúng thứ tự đăng. 1 phần tử = bài thường (ảnh hoặc video);
+   * nhiều phần tử = bài album nhiều ảnh (plan 21).
+   */
+  contents: ContentAsset[];
   /** ID page phía Meta (`facebook_pages.page_id`), không phải uuid nội bộ. */
   pageId: string;
   accessToken: string;
@@ -43,19 +50,19 @@ export class PublishMediaService {
    * job đầu tải, ba job sau dùng lại bản trên đĩa.
    */
   async publish(params: PublishMediaParams): Promise<PublishResult> {
-    const { content } = params;
+    const [content, ...extras] = params.contents;
+    const message = buildMessage(params.caption, params.hashtags);
+
+    if (extras.length > 0) {
+      return this.publishAlbum(params, message);
+    }
 
     return this.mediaCache.withLocalFile(content.driveFileId, (file) => {
       const input = {
         pageId: params.pageId,
         accessToken: params.accessToken,
-        message: buildMessage(params.caption, params.hashtags),
-        file: {
-          path: file.path,
-          size: file.size,
-          filename: buildFilename(content),
-          mimeType: content.mimeType ?? defaultMime(content.mediaType),
-        },
+        message,
+        file: toPublishFile(content, file),
       };
 
       return content.mediaType === MediaType.video
@@ -63,6 +70,51 @@ export class PublishMediaService {
         : this.publisher.publishImage(input);
     });
   }
+
+  /**
+   * Bài nhiều ảnh. Không tải sẵn cả nhóm rồi mới gọi Graph: đưa cho publisher một
+   * hàm mượn file **theo yêu cầu** để nó tải–đẩy–thả từng ảnh một, album 10 ảnh
+   * cũng chỉ giữ 1 file trên tay tại mỗi thời điểm.
+   */
+  private publishAlbum(
+    params: PublishMediaParams,
+    message: string,
+  ): Promise<PublishResult> {
+    const contents = params.contents;
+    const video = contents.find((c) => c.mediaType === MediaType.video);
+    if (video !== undefined) {
+      throw new BadRequestException(
+        `Bài nhiều tài nguyên chỉ ghép được ảnh — "${video.title}" là video`,
+      );
+    }
+
+    return this.publisher.publishImageAlbum({
+      pageId: params.pageId,
+      accessToken: params.accessToken,
+      message,
+      files: {
+        count: contents.length,
+        withFile: (index, fn) => {
+          const content = contents[index];
+          return this.mediaCache.withLocalFile(content.driveFileId, (file) =>
+            fn(toPublishFile(content, file)),
+          );
+        },
+      },
+    });
+  }
+}
+
+function toPublishFile(
+  content: ContentAsset,
+  file: { path: string; size: number },
+): PublishFileInput {
+  return {
+    path: file.path,
+    size: file.size,
+    filename: buildFilename(content),
+    mimeType: content.mimeType ?? defaultMime(content.mediaType),
+  };
 }
 
 /** Hashtag đặt xuống dòng riêng cho dễ đọc trên Facebook. */
