@@ -42,6 +42,12 @@ export interface PostsByPageRow {
   failedPosts: number;
 }
 
+export interface TopCategoryRow {
+  category: string;
+  successPosts: number;
+  pageCount: number;
+}
+
 export interface PageCounts {
   activePages: number;
   autopostEnabledPages: number;
@@ -272,6 +278,41 @@ export class DashboardRepository {
        -- nguyên hàm đếm thay vì viết "imagePosts" + "videoPosts".
        ORDER BY COUNT(*) FILTER (WHERE j.status = 'SUCCESS') DESC,
                 p.page_name ASC
+    `;
+  }
+
+  /**
+   * Top danh mục ("dạng" bài) được đăng **thành công** nhiều nhất, gộp trên
+   * nhiều page (bổ sung 2026-08-05, ngoài `docs/04` §8 — theo yêu cầu user).
+   *
+   * `category` là text tự do, không có bảng riêng (giống hashtag) ⇒ group
+   * thẳng theo giá trị chuỗi, không qua bảng lookup nào.
+   */
+  topCategoriesBySuccess(
+    range: DashboardRange,
+    limit: number,
+    ownerId: string | null,
+  ): Promise<TopCategoryRow[]> {
+    const ownerFilter =
+      ownerId === null
+        ? Prisma.empty
+        : Prisma.sql`AND c.created_by = ${ownerId}::uuid`;
+
+    return this.prisma.$queryRaw<TopCategoryRow[]>`
+      SELECT c.category AS "category",
+             COUNT(*)::int AS "successPosts",
+             COUNT(DISTINCT j.facebook_page_id)::int AS "pageCount"
+        FROM publish_jobs j
+        JOIN content_assets c ON c.id = j.content_asset_id
+        JOIN facebook_pages p ON p.id = j.facebook_page_id
+       WHERE j.schedule_time >= ${range.fromUtc}
+         AND j.schedule_time <  ${range.toUtc}
+         AND j.status = 'SUCCESS'
+         AND p.deleted_at IS NULL
+         ${ownerFilter}
+       GROUP BY c.category
+       ORDER BY COUNT(*) DESC, c.category ASC
+       LIMIT ${limit}
     `;
   }
 

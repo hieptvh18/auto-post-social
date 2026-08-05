@@ -46,6 +46,7 @@ type RepositoryMock = jest.Mocked<
     | 'countActiveUsers'
     | 'dailyJobStats'
     | 'postsByPage'
+    | 'topCategoriesBySuccess'
     | 'findPagesWithExpiringToken'
   >
 >;
@@ -76,6 +77,7 @@ function setup(): Mocks {
     countActiveUsers: jest.fn().mockResolvedValue(4),
     dailyJobStats: jest.fn().mockResolvedValue([]),
     postsByPage: jest.fn().mockResolvedValue([]),
+    topCategoriesBySuccess: jest.fn().mockResolvedValue([]),
     findPagesWithExpiringToken: jest.fn().mockResolvedValue([]),
   };
 
@@ -266,6 +268,61 @@ describe('DashboardService', () => {
         DashboardMediaType.video,
         CONTENT.id,
       );
+    });
+  });
+
+  describe('getTopCategories', () => {
+    it('không truyền limit ⇒ mặc định 10', async () => {
+      const { repository, service } = setup();
+
+      await service.getTopCategories({}, ADMIN);
+
+      expect(repository.topCategoriesBySuccess).toHaveBeenCalledWith(
+        expect.anything(),
+        10,
+        null,
+      );
+    });
+
+    it('truyền limit tuỳ chỉnh ⇒ chuyển thẳng xuống repository', async () => {
+      const { repository, service } = setup();
+
+      await service.getTopCategories({ limit: 5 }, ADMIN);
+
+      expect(repository.topCategoriesBySuccess).toHaveBeenCalledWith(
+        expect.anything(),
+        5,
+        null,
+      );
+    });
+
+    it('CONTENT chỉ thấy danh mục trong bài của chính mình', async () => {
+      const { repository, service } = setup();
+
+      await service.getTopCategories({}, CONTENT);
+
+      expect(repository.topCategoriesBySuccess).toHaveBeenCalledWith(
+        expect.anything(),
+        10,
+        CONTENT.id,
+      );
+    });
+
+    it('trả đúng danh sách và kỳ từ repository', async () => {
+      const { repository, service } = setup();
+      repository.topCategoriesBySuccess.mockResolvedValue([
+        { category: 'Cây cảnh', successPosts: 12, pageCount: 3 },
+      ]);
+
+      const result = await service.getTopCategories(
+        { from: '2026-07-19', to: '2026-07-25' },
+        ADMIN,
+      );
+
+      expect(result.range).toEqual({ from: '2026-07-19', to: '2026-07-25' });
+      expect(result.items).toEqual([
+        { category: 'Cây cảnh', successPosts: 12, pageCount: 3 },
+      ]);
     });
   });
 

@@ -57,6 +57,19 @@ export interface PostsByPage {
   items: PostsByPageItem[];
 }
 
+export interface TopCategoryItem {
+  category: string;
+  successPosts: number;
+  /** Số page KHÁC NHAU đã đăng thành công danh mục này — phân biệt "1 page đăng
+   *  nhiều lần" với "được nhiều page cùng chọn". */
+  pageCount: number;
+}
+
+export interface TopCategories {
+  range: { from: string; to: string };
+  items: TopCategoryItem[];
+}
+
 export const AlertLevel = {
   error: 'error',
   warning: 'warning',

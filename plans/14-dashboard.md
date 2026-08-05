@@ -265,6 +265,28 @@ Bố cục (giữ nguyên khung mock hiện có, chỉ đổi nguồn dữ liệ
 - [x] `DashboardPage` tách Real/Mock, nối 4 endpoint, RangePicker đồng bộ URL
 - [x] Khối "Cần chú ý" (ẩn khi rỗng, mỗi alert có link sang màn xử lý)
 - [x] Ẩn thẻ số theo role (CONTENT không thấy `activeUsers`, EDITOR không thấy `activeUsers`)
+- [x] **Bổ sung 2026-08-05 (yêu cầu user):** line chart "Tỷ lệ thành công/thất bại theo
+      ngày" (tính lại từ `chart/daily` đã fetch, không thêm API) + bar chart "Tổng bài đăng
+      thành công theo page" (gọi `posts-by-page` với `mediaType=all` cố định, độc lập bộ lọc
+      ảnh/video) + bar ngang "Top danh mục đăng thành công nhiều nhất" (endpoint mới, xem
+      Backend bên dưới). Đã `npm run lint && npm run build && npm run test` xanh (FE 35 test).
+      Chưa smoke UI — gộp vào §5.
+
+### Backend — bổ sung 2026-08-05 (ngoài phạm vi ban đầu, theo yêu cầu user)
+- [x] `GET /dashboard/top-categories?from=&to=&limit=` — **ngoài `docs/04` §8**, cùng kiểu bổ
+      sung như `/health` (§3.5). `dashboard.repository.ts` thêm `topCategoriesBySuccess()`:
+      raw SQL group theo `content_assets.category` (text tự do, không bảng riêng), đếm
+      `publish_jobs.status='SUCCESS'` + `COUNT(DISTINCT facebook_page_id)` làm `pageCount`,
+      loại page đã xoá mềm, `LIMIT` mặc định 10 (tối đa 50).
+- [x] `dto/query-dashboard.dto.ts`: `QueryTopCategoriesDto` (`limit` optional int 1–50,
+      mặc định 10, `@Type(() => Number)` theo đúng pattern các DTO phân trang khác).
+- [x] `dashboard.service.ts`: `getTopCategories()` — cùng `resolveRange()` + scope RBAC như
+      `production.successPosts` (CONTENT chỉ thấy danh mục trong bài của mình).
+- [x] `dashboard.controller.ts`: endpoint mới, `@RequirePermission('dashboard:view')` sẵn có
+      ở class (không thêm permission mới).
+- [x] Test: mặc định `limit=10` · truyền `limit` tuỳ chỉnh · scope CONTENT · trả đúng
+      `range`/`items` từ repository (4 test, BE 714 tổng xanh).
+- [x] Không đụng `schema.prisma` ⇒ `erd.md` giữ nguyên, không thêm biến env.
 
 ### Test (rule 02 — chỉ vùng dễ sai)
 - [x] **Gom ngày theo timezone VN**: job lúc 23:30 và 00:30 giờ VN rơi đúng ngày, không lệch 7h

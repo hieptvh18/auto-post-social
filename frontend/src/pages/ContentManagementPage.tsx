@@ -81,6 +81,11 @@ function detectMediaType(file: UploadFile): MediaType {
   return 'image';
 }
 
+/** Bỏ phần đuôi file (vd "video-abc.mp4" -> "video-abc") để làm Tiêu đề mặc định. */
+function filenameToTitle(filename: string): string {
+  return filename.replace(/\.[^./]+$/, '');
+}
+
 /**
  * Ô hiển thị người thao tác: tên + mốc thời gian (email ở tooltip cho khỏi chật).
  * Tạm không dùng từ 2026-08-03 — cột "Người upload" đã nhường chỗ cho cột "Editor";
@@ -150,6 +155,7 @@ function MockContentManagementPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [creating, setCreating] = useState(false);
+  const [titleTouched, setTitleTouched] = useState(false);
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
 
@@ -292,6 +298,7 @@ function MockContentManagementPage() {
     });
     setCreateOpen(false);
     setFileList([]);
+    setTitleTouched(false);
     createForm.resetFields();
     message.success(`Đã upload ${contentCode} — trạng thái Chờ duyệt`);
   };
@@ -474,7 +481,7 @@ function MockContentManagementPage() {
         rowKey="id"
         columns={columns}
         dataSource={filtered}
-        pagination={{ pageSize: 10, showTotal: (t) => `${t} items` }}
+        pagination={{ pageSize: 20, showTotal: (t) => `${t} items` }}
         scroll={{ x: 1280 }}
       />
 
@@ -602,6 +609,7 @@ function MockContentManagementPage() {
         onCancel={() => {
           setCreateOpen(false);
           setFileList([]);
+          setTitleTouched(false);
           createForm.resetFields();
         }}
         onOk={() => createForm.submit()}
@@ -620,7 +628,13 @@ function MockContentManagementPage() {
               fileList={fileList}
               maxCount={1}
               beforeUpload={() => false}
-              onChange={({ fileList: next }) => setFileList(next)}
+              onChange={({ fileList: next }) => {
+                setFileList(next);
+                const picked = next[0];
+                if (picked && !titleTouched) {
+                  createForm.setFieldValue('title', filenameToTitle(picked.name));
+                }
+              }}
             >
               <Button icon={<UploadOutlined />}>Chọn ảnh hoặc video</Button>
             </Upload>
@@ -634,7 +648,10 @@ function MockContentManagementPage() {
           </Form.Item>
 
           <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
-            <Input placeholder="Ví dụ: 5 dấu hiệu thoái hóa khớp gối" />
+            <Input
+              placeholder="Ví dụ: 5 dấu hiệu thoái hóa khớp gối"
+              onChange={() => setTitleTouched(true)}
+            />
           </Form.Item>
 
           <Form.Item
@@ -682,11 +699,12 @@ function RealContentManagementPage() {
   const [activeFilter, setActiveFilter] = useState<boolean | undefined>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(20);
   const [editing, setEditing] = useState<ContentAssetResponse | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [titleTouched, setTitleTouched] = useState(false);
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
 
@@ -894,6 +912,7 @@ function RealContentManagementPage() {
       );
       setCreateOpen(false);
       setFileList([]);
+      setTitleTouched(false);
       createForm.resetFields();
     } catch (err) {
       message.error(
@@ -926,8 +945,8 @@ function RealContentManagementPage() {
           <Text strong ellipsis>
             {v}
           </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {record.id.slice(0, 8)}
+          <Text type="secondary" style={{ fontSize: 12 }} ellipsis title={record.createdBy.email}>
+            {record.createdBy.name}
           </Text>
         </Space>
       ),
@@ -1399,6 +1418,7 @@ function RealContentManagementPage() {
         onCancel={() => {
           setCreateOpen(false);
           setFileList([]);
+          setTitleTouched(false);
           createForm.resetFields();
         }}
         onOk={() => createForm.submit()}
@@ -1417,7 +1437,13 @@ function RealContentManagementPage() {
               fileList={fileList}
               maxCount={1}
               beforeUpload={() => false}
-              onChange={({ fileList: next }) => setFileList(next)}
+              onChange={({ fileList: next }) => {
+                setFileList(next);
+                const picked = next[0];
+                if (picked && !titleTouched) {
+                  createForm.setFieldValue('title', filenameToTitle(picked.name));
+                }
+              }}
             >
               <Button icon={<UploadOutlined />}>Chọn ảnh hoặc video</Button>
             </Upload>
@@ -1433,7 +1459,10 @@ function RealContentManagementPage() {
           </Form.Item>
 
           <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}>
-            <Input placeholder="Ví dụ: 5 dấu hiệu thoái hóa khớp gối" />
+            <Input
+              placeholder="Ví dụ: 5 dấu hiệu thoái hóa khớp gối"
+              onChange={() => setTitleTouched(true)}
+            />
           </Form.Item>
 
           <Form.Item

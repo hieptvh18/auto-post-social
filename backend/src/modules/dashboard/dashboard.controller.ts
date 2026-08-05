@@ -12,10 +12,12 @@ import type {
   DailyChart,
   DashboardStats,
   PostsByPage,
+  TopCategories,
 } from './dashboard.types';
 import {
   QueryDashboardDto,
   QueryPostsByPageDto,
+  QueryTopCategoriesDto,
 } from './dto/query-dashboard.dto';
 
 /**
@@ -59,6 +61,18 @@ export class DashboardController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<PostsByPage> {
     return this.service.getPostsByPage(query, actor);
+  }
+
+  @Get('top-categories')
+  @ApiOperation({
+    summary:
+      'Top danh mục đăng thành công nhiều nhất, gộp trên nhiều page (mặc định 10)',
+  })
+  getTopCategories(
+    @Query() query: QueryTopCategoriesDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<TopCategories> {
+    return this.service.getTopCategories(query, actor);
   }
 
   @Get('health')

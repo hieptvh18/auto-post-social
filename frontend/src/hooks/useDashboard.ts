@@ -7,6 +7,8 @@ import type {
   PostsByPage,
   QueryDashboardParams,
   QueryPostsByPageParams,
+  QueryTopCategoriesParams,
+  TopCategories,
 } from '../types';
 
 export const DASHBOARD_KEY = 'dashboard';
@@ -39,6 +41,15 @@ export function usePostsByPage(
   return useQuery({
     queryKey: [DASHBOARD_KEY, 'posts-by-page', params],
     queryFn: () => dashboardApi.getPostsByPage(params),
+  });
+}
+
+export function useTopCategories(
+  params: QueryTopCategoriesParams,
+): UseQueryResult<TopCategories> {
+  return useQuery({
+    queryKey: [DASHBOARD_KEY, 'top-categories', params],
+    queryFn: () => dashboardApi.getTopCategories(params),
   });
 }
 

@@ -4,6 +4,26 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
+**Cập nhật lần cuối:** 2026-08-05 (Dashboard — thêm 3 chart xu hướng/xếp hạng, ngoài task chính plan 20)
+**Session gần nhất (mới nhất):** **Dashboard (plan 14) — thêm 3 chart theo yêu cầu user:**
+(1) line chart "Tỷ lệ thành công/thất bại theo ngày" (%) — tính lại từ dữ liệu
+`GET /dashboard/chart/daily` đã fetch sẵn, không gọi thêm API; ngày chưa có job đóng sổ ⇒
+`null` (khoảng trống trên line), khác `0%`. (2) bar chart "Tổng bài đăng thành công theo page"
+— gọi lại `GET /dashboard/posts-by-page` với `mediaType=all` **cố định** (độc lập bộ lọc
+ảnh/video của chart chi tiết sẵn có), cộng `imagePosts+videoPosts`. (3) bar ngang "Top danh
+mục đăng thành công nhiều nhất, gộp mọi page" (mặc định 10) — **endpoint mới**
+`GET /dashboard/top-categories?from=&to=&limit=` (**ngoài `docs/04` §8**, cùng kiểu bổ sung
+như `/health`), raw SQL group theo `content_assets.category` (text tự do, không bảng riêng)
+đếm `publish_jobs.status=SUCCESS` + `COUNT(DISTINCT facebook_page_id)` làm `pageCount`; scope
+RBAC giống `production.successPosts` (CONTENT chỉ thấy danh mục bài của mình). File:
+`backend/src/modules/dashboard/{dashboard.types,dashboard.repository,dashboard.service,
+dashboard.controller,dto/query-dashboard.dto}.ts`, `frontend/src/{api/dashboard.api,
+hooks/useDashboard,pages/DashboardPage,types/index}.ts`. **Không đụng schema ⇒ `erd.md` giữ
+nguyên.** BE +4 test (714 tổng), FE 35 test cũ xanh, lint/build 2 phía xanh. **Chưa smoke UI
+thật** — cộng dồn vào nợ UI sẵn có của plan 14 (§6 mục 18).
+
+---
+
 **Cập nhật lần cuối:** 2026-08-05 (Plan 20 — Facebook resumable upload video + chặn job đăng trùng)
 **Session gần nhất (mới nhất):** **Vá 3 bug production phát hiện qua test tay plan 20:**
 (1) tên file ảnh/video tiếng Việt lên Drive bị lỗi font (mojibake) — do Busboy decode

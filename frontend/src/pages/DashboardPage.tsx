@@ -33,6 +33,8 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   // antd cũng export `Tooltip` — đổi tên bản của recharts để không đụng nhau.
   Tooltip as ChartTooltip,
@@ -49,6 +51,7 @@ import {
   useDashboardHealth,
   useDashboardStats,
   usePostsByPage,
+  useTopCategories,
 } from '../hooks/useDashboard';
 import type { DashboardAlert, MediaType } from '../types';
 
@@ -76,8 +79,38 @@ function RealDashboardPage() {
   const stats = useDashboardStats(range);
   const daily = useDailyChart(range);
   const byPage = usePostsByPage({ ...range, mediaType: pageMediaFilter });
+  // Tổng bài thành công theo page, luôn cố định 'all' — độc lập với bộ lọc
+  // ảnh/video ở chart chi tiết bên dưới, để 2 khối không nhảy số theo nhau.
+  const byPageTotal = usePostsByPage({ ...range, mediaType: 'all' });
+  // Mặc định top 10 danh mục — không truyền limit để backend tự chốt.
+  const topCategories = useTopCategories(range);
   // CONTENT bị 403 ở endpoint này — đừng gọi để khỏi log lỗi rác.
   const health = useDashboardHealth(user.role !== 'CONTENT');
+
+  // Tỷ lệ thành công/thất bại mỗi ngày — tính lại từ dữ liệu chart cột đã có,
+  // không gọi thêm API. Ngày không có job đóng sổ nào ⇒ null (khoảng trống
+  // trên line chart), khác 0% (nghĩa là hỏng hết).
+  const dailyRateData = useMemo(
+    () =>
+      (daily.data?.items ?? []).map((item) => {
+        const total = item.success + item.failed;
+        return {
+          label: dayjs(item.date).format('D/M'),
+          successRate: total > 0 ? Math.round((item.success / total) * 1000) / 10 : null,
+          failRate: total > 0 ? Math.round((item.failed / total) * 1000) / 10 : null,
+        };
+      }),
+    [daily.data],
+  );
+
+  const pageTotalData = useMemo(
+    () =>
+      (byPageTotal.data?.items ?? []).map((item) => ({
+        pageName: item.pageName,
+        totalSuccess: item.imagePosts + item.videoPosts,
+      })),
+    [byPageTotal.data],
+  );
 
   // Backend là nơi chốt kỳ mặc định (7 ngày); FE chỉ hiển thị lại cái nó trả về,
   // để hai bên không tự tính ra hai khoảng khác nhau.
@@ -344,6 +377,116 @@ function RealDashboardPage() {
                 </Text>
               </>
             )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} xl={12}>
+          <Card title="Tỷ lệ thành công / thất bại theo ngày">
+            {daily.isLoading && <Skeleton active />}
+            {daily.data !== undefined && (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={dailyRateData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="label" />
+                  <YAxis domain={[0, 100]} unit="%" allowDecimals={false} />
+                  <ChartTooltip
+                    formatter={(value) => (value === null ? '—' : `${value}%`)}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="successRate"
+                    name="Tỷ lệ thành công"
+                    stroke="#52c41a"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="failRate"
+                    name="Tỷ lệ thất bại"
+                    stroke="#ff4d4f"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
+
+        <Col xs={24} xl={12}>
+          <Card title="Tổng bài đăng thành công theo page">
+            {byPageTotal.isLoading && <Skeleton active />}
+            {byPageTotal.data !== undefined && byPageTotal.data.items.length === 0 && (
+              <Empty description="Chưa có bài nào đăng thành công trong kỳ này" />
+            )}
+            {byPageTotal.data !== undefined && byPageTotal.data.items.length > 0 && (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={pageTotalData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="pageName" />
+                  <YAxis allowDecimals={false} />
+                  <ChartTooltip />
+                  <Bar
+                    dataKey="totalSuccess"
+                    name="Đăng thành công"
+                    fill="#52c41a"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card title="Top danh mục đăng thành công nhiều nhất (theo số bài, gộp mọi page)">
+            {topCategories.isLoading && <Skeleton active />}
+            {topCategories.data !== undefined &&
+              topCategories.data.items.length === 0 && (
+                <Empty description="Chưa có bài nào đăng thành công trong kỳ này" />
+              )}
+            {topCategories.data !== undefined &&
+              topCategories.data.items.length > 0 && (
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(300, topCategories.data.items.length * 42)}
+                >
+                  <BarChart
+                    data={topCategories.data.items}
+                    layout="vertical"
+                    margin={{ left: 16 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis
+                      type="category"
+                      dataKey="category"
+                      width={140}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <ChartTooltip
+                      formatter={(value, _name, props) => [
+                        `${value} bài · ${props.payload.pageCount} page`,
+                        'Thành công',
+                      ]}
+                    />
+                    <Bar
+                      dataKey="successPosts"
+                      name="Thành công"
+                      fill="#52c41a"
+                      radius={[0, 4, 4, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
           </Card>
         </Col>
       </Row>

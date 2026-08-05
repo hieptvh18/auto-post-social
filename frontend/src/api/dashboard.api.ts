@@ -5,6 +5,8 @@ import type {
   PostsByPage,
   QueryDashboardParams,
   QueryPostsByPageParams,
+  QueryTopCategoriesParams,
+  TopCategories,
 } from '../types';
 import { apiRequest } from './client';
 import { toQueryString } from './queryString';
@@ -26,6 +28,15 @@ export const dashboardApi = {
   getPostsByPage(params: QueryPostsByPageParams = {}): Promise<PostsByPage> {
     return apiRequest<PostsByPage>(
       `/dashboard/posts-by-page${toQueryString(params)}`,
+    );
+  },
+
+  /** GET /dashboard/top-categories — top danh mục đăng thành công nhiều nhất (mặc định 10). */
+  getTopCategories(
+    params: QueryTopCategoriesParams = {},
+  ): Promise<TopCategories> {
+    return apiRequest<TopCategories>(
+      `/dashboard/top-categories${toQueryString(params)}`,
     );
   },
 

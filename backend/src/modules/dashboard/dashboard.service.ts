@@ -21,11 +21,14 @@ import {
   type DashboardHealth,
   type DashboardStats,
   type PostsByPage,
+  type TopCategories,
 } from './dashboard.types';
 import {
   DashboardMediaType,
+  DEFAULT_TOP_CATEGORIES_LIMIT,
   type QueryDashboardDto,
   type QueryPostsByPageDto,
+  type QueryTopCategoriesDto,
 } from './dto/query-dashboard.dto';
 
 /** Token hết hạn trong ngần này ngày ⇒ cảnh báo. Hằng nghiệp vụ, không phải env (rule 04). */
@@ -131,6 +134,25 @@ export class DashboardService {
     const items = await this.repository.postsByPage(
       range,
       mediaType,
+      scopeOwnerId(actor),
+    );
+    return { range: { from: range.from, to: range.to }, items };
+  }
+
+  /**
+   * Top danh mục đăng thành công nhiều nhất, gộp trên nhiều page (bổ sung
+   * 2026-08-05, ngoài `docs/04` §8). Cùng scope RBAC với `production.successPosts`
+   * (§3.4 plan 14): CONTENT chỉ thấy danh mục trong bài của chính mình.
+   */
+  async getTopCategories(
+    query: QueryTopCategoriesDto,
+    actor: AuthenticatedUser,
+  ): Promise<TopCategories> {
+    const range = this.resolveRange(query);
+    const limit = query.limit ?? DEFAULT_TOP_CATEGORIES_LIMIT;
+    const items = await this.repository.topCategoriesBySuccess(
+      range,
+      limit,
       scopeOwnerId(actor),
     );
     return { range: { from: range.from, to: range.to }, items };

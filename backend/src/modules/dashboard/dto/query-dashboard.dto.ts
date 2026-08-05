@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -39,4 +40,22 @@ export class QueryPostsByPageDto extends QueryDashboardDto {
   @IsOptional()
   @IsEnum(DashboardMediaType)
   mediaType: DashboardMediaType = DashboardMediaType.all;
+}
+
+/** Mặc định top 10 — đúng yêu cầu user, cho phép đổi trong khoảng hợp lý. */
+export const DEFAULT_TOP_CATEGORIES_LIMIT = 10;
+const MAX_TOP_CATEGORIES_LIMIT = 50;
+
+export class QueryTopCategoriesDto extends QueryDashboardDto {
+  @ApiPropertyOptional({
+    default: DEFAULT_TOP_CATEGORIES_LIMIT,
+    description:
+      'Số danh mục tối đa trả về, xếp theo bài đăng thành công giảm dần',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_TOP_CATEGORIES_LIMIT)
+  limit: number = DEFAULT_TOP_CATEGORIES_LIMIT;
 }

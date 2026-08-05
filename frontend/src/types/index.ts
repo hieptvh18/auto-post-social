@@ -520,6 +520,18 @@ export interface PostsByPage {
   items: PagePostStats[];
 }
 
+export interface TopCategoryItem {
+  category: string;
+  successPosts: number;
+  /** Số page KHÁC NHAU đã đăng thành công danh mục này. */
+  pageCount: number;
+}
+
+export interface TopCategories {
+  range: DashboardRangeInfo;
+  items: TopCategoryItem[];
+}
+
 export type DashboardAlertCode =
   | 'FAILED_JOBS'
   | 'STUCK_JOBS'
@@ -550,6 +562,11 @@ export interface QueryDashboardParams {
 
 export interface QueryPostsByPageParams extends QueryDashboardParams {
   mediaType?: MediaType | 'all';
+}
+
+export interface QueryTopCategoriesParams extends QueryDashboardParams {
+  /** Bỏ trống = 10 (mặc định của backend). */
+  limit?: number;
 }
 
 export interface AuthUser {
