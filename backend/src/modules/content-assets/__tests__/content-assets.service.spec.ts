@@ -744,14 +744,19 @@ describe('ContentAssetsService', () => {
       expect(repository.create).not.toHaveBeenCalled();
     });
 
-    it('ném BadRequestException khi editor đã bị vô hiệu hoá', async () => {
+    it('vẫn gán được editor đã bị vô hiệu hoá', async () => {
       usersRepository.findById.mockResolvedValue(inactiveEditor);
-      repository.findById.mockResolvedValue(makeAsset());
+      const current = makeAsset();
+      repository.findById.mockResolvedValue(current);
+      repository.update.mockResolvedValue({ ...current, editorId: 'editor-9' });
 
-      await expect(
-        service.update('asset-1', { editorId: 'editor-9' }, contentUser),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(repository.update).not.toHaveBeenCalled();
+      await service.update('asset-1', { editorId: 'editor-9' }, contentUser);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'asset-1',
+        expect.objectContaining({ editorId: 'editor-9' }),
+        undefined,
+      );
     });
 
     it('ném BadRequestException khi editorId không tồn tại', async () => {

@@ -4,7 +4,7 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-05 (Fix toast lỗi upload không rõ nguyên nhân + nâng MAX_UPLOAD_MB 300→500)
+**Cập nhật lần cuối:** 2026-08-05 (FE: thanh progress + mask khoá modal Upload Ảnh/Video)
 **Session gần nhất (mới nhất):** **Fix bug + nâng giới hạn upload (ngoài scope plan, theo yêu cầu user):**
 User test tay upload video ~450MB gặp `413 Content Too Large` nhưng toast chỉ hiện "Lỗi không
 xác định". **Nguyên nhân:** lỗi 413 này chặn ở tầng proxy đứng trước backend (Nginx/CDN theo
@@ -956,6 +956,22 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   `('QUEUED', 'PUBLISHING')`, thiếu `FAILED` — code giờ đúng hơn spec, **không
   tự sửa `docs/`** theo rule 00 (xem §6 mục 27). Chưa đo tốc độ upload thật
   trên VPS bằng log mới thêm.
+
+### FE — thanh progress + mask khoá modal Upload Ảnh/Video — ✅ 2026-08-05
+
+- **Phạm vi:** popup "Upload Ảnh/Video" (màn Quản lý Ảnh/Video) đổi spinner sang
+  **thanh progress % thật** + lớp mask phủ toàn bộ form, khoá nút X / Esc / click
+  mask / nút Huỷ trong lúc upload. Đạt 100% byte ⇒ chuyển nhãn "Đang xử lý trên
+  Google Drive..." (server còn stream tiếp sang Drive).
+- **File chính:** `frontend/src/api/client.ts` (thêm `apiUpload` dùng
+  XMLHttpRequest — `fetch` **không** expose upload progress; giữ nguyên cơ chế
+  Bearer + refresh 401 một lần), `frontend/src/api/media.api.ts`,
+  `frontend/src/pages/ContentManagementPage.tsx` (`RealContentManagementPage`).
+- **Quyết định:** chỉ sửa nhánh real; nhánh `MockContentManagementPage` giữ
+  nguyên (ADR-005).
+- **Test:** `media.api.test.ts` viết lại theo XHR giả lập, +2 case (onProgress,
+  ApiError từ body lỗi). 41 test FE xanh, lint/build xanh.
+- **Còn nợ:** không.
 
 ---
 

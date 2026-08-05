@@ -111,6 +111,64 @@ async function doFetch(
 }
 
 /**
+ * Upload multipart có **tiến trình thật**: `fetch` không expose upload progress
+ * nên phải dùng XMLHttpRequest. Cùng cơ chế Bearer + refresh 1 lần như
+ * `apiRequest`. `onProgress` nhận % byte đã đẩy lên (0–100); khi trình duyệt
+ * không biết tổng dung lượng thì không gọi (UI tự chuyển sang trạng thái mờ).
+ */
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  const send = (accessToken: string | null): Promise<{ status: number; text: string }> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', buildUrl(path));
+      if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+
+      xhr.upload.onprogress = (e) => {
+        if (!onProgress || !e.lengthComputable || e.total === 0) return;
+        onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+      };
+      xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+      xhr.onerror = () => reject(new ApiError(0, 'Không kết nối được tới server'));
+      xhr.onabort = () => reject(new ApiError(0, 'Upload đã bị huỷ'));
+      xhr.send(formData);
+    });
+
+  let res = await send(tokenStore.access);
+
+  if (res.status === 401) {
+    refreshPromise ??= refreshTokens().finally(() => {
+      refreshPromise = null;
+    });
+    const refreshed = await refreshPromise;
+
+    if (!refreshed) {
+      tokenStore.clear();
+      onAuthExpired?.();
+      throw new ApiError(401, 'Phiên đăng nhập đã hết hạn');
+    }
+    onProgress?.(0);
+    res = await send(tokenStore.access);
+  }
+
+  if (res.status < 200 || res.status >= 300) {
+    let message: string | string[] | undefined;
+    try {
+      message = (JSON.parse(res.text) as { message?: string | string[] }).message;
+    } catch {
+      message = NON_JSON_STATUS_MESSAGES[res.status];
+    }
+    throw new ApiError(res.status, message ?? `Lỗi không xác định (mã ${res.status})`);
+  }
+
+  if (res.status === 204 || !res.text) return undefined as T;
+  return JSON.parse(res.text) as T;
+}
+
+/**
  * Wrapper fetch dùng chung. Gắn Bearer; khi 401 (và không phải request skipAuth)
  * thử refresh đúng 1 lần rồi retry. Refresh fail ⇒ dọn phiên + báo AuthContext.
  */

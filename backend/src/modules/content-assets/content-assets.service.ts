@@ -161,8 +161,8 @@ export class ContentAssetsService {
 
   /**
    * Account cho ô "Editor" — mọi user role EDITOR, **kèm cả người đã vô hiệu hoá**
-   * (cờ `isActive`) để bộ lọc còn tìm được bài cũ do họ dựng; form chỉ cho chọn
-   * người đang hoạt động. `GET /users` gác `users:manage` (ADMIN) nên CONTENT
+   * (cờ `isActive`) — dùng cho cả bộ lọc lẫn form upload/chỉnh sửa, không lọc
+   * theo trạng thái. `GET /users` gác `users:manage` (ADMIN) nên CONTENT
    * không lấy được danh sách này ở đó, mà CONTENT vẫn phải chọn editor cho bài mình.
    */
   async findEditorOptions(): Promise<EditorOption[]> {
@@ -503,20 +503,16 @@ export class ContentAssetsService {
   }
 
   /**
-   * Người dựng phải là account **role EDITOR đang hoạt động**. Gửi id lạ / user
-   * bị khoá / user role khác đều là input sai ⇒ 400 (FK ở DB không diễn tả được
-   * ràng buộc theo role).
+   * Người dựng phải là account **role EDITOR** — không phân biệt còn hoạt động
+   * hay đã bị khoá (bài cũ vẫn cần gán đúng người dựng). Gửi id lạ / user role
+   * khác là input sai ⇒ 400 (FK ở DB không diễn tả được ràng buộc theo role).
    */
   private async assertEditorSelectable(editorId?: string): Promise<void> {
     if (editorId === undefined) return;
     const editor = await this.usersRepository.findById(editorId);
-    if (
-      editor === null ||
-      !editor.isActive ||
-      editor.role !== UserRole.EDITOR
-    ) {
+    if (editor === null || editor.role !== UserRole.EDITOR) {
       throw new BadRequestException(
-        'Editor phải là tài khoản có vai trò Editor và đang hoạt động',
+        'Editor phải là tài khoản có vai trò Editor',
       );
     }
   }

@@ -16,6 +16,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Switch,
@@ -704,6 +705,15 @@ function RealContentManagementPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  /** % byte đã đẩy lên server (0–100) — nguồn dữ liệu cho thanh progress. */
+  const [uploadPercent, setUploadPercent] = useState(0);
+  /**
+   * `uploading`: đang đẩy byte lên server · `processing`: server đã nhận đủ file,
+   * đang stream sang Drive + tạo bản ghi content (không còn % để hiện).
+   */
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploading' | 'processing'>(
+    'idle',
+  );
   const [titleTouched, setTitleTouched] = useState(false);
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
@@ -735,16 +745,16 @@ function RealContentManagementPage() {
   // Ô "Editor" (người dựng video/ảnh): chỉ account role EDITOR đang hoạt động.
   // Endpoint riêng thay vì `GET /users` (gác `users:manage`) để CONTENT cũng chọn được.
   const { data: editorOptions } = useEditorOptions();
-  // Bộ lọc liệt kê **cả editor đã vô hiệu hoá** — bài cũ do họ dựng vẫn phải lọc ra được.
+  // Liệt kê **cả editor đã vô hiệu hoá** ở cả bộ lọc lẫn form (upload/chỉnh sửa):
+  // bài cũ do họ dựng vẫn phải lọc ra được, và vẫn gán được người đã khoá.
   const editorFilterOptions = (editorOptions ?? []).map((e) => ({
     value: e.id,
     label: e.isActive ? e.name : `${e.name} (đã khoá)`,
   }));
-  // Form thì chỉ gán được người đang hoạt động (backend trả 400 nếu cố tình gửi).
-  const editorSelectOptions = (editorOptions ?? [])
-    .filter((e) => e.isActive)
-    .map((e) => ({ value: e.id, label: e.name }));
+  const editorSelectOptions = editorFilterOptions;
   const createMutation = useCreateContentAsset();
+  /** Đang đẩy file lên HOẶC đang tạo bản ghi content ⇒ khoá toàn bộ modal upload. */
+  const uploadBusy = uploading || createMutation.isPending;
   const bulkDeleteMutation = useBulkDeleteContentAssets();
   const bulkActiveMutation = useBulkSetActiveContentAssets();
   const updateMutation = useUpdateContentAsset();
@@ -890,8 +900,15 @@ function RealContentManagementPage() {
     const rawFile = (pickedFile.originFileObj ?? pickedFile) as unknown as File;
 
     setUploading(true);
+    setUploadPercent(0);
+    setUploadPhase('uploading');
     try {
-      const uploaded = await mediaApi.upload(rawFile);
+      const uploaded = await mediaApi.upload(rawFile, (percent) => {
+        setUploadPercent(percent);
+        if (percent >= 100) setUploadPhase('processing');
+      });
+      setUploadPercent(100);
+      setUploadPhase('processing');
       const created = await createMutation.mutateAsync({
         title: values.title,
         category: values.category,
@@ -920,6 +937,8 @@ function RealContentManagementPage() {
       );
     } finally {
       setUploading(false);
+      setUploadPhase('idle');
+      setUploadPercent(0);
     }
   };
 
@@ -1416,6 +1435,7 @@ function RealContentManagementPage() {
         title="Upload Ảnh/Video"
         open={createOpen}
         onCancel={() => {
+          if (uploadBusy) return;
           setCreateOpen(false);
           setFileList([]);
           setTitleTouched(false);
@@ -1423,10 +1443,52 @@ function RealContentManagementPage() {
         }}
         onOk={() => createForm.submit()}
         okText="Upload"
-        confirmLoading={uploading || createMutation.isPending}
+        confirmLoading={uploadBusy}
+        // Đang upload: khoá mọi lối thoát (nút X, click mask, phím Esc, nút Huỷ)
+        // để không ai đóng modal giữa chừng khi file đang đẩy lên Drive.
+        closable={!uploadBusy}
+        maskClosable={!uploadBusy}
+        keyboard={!uploadBusy}
+        cancelButtonProps={{ disabled: uploadBusy }}
         width={560}
       >
-        <Form form={createForm} layout="vertical" onFinish={handleCreate}>
+        <div style={{ position: 'relative' }}>
+          {uploadBusy && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: -8,
+                zIndex: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 12,
+                padding: 24,
+                borderRadius: 8,
+                background: 'rgba(255, 255, 255, 0.88)',
+                backdropFilter: 'blur(2px)',
+                cursor: 'progress',
+              }}
+              // Chặn mọi thao tác chuột/bàn phím vào form phía dưới.
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Progress
+                percent={uploadPercent}
+                status="active"
+                style={{ width: '80%', margin: 0 }}
+              />
+              <Text strong>
+                {uploadPhase === 'processing'
+                  ? 'Đang xử lý trên Google Drive...'
+                  : `Đang tải file lên... ${uploadPercent}%`}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12, textAlign: 'center' }}>
+                Vui lòng không đóng cửa sổ này cho tới khi hoàn tất.
+              </Text>
+            </div>
+          )}
+          <Form form={createForm} layout="vertical" onFinish={handleCreate} disabled={uploadBusy}>
           <Form.Item
             label="File ảnh/video"
             required
@@ -1500,7 +1562,8 @@ function RealContentManagementPage() {
               options={editorSelectOptions}
             />
           </Form.Item>
-        </Form>
+          </Form>
+        </div>
       </Modal>
     </div>
   );
