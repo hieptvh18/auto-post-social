@@ -231,8 +231,6 @@ export interface AutoPostSlot {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
-  /** Số ảnh gom vào 1 bài (album). 1 = mỗi bài 1 ảnh. */
-  assetsPerPost: number;
   enabled: boolean;
 }
 
@@ -275,8 +273,6 @@ export interface AutoPostSlotResponse {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
-  /** Số ảnh gom vào 1 bài (album). 1 = mỗi bài 1 ảnh. */
-  assetsPerPost: number;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -321,8 +317,6 @@ export interface CreateAutoPostSlotBody {
   categories: string[];
   mediaType: SlotMediaType;
   postCount: number;
-  /** Bỏ trống ⇒ backend hiểu là 1. > 1 chỉ hợp lệ khi mediaType = 'image'. */
-  assetsPerPost?: number;
   enabled?: boolean;
 }
 
@@ -695,8 +689,23 @@ export interface ContentAssetResponse {
   /** Tập con đã đăng thành công — UI khoá không cho gỡ. */
   publishedPageIds: string[];
   assignments: ContentAssignmentResponse[];
+  /** Tổng số ảnh của bài: 1 = bài thường, >1 ⇒ đăng thành 1 bài Facebook nhiều ảnh. */
+  imageCount: number;
+  /** Ảnh phụ theo thứ tự đăng (rỗng với bài 1 ảnh). Cố định lúc upload. */
+  extraFiles: ContentAssetFileResponse[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Một ảnh phụ của bài nhiều ảnh. `position` bắt đầu từ 1 (ảnh đầu là chính bài). */
+export interface ContentAssetFileResponse {
+  id: string;
+  position: number;
+  driveFileId: string;
+  driveUrl: string | null;
+  thumbnailUrl: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
 }
 
 /** Một page bài được phân bổ, kèm trạng thái đã đăng hay chưa. */
@@ -783,6 +792,20 @@ export interface CreateContentAssetBody {
   /** Người dựng video/ảnh — không bắt buộc. */
   editorId?: string;
   assignedPageIds?: string[];
+  /**
+   * Ảnh phụ của bài nhiều ảnh, ĐÚNG thứ tự đăng. Chỉ hợp lệ với `mediaType: 'image'`;
+   * tổng số ảnh (kể cả `driveFileId` ở trên) tối đa `MAX_IMAGES_PER_CONTENT_ASSET`.
+   */
+  extraFiles?: CreateContentAssetFileBody[];
+}
+
+/** Một ảnh phụ lúc tạo bài — file đã đẩy lên Drive bằng `POST /media/upload`. */
+export interface CreateContentAssetFileBody {
+  driveFileId: string;
+  driveUrl?: string;
+  thumbnailUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
 }
 
 /**

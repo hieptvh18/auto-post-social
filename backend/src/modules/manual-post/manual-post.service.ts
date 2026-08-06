@@ -16,6 +16,7 @@ import { FacebookPagesService } from '../facebook-pages/facebook-pages.service';
 import {
   PublishMediaService,
   describePublishError,
+  toPublishContents,
 } from '../publish-jobs/publish-media.service';
 import type { CreateManualPostDto } from './dto/create-manual-post.dto';
 import { ManualPostRepository } from './manual-post.repository';
@@ -118,8 +119,9 @@ export class ManualPostService {
     try {
       // Đường đăng dùng chung với Bot tự động (plan 07) — không copy logic ra đây.
       published = await this.publishMedia.publish({
-        // Đăng tay luôn 1 bài = 1 tài nguyên; album chỉ có ở mốc giờ tự động.
-        contents: [content],
+        // Bài nhiều ảnh (plan 22) tự thành 1 bài album — cùng đường với Bot, không
+        // phải cấu hình gì thêm; bài 1 ảnh/video vẫn ra mảng 1 phần tử như cũ.
+        contents: toPublishContents(content, content.extraFiles),
         pageId: page.pageId,
         accessToken: token,
         caption: dto.caption,

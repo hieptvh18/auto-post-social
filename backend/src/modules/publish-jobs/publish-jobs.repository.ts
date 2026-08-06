@@ -8,6 +8,7 @@ import {
   type PublishJob,
 } from '../../../generated/prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { toPublishContents } from './publish-media.service';
 
 /** Job kèm đủ ngữ cảnh để worker đăng — không phải query lại từng bảng. */
 export type JobWithContext = PublishJob & {
@@ -17,14 +18,13 @@ export type JobWithContext = PublishJob & {
 
 /**
  * Job kèm **toàn bộ** ảnh của bài, đã đúng thứ tự đăng: `contentAsset` là ảnh đầu
- * (vị trí 0), rồi tới ảnh phụ theo `position`. Bài thường ⇒ mảng 1 phần tử.
+ * (vị trí 0), rồi tới ảnh phụ (`content_asset_files`) theo `position`. Bài 1 ảnh
+ * ⇒ mảng 1 phần tử.
  */
 export type JobWithAssets = JobWithContext & { assets: ContentAsset[] };
 
 export interface CreateJobData {
   contentAssetId: string;
-  /** Ảnh phụ của bài album, đúng thứ tự đăng. Bỏ trống = bài 1 ảnh như cũ. */
-  extraContentAssetIds?: string[];
   facebookPageId: string;
   caption: string;
   hashtags?: string | null;
@@ -85,11 +85,10 @@ export class PublishJobsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Ảnh phụ ghi luôn trong cùng `create` (nested write ⇒ một transaction): job có
-   * mặt mà thiếu ảnh phụ nghĩa là đăng ra một bài album cụt.
+   * Một job ứng đúng **một** `content_assets` record. Bài nhiều ảnh không đẻ thêm
+   * job — số ảnh nằm ở chính record đó (`content_asset_files`), ghép lúc đăng.
    */
   create(data: CreateJobData): Promise<PublishJob> {
-    const extras = data.extraContentAssetIds ?? [];
     return this.prisma.publishJob.create({
       data: {
         contentAssetId: data.contentAssetId,
@@ -99,13 +98,6 @@ export class PublishJobsRepository {
         scheduleTime: data.scheduleTime,
         status: data.status,
         createdBy: data.createdBy,
-        extraAssets: {
-          create: extras.map((contentAssetId, index) => ({
-            contentAssetId,
-            // Vị trí 0 là `contentAssetId` của chính job ⇒ ảnh phụ bắt đầu từ 1.
-            position: index + 1,
-          })),
-        },
       },
     });
   }
@@ -122,27 +114,27 @@ export class PublishJobsRepository {
   }
 
   /**
-   * Nơi **duy nhất** ghép danh sách ảnh đầy đủ của job (`content_asset_id` + bảng
-   * `publish_job_assets`). Chỗ khác tự nối tay là sớm muộn cũng quên ảnh phụ.
+   * Nơi **duy nhất** ghép danh sách ảnh đầy đủ của job: ảnh đại diện của content
+   * (`content_assets.drive_file_id`) + ảnh phụ trong `content_asset_files` theo
+   * `position`. Chỗ khác tự nối tay là sớm muộn cũng quên ảnh phụ.
    */
   async findForExecution(jobId: string): Promise<JobWithAssets | null> {
     const job = await this.prisma.publishJob.findUnique({
       where: { id: jobId },
       include: {
-        contentAsset: true,
-        facebookPage: true,
-        extraAssets: {
-          orderBy: { position: 'asc' },
-          include: { contentAsset: true },
+        contentAsset: {
+          include: { extraFiles: { orderBy: { position: 'asc' } } },
         },
+        facebookPage: true,
       },
     });
     if (job === null) return null;
 
-    const { extraAssets, ...rest } = job;
+    const { extraFiles, ...contentAsset } = job.contentAsset;
     return {
-      ...rest,
-      assets: [job.contentAsset, ...extraAssets.map((a) => a.contentAsset)],
+      ...job,
+      contentAsset,
+      assets: toPublishContents(contentAsset, extraFiles),
     };
   }
 

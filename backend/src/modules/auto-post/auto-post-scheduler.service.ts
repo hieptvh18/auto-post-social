@@ -142,17 +142,13 @@ export class AutoPostSchedulerService {
     }
 
     try {
-      // Album (plan 21): mỗi bài gom `assetsPerPost` ảnh ⇒ lấy đủ cho cả
-      // `postCount` bài rồi mới cắt nhóm.
-      const assetsPerPost =
-        Number.isInteger(slot.assetsPerPost) && slot.assetsPerPost > 1
-          ? slot.assetsPerPost
-          : 1;
+      // Mỗi content = đúng 1 bài. Bài nhiều ảnh (plan 22) đã gom sẵn ảnh trong
+      // chính record đó, ghép lúc đăng — picker không cần biết.
       const contents = await this.picker.pickForSlot({
         facebookPageId: slot.facebookPageId,
         categories: slot.categories,
         mediaType: toPickerMediaType(slot.mediaType),
-        limit: slot.postCount * assetsPerPost,
+        limit: slot.postCount,
       });
 
       if (contents.length === 0) {
@@ -170,23 +166,20 @@ export class AutoPostSchedulerService {
       }
 
       let jobCreatedCount = 0;
-      for (const group of chunk(contents, assetsPerPost)) {
-        // Caption/hashtag của bài lấy theo ảnh đầu nhóm — album chỉ có một message.
-        const [first] = group;
+      for (const content of contents) {
         try {
           await this.publishJobs.createQueuedJob({
-            contentAssetId: first.id,
-            extraContentAssetIds: group.slice(1).map((content) => content.id),
+            contentAssetId: content.id,
             facebookPageId: slot.facebookPageId,
-            caption: first.caption,
-            hashtags: first.hashtags,
+            caption: content.caption,
+            hashtags: content.hashtags,
             scheduleTime: now,
           });
           jobCreatedCount += 1;
         } catch (error) {
           // Một bài hỏng thì vẫn cố xếp hàng các bài còn lại của slot.
           this.logger.error(
-            `Không tạo được job cho content=${first.id} slot=${slot.id}: ${describe(error)}`,
+            `Không tạo được job cho content=${content.id} slot=${slot.id}: ${describe(error)}`,
           );
         }
       }
@@ -215,19 +208,6 @@ export class AutoPostSchedulerService {
       };
     }
   }
-}
-
-/**
- * Cắt danh sách đã sắp thứ tự thành từng nhóm `size` phần tử. Nhóm cuối thiếu
- * **vẫn được trả về**: còn 2 ảnh mà cấu hình 5 ảnh/bài thì đăng bài 2 ảnh, hơn là
- * bỏ lại 2 ảnh nằm im tới lần chạy sau.
- */
-function chunk<T>(items: T[], size: number): T[][] {
-  const groups: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    groups.push(items.slice(i, i + size));
-  }
-  return groups;
 }
 
 function toPickerMediaType(

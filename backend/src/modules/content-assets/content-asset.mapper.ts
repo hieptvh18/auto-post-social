@@ -1,8 +1,20 @@
 import type { ContentAsset } from '../../../generated/prisma/client';
 import type {
   ContentActor,
+  ContentAssetExtraFile,
   ContentAssetWithActors,
 } from './content-assets.repository';
+
+/** Một ảnh phụ của bài nhiều ảnh (plan 22). `position` bắt đầu từ 1. */
+export interface ContentAssetFileResponse {
+  id: string;
+  position: number;
+  driveFileId: string;
+  driveUrl: string | null;
+  thumbnailUrl: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+}
 
 /** Một page mà bài được phân bổ, kèm trạng thái đã đăng hay chưa. */
 export interface ContentAssignmentResponse {
@@ -45,6 +57,13 @@ export interface ContentAssetResponse {
   /** Tập con của `assignedPageIds` đã đăng thành công — không gỡ được nữa. */
   publishedPageIds: string[];
   assignments: ContentAssignmentResponse[];
+  /**
+   * Tổng số ảnh của bài (1 = bài thường, >1 = bài nhiều ảnh ⇒ đăng thành 1 bài
+   * album). Đủ để bảng danh sách hiện badge "+N ảnh" mà không phải trả cả mảng.
+   */
+  imageCount: number;
+  /** Ảnh phụ theo thứ tự đăng — Drawer chi tiết dùng để xem trước. */
+  extraFiles: ContentAssetFileResponse[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,6 +72,8 @@ export function toContentAssetResponse(
   asset: ContentAssetWithActors,
 ): ContentAssetResponse {
   const assignments = asset.assignments;
+  // Bài cũ (trước plan 22) không có quan hệ này khi caller quên include ⇒ coi như 1 ảnh.
+  const extraFiles = asset.extraFiles ?? [];
   return {
     id: asset.id,
     title: asset.title,
@@ -87,8 +108,22 @@ export function toContentAssetResponse(
       publishedAt: a.publishedAt,
       facebookPostId: a.facebookPostId,
     })),
+    imageCount: 1 + extraFiles.length,
+    extraFiles: extraFiles.map(toExtraFile),
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
+  };
+}
+
+function toExtraFile(file: ContentAssetExtraFile): ContentAssetFileResponse {
+  return {
+    id: file.id,
+    position: file.position,
+    driveFileId: file.driveFileId,
+    driveUrl: file.driveUrl,
+    thumbnailUrl: file.thumbnailUrl,
+    mimeType: file.mimeType,
+    fileSize: file.fileSize === null ? null : Number(file.fileSize),
   };
 }
 

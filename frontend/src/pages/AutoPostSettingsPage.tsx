@@ -27,7 +27,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ApiError } from '../api/client';
 import { mockPages } from '../api/mock/data';
 import {
@@ -68,8 +68,6 @@ const { Text } = Typography;
 /** Khớp `MAX_POST_PER_SLOT` mặc định của backend — vượt ngưỡng backend trả 400. */
 const MAX_POST_PER_SLOT = 20;
 
-/** Khớp `MAX_ASSETS_PER_POST` của backend — trần của Facebook cho 1 bài nhiều ảnh. */
-const MAX_ASSETS_PER_POST = 10;
 
 interface SlotFormValues {
   time: dayjs.Dayjs;
@@ -80,8 +78,6 @@ interface SlotFormValues {
   category: string;
   mediaType: SlotMediaType;
   postCount: number;
-  /** Số ảnh gom vào 1 bài (album). 1 = mỗi bài 1 ảnh, như trước giờ. */
-  assetsPerPost: number;
 }
 
 const BOT_LOGIC_NOTE =
@@ -126,11 +122,10 @@ function RealAutoPostSettingsPage() {
         category: slot.categories[0] ?? '',
         mediaType: slot.mediaType,
         postCount: slot.postCount,
-        assetsPerPost: slot.assetsPerPost,
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ mediaType: 'all', postCount: 1, assetsPerPost: 1 });
+      form.setFieldsValue({ mediaType: 'all', postCount: 1 });
     }
   };
 
@@ -146,7 +141,6 @@ function RealAutoPostSettingsPage() {
       categories: [values.category],
       mediaType: values.mediaType,
       postCount: values.postCount,
-      assetsPerPost: values.assetsPerPost,
     };
 
     try {
@@ -247,18 +241,6 @@ function RealAutoPostSettingsPage() {
       dataIndex: 'postCount',
       width: 100,
       align: 'center',
-    },
-    {
-      title: 'Ảnh/bài',
-      dataIndex: 'assetsPerPost',
-      width: 100,
-      align: 'center',
-      render: (assetsPerPost: number) =>
-        assetsPerPost > 1 ? (
-          <Tag color="gold">{assetsPerPost} ảnh/bài</Tag>
-        ) : (
-          1
-        ),
     },
     {
       title: 'Kho bài',
@@ -625,17 +607,6 @@ function SlotFormModal({
   );
   const showStock = availability !== undefined;
 
-  // Album chỉ ghép được ảnh (Graph API không cho nhiều video / trộn ảnh-video).
-  // Đổi sang video/tất cả ⇒ ép ô số ảnh về 1 luôn, để form không gửi lên cấu hình
-  // mà backend chắc chắn từ chối.
-  const mediaType = Form.useWatch('mediaType', form);
-  const isImageOnly = mediaType === 'image';
-  useEffect(() => {
-    if (!isImageOnly && (form.getFieldValue('assetsPerPost') ?? 1) > 1) {
-      form.setFieldValue('assetsPerPost', 1);
-    }
-  }, [form, isImageOnly]);
-
   // Gõ tên chưa từng có ⇒ dòng đầu dropdown là "＋ Thêm ..." (cùng cơ chế với
   // `CategorySelect` ở form content — danh mục không có bảng riêng, gõ là có).
   const [search, setSearch] = useState('');
@@ -756,23 +727,6 @@ function SlotFormModal({
           />
         </Form.Item>
 
-        <Form.Item
-          name="assetsPerPost"
-          label="Số ảnh/video trong 1 bài"
-          rules={[{ required: true }]}
-          extra={
-            isImageOnly
-              ? `Để 1 thì mỗi bài 1 ảnh như cũ. Lớn hơn 1 ⇒ Bot gom đúng số ảnh đó vào MỘT bài, lấy theo thứ tự trước → sau (bài duyệt sớm đăng trước). Tối đa ${MAX_ASSETS_PER_POST} ảnh/bài.`
-              : 'Chỉ ảnh mới ghép được nhiều tài nguyên vào 1 bài — Facebook không cho ghép video. Chọn "Loại media" là Ảnh để bật ô này.'
-          }
-        >
-          <InputNumber
-            min={1}
-            max={MAX_ASSETS_PER_POST}
-            disabled={!isImageOnly}
-            style={{ width: '100%' }}
-          />
-        </Form.Item>
       </Form>
     </Modal>
   );
@@ -810,11 +764,10 @@ function MockAutoPostSettingsPage() {
         category: slot.categories[0] ?? '',
         mediaType: slot.mediaType,
         postCount: slot.postCount,
-        assetsPerPost: slot.assetsPerPost,
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({ mediaType: 'all', postCount: 1, assetsPerPost: 1 });
+      form.setFieldsValue({ mediaType: 'all', postCount: 1 });
     }
   };
 
@@ -825,7 +778,6 @@ function MockAutoPostSettingsPage() {
       categories: [values.category],
       mediaType: values.mediaType,
       postCount: values.postCount,
-      assetsPerPost: values.assetsPerPost,
     };
     if (slotModal.slot) {
       updateSlot(slotModal.slot.id, payload);
@@ -882,18 +834,6 @@ function MockAutoPostSettingsPage() {
       dataIndex: 'postCount',
       width: 100,
       align: 'center',
-    },
-    {
-      title: 'Ảnh/bài',
-      dataIndex: 'assetsPerPost',
-      width: 100,
-      align: 'center',
-      render: (assetsPerPost: number) =>
-        assetsPerPost > 1 ? (
-          <Tag color="gold">{assetsPerPost} ảnh/bài</Tag>
-        ) : (
-          1
-        ),
     },
     {
       title: 'Bật',

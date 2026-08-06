@@ -69,12 +69,22 @@ import type {
 import {
   CONTENT_CATEGORIES,
   CONTENT_STATUS_LABELS,
+  MAX_IMAGES_PER_CONTENT_ASSET,
   MEDIA_TYPE_LABELS,
 } from '../utils/constants';
 import { mergeCategoryOptions } from '../utils/categories';
 import { can } from '../utils/permissions';
 
 const { Text } = Typography;
+
+/**
+ * Ô lọc "Dạng" chứa 2 nhóm giá trị trong cùng một `Select`: dạng cố định
+ * (Ảnh/Video → lọc `mediaType`) và danh mục động (→ lọc `category`). Tiền tố này
+ * để phân biệt 2 nhóm, tránh đụng tên khi ai đó đặt danh mục tên "Ảnh".
+ */
+const MEDIA_TYPE_FILTER_PREFIX = 'mediaType:';
+/** Dòng kẻ ngăn 2 nhóm — option `disabled`, không chọn được. */
+const DANG_FILTER_DIVIDER = '__divider__';
 
 function detectMediaType(file: UploadFile): MediaType {
   const mime = file.type ?? '';
@@ -85,6 +95,64 @@ function detectMediaType(file: UploadFile): MediaType {
 /** Bỏ phần đuôi file (vd "video-abc.mp4" -> "video-abc") để làm Tiêu đề mặc định. */
 function filenameToTitle(filename: string): string {
   return filename.replace(/\.[^./]+$/, '');
+}
+
+/**
+ * Preview **mọi** ảnh của bài, đúng thứ tự sẽ đăng lên Facebook: ảnh đại diện của
+ * record trước, rồi tới `extraFiles` theo `position`. Bài 1 ảnh/video giữ nguyên
+ * khung ảnh lớn như cũ; bài nhiều ảnh xếp lưới có đánh số để đối chiếu thứ tự.
+ */
+function ContentImagesPreview({ asset }: { asset: ContentAssetResponse }) {
+  const images = [
+    { key: asset.id, url: asset.thumbnailUrl },
+    ...asset.extraFiles.map((file) => ({ key: file.id, url: file.thumbnailUrl })),
+  ].filter((item): item is { key: string; url: string } => Boolean(item.url));
+
+  if (images.length === 0) return null;
+
+  if (images.length === 1) {
+    return (
+      <Image
+        src={images[0].url}
+        alt={asset.title}
+        style={{ borderRadius: 8, marginBottom: 16 }}
+      />
+    );
+  }
+
+  return (
+    <Image.PreviewGroup>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+          gap: 8,
+          marginBottom: 16,
+        }}
+      >
+        {images.map((image, index) => (
+          <div key={image.key} style={{ position: 'relative' }}>
+            <Image
+              src={image.url}
+              alt={`${asset.title} — ảnh ${index + 1}`}
+              style={{
+                borderRadius: 8,
+                aspectRatio: '1 / 1',
+                objectFit: 'cover',
+                width: '100%',
+              }}
+            />
+            <Tag
+              color={index === 0 ? 'blue' : undefined}
+              style={{ position: 'absolute', top: 4, left: 4, margin: 0 }}
+            >
+              {index === 0 ? 'Ảnh 1 · đại diện' : `Ảnh ${index + 1}`}
+            </Tag>
+          </div>
+        ))}
+      </div>
+    </Image.PreviewGroup>
+  );
 }
 
 /**
@@ -149,6 +217,7 @@ function MockContentManagementPage() {
   const { content, addContent, updateContent, deleteContent } = useMockData();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | undefined>();
   const [statusFilter, setStatusFilter] = useState<ContentStatus | undefined>();
   const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
@@ -177,6 +246,7 @@ function MockContentManagementPage() {
         item.title.toLowerCase().includes(search.toLowerCase()) ||
         item.code.toLowerCase().includes(search.toLowerCase());
       const matchCategory = !categoryFilter || item.category === categoryFilter;
+      const matchMediaType = !mediaTypeFilter || item.mediaType === mediaTypeFilter;
       const matchStatus = !statusFilter || item.status === statusFilter;
       const matchUploader = !uploaderFilter || item.createdBy === uploaderFilter;
       const matchRange =
@@ -185,9 +255,24 @@ function MockContentManagementPage() {
         !dateRange[1] ||
         (dayjs(item.updatedAt).isAfter(dateRange[0].startOf('day')) &&
           dayjs(item.updatedAt).isBefore(dateRange[1].endOf('day')));
-      return matchSearch && matchCategory && matchStatus && matchUploader && matchRange;
+      return (
+        matchSearch &&
+        matchCategory &&
+        matchMediaType &&
+        matchStatus &&
+        matchUploader &&
+        matchRange
+      );
     });
-  }, [myContent, search, categoryFilter, statusFilter, uploaderFilter, dateRange]);
+  }, [
+    myContent,
+    search,
+    categoryFilter,
+    mediaTypeFilter,
+    statusFilter,
+    uploaderFilter,
+    dateRange,
+  ]);
 
   const openEdit = (record: ContentAsset) => {
     setEditing(record);
@@ -460,8 +545,38 @@ function MockContentManagementPage() {
           placeholder="Dạng (danh mục)"
           allowClear
           style={{ width: 180 }}
-          options={CONTENT_CATEGORIES.map((c) => ({ value: c, label: c }))}
-          onChange={setCategoryFilter}
+          options={[
+            {
+              value: `${MEDIA_TYPE_FILTER_PREFIX}image`,
+              label: MEDIA_TYPE_LABELS.image,
+            },
+            {
+              value: `${MEDIA_TYPE_FILTER_PREFIX}video`,
+              label: MEDIA_TYPE_LABELS.video,
+            },
+            { value: DANG_FILTER_DIVIDER, label: '──────────', disabled: true },
+            ...CONTENT_CATEGORIES.map((c) => ({
+              value: c,
+              label: c,
+              disabled: false,
+            })),
+          ]}
+          value={
+            mediaTypeFilter
+              ? `${MEDIA_TYPE_FILTER_PREFIX}${mediaTypeFilter}`
+              : categoryFilter
+          }
+          onChange={(v: string | undefined) => {
+            if (v?.startsWith(MEDIA_TYPE_FILTER_PREFIX)) {
+              setMediaTypeFilter(
+                v.slice(MEDIA_TYPE_FILTER_PREFIX.length) as MediaType,
+              );
+              setCategoryFilter(undefined);
+            } else {
+              setMediaTypeFilter(undefined);
+              setCategoryFilter(v);
+            }
+          }}
         />
         <Select
           placeholder="Trạng thái"
@@ -691,6 +806,9 @@ function RealContentManagementPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
+  // Ô "Dạng" gộp 2 loại lọc: 2 dạng cố định Ảnh/Video (lọc theo `mediaType`) và
+  // các danh mục động (lọc theo `category`) — chọn 1 thì bỏ cái kia.
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaType | undefined>();
   const [assignmentFilter, setAssignmentFilter] = useState<
     AssignmentFilter | undefined
   >();
@@ -726,6 +844,7 @@ function RealContentManagementPage() {
   const { data, isLoading } = useContentAssets({
     search: search || undefined,
     category: categoryFilter,
+    mediaType: mediaTypeFilter,
     assignment: assignmentFilter,
     status: statusFilter,
     editorId: editorFilter,
@@ -735,6 +854,27 @@ function RealContentManagementPage() {
   });
   const { data: categorySuggestions } = useCategorySuggestions();
   const categoryOptions = mergeCategoryOptions(categorySuggestions);
+  // Ảnh/Video luôn nằm trên cùng, rồi tới đường kẻ ngăn cách (option disabled),
+  // cuối cùng là danh mục động lấy từ dữ liệu thật.
+  const dangFilterOptions = [
+    { value: `${MEDIA_TYPE_FILTER_PREFIX}image`, label: MEDIA_TYPE_LABELS.image },
+    { value: `${MEDIA_TYPE_FILTER_PREFIX}video`, label: MEDIA_TYPE_LABELS.video },
+    { value: DANG_FILTER_DIVIDER, label: '──────────', disabled: true },
+    ...categoryOptions.map((c) => ({ value: c, label: c, disabled: false })),
+  ];
+  /** Chọn Ảnh/Video ⇒ lọc `mediaType`; chọn danh mục ⇒ lọc `category`. */
+  const handleDangFilterChange = (value: string | undefined): void => {
+    if (value?.startsWith(MEDIA_TYPE_FILTER_PREFIX)) {
+      setMediaTypeFilter(
+        value.slice(MEDIA_TYPE_FILTER_PREFIX.length) as MediaType,
+      );
+      setCategoryFilter(undefined);
+    } else {
+      setMediaTypeFilter(undefined);
+      setCategoryFilter(value);
+    }
+    setPage(1);
+  };
   // `GET /pages` mọi role đọc được (token đã mask) ⇒ CONTENT cũng phân bổ page được.
   const { data: pages } = usePages();
   const activePages = (pages ?? []).filter((p) => p.isActive);
@@ -892,23 +1032,37 @@ function RealContentManagementPage() {
     assignedPageIds?: string[];
     editorId?: string;
   }) => {
-    const pickedFile = fileList[0];
-    if (!pickedFile) {
+    if (fileList.length === 0) {
       message.error('Vui lòng chọn file ảnh hoặc video');
       return;
     }
-    const rawFile = (pickedFile.originFileObj ?? pickedFile) as unknown as File;
+    const rawFiles = fileList.map(
+      (item) => (item.originFileObj ?? item) as unknown as File,
+    );
 
     setUploading(true);
     setUploadPercent(0);
     setUploadPhase('uploading');
     try {
-      const uploaded = await mediaApi.upload(rawFile, (percent) => {
-        setUploadPercent(percent);
-        if (percent >= 100) setUploadPhase('processing');
-      });
+      // Đẩy Drive **tuần tự** từng file: `POST /media/upload` nhận 1 file/lần và
+      // song song hoá sẽ làm thanh tiến độ vô nghĩa. Tiến độ tính trên cả lô.
+      const uploads: Awaited<ReturnType<typeof mediaApi.upload>>[] = [];
+      for (const [index, rawFile] of rawFiles.entries()) {
+        const uploaded = await mediaApi.upload(rawFile, (percent) => {
+          const overall = Math.round(
+            ((index + percent / 100) / rawFiles.length) * 100,
+          );
+          setUploadPercent(overall);
+          if (overall >= 100) setUploadPhase('processing');
+        });
+        uploads.push(uploaded);
+      }
       setUploadPercent(100);
       setUploadPhase('processing');
+
+      // Ảnh đầu = ảnh đại diện của record; phần còn lại thành `content_asset_files`
+      // theo đúng thứ tự đã chọn trên UI ⇒ 1 bài Facebook nhiều ảnh khi đăng.
+      const [primary, ...extras] = uploads;
       const created = await createMutation.mutateAsync({
         title: values.title,
         category: values.category,
@@ -916,16 +1070,23 @@ function RealContentManagementPage() {
         hashtags: values.hashtags,
         assignedPageIds: values.assignedPageIds ?? [],
         editorId: values.editorId,
-        mediaType: uploaded.mediaType,
-        driveFileId: uploaded.fileId,
-        driveUrl: uploaded.driveUrl ?? undefined,
-        thumbnailUrl: uploaded.thumbnailUrl ?? undefined,
-        mimeType: uploaded.mimeType,
-        fileSize: uploaded.size,
+        mediaType: primary.mediaType,
+        driveFileId: primary.fileId,
+        driveUrl: primary.driveUrl ?? undefined,
+        thumbnailUrl: primary.thumbnailUrl ?? undefined,
+        mimeType: primary.mimeType,
+        fileSize: primary.size,
+        extraFiles: extras.map((file) => ({
+          driveFileId: file.fileId,
+          driveUrl: file.driveUrl ?? undefined,
+          thumbnailUrl: file.thumbnailUrl ?? undefined,
+          mimeType: file.mimeType,
+          fileSize: file.size,
+        })),
       });
       // ADMIN upload thì backend duyệt luôn (không tự duyệt bài của chính mình).
       message.success(
-        `Đã upload — trạng thái ${CONTENT_STATUS_LABELS[created.status]}`,
+        `Đã upload ${uploads.length > 1 ? `${uploads.length} ảnh thành 1 bài` : ''} — trạng thái ${CONTENT_STATUS_LABELS[created.status]}`,
       );
       setCreateOpen(false);
       setFileList([]);
@@ -995,6 +1156,7 @@ function RealContentManagementPage() {
           <Tag>{v}</Tag>
           <Tag color={record.mediaType === 'video' ? 'purple' : 'blue'}>
             {MEDIA_TYPE_LABELS[record.mediaType]}
+            {record.imageCount > 1 ? ` · +${record.imageCount - 1} ảnh` : ''}
           </Tag>
         </Space>
       ),
@@ -1107,12 +1269,15 @@ function RealContentManagementPage() {
           placeholder="Dạng (danh mục)"
           allowClear
           showSearch
+          optionFilterProp="label"
           style={{ width: 180 }}
-          options={categoryOptions.map((c) => ({ value: c, label: c }))}
-          onChange={(v) => {
-            setCategoryFilter(v);
-            setPage(1);
-          }}
+          options={dangFilterOptions}
+          value={
+            mediaTypeFilter
+              ? `${MEDIA_TYPE_FILTER_PREFIX}${mediaTypeFilter}`
+              : categoryFilter
+          }
+          onChange={handleDangFilterChange}
         />
         <Select
           placeholder="Phân bổ page"
@@ -1290,18 +1455,17 @@ function RealContentManagementPage() {
       >
         {editing && (
           <Form form={editForm} layout="vertical" onFinish={handleEditSubmit}>
-            {editing.thumbnailUrl && (
-              <Image
-                src={editing.thumbnailUrl}
-                alt={editing.title}
-                style={{ borderRadius: 8, marginBottom: 16 }}
-              />
-            )}
+            <ContentImagesPreview asset={editing} />
             <Space style={{ marginBottom: 16 }} wrap>
               <ContentStatusTag status={editing.status} />
               <Tag color={editing.mediaType === 'video' ? 'purple' : 'blue'}>
                 {MEDIA_TYPE_LABELS[editing.mediaType]}
               </Tag>
+              {editing.imageCount > 1 && (
+                <Tooltip title="Danh sách ảnh cố định lúc upload — muốn đổi thì xoá bài và upload lại">
+                  <Tag color="gold">Bài {editing.imageCount} ảnh</Tag>
+                </Tooltip>
+              )}
               {editing.driveUrl && (
                 <a href={editing.driveUrl} target="_blank" rel="noreferrer">
                   <LinkOutlined /> File trên Drive
@@ -1497,11 +1661,25 @@ function RealContentManagementPage() {
             <Upload
               accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
               fileList={fileList}
-              maxCount={1}
+              multiple
+              maxCount={MAX_IMAGES_PER_CONTENT_ASSET}
               beforeUpload={() => false}
               onChange={({ fileList: next }) => {
-                setFileList(next);
-                const picked = next[0];
+                // Chọn nhiều ảnh ⇒ MỘT bài nhiều ảnh (album). Video thì Graph API
+                // không ghép được nên rơi về đúng 1 file, giữ nguyên hành vi cũ.
+                const hasVideo = next.some((f) => detectMediaType(f) === 'video');
+                const trimmed = hasVideo
+                  ? next.slice(0, 1)
+                  : next.slice(0, MAX_IMAGES_PER_CONTENT_ASSET);
+                if (trimmed.length < next.length) {
+                  message.warning(
+                    hasVideo
+                      ? 'Video chỉ đăng được 1 file mỗi bài — Facebook không ghép nhiều video vào một bài.'
+                      : `Một bài tối đa ${MAX_IMAGES_PER_CONTENT_ASSET} ảnh.`,
+                  );
+                }
+                setFileList(trimmed);
+                const picked = trimmed[0];
                 if (picked && !titleTouched) {
                   createForm.setFieldValue('title', filenameToTitle(picked.name));
                 }
@@ -1509,6 +1687,13 @@ function RealContentManagementPage() {
             >
               <Button icon={<UploadOutlined />}>Chọn ảnh hoặc video</Button>
             </Upload>
+            {fileList.length > 1 && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {fileList.length} ảnh ⇒ đăng thành{' '}
+                <strong>1 bài Facebook nhiều ảnh</strong>, theo đúng thứ tự trên.
+                Ảnh đầu là ảnh đại diện của bài.
+              </Text>
+            )}
           </Form.Item>
 
           <Form.Item

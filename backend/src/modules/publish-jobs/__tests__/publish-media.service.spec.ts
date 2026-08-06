@@ -17,7 +17,11 @@ import type {
   PublishResult,
 } from '../../../infra/facebook/facebook-publisher.interface';
 import { MediaCacheService } from '../../../infra/media-cache/media-cache.service';
-import { PublishMediaService, buildMessage } from '../publish-media.service';
+import {
+  PublishMediaService,
+  buildMessage,
+  toPublishContents,
+} from '../publish-media.service';
 
 const NOW = new Date('2026-08-03T05:00:00Z');
 
@@ -266,6 +270,58 @@ describe('PublishMediaService', () => {
 
       expect(publisher.publishImage).toHaveBeenCalledTimes(1);
       expect(publisher.publishImageAlbum).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('toPublishContents (ghép ảnh của bài nhiều ảnh — plan 22)', () => {
+    const primary = makeContent({
+      id: 'content-1',
+      title: 'Bộ 3 ảnh',
+      mediaType: MediaType.image,
+      driveFileId: 'drive-1',
+      mimeType: 'image/png',
+      caption: 'Caption gốc',
+    });
+
+    it('không có ảnh phụ ⇒ đúng mảng 1 phần tử là chính record (hồi quy)', () => {
+      expect(toPublishContents(primary)).toEqual([primary]);
+      expect(toPublishContents(primary, [])).toEqual([primary]);
+    });
+
+    it('override field mô tả FILE, GIỮ field mô tả BÀI', () => {
+      const [, second] = toPublishContents(primary, [
+        {
+          id: 'file-1',
+          driveFileId: 'drive-2',
+          driveUrl: 'https://drive/2',
+          thumbnailUrl: null,
+          mimeType: 'image/jpeg',
+          fileSize: 999n,
+        },
+      ]);
+
+      // Field của FILE: phải là của ảnh phụ.
+      expect(second.id).toBe('file-1');
+      expect(second.driveFileId).toBe('drive-2');
+      expect(second.mimeType).toBe('image/jpeg');
+      expect(second.fileSize).toBe(999n);
+      // Field của BÀI: một bài chỉ có một caption/tiêu đề/loại media.
+      expect(second.title).toBe('Bộ 3 ảnh');
+      expect(second.caption).toBe('Caption gốc');
+      expect(second.mediaType).toBe(MediaType.image);
+    });
+
+    it('giữ nguyên thứ tự ảnh phụ truyền vào', () => {
+      const contents = toPublishContents(primary, [
+        { id: 'f1', driveFileId: 'drive-2' } as never,
+        { id: 'f2', driveFileId: 'drive-3' } as never,
+      ]);
+
+      expect(contents.map((content) => content.driveFileId)).toEqual([
+        'drive-1',
+        'drive-2',
+        'drive-3',
+      ]);
     });
   });
 

@@ -1,9 +1,24 @@
 # Plan 21 — Đăng nhiều ảnh trong một bài (album) theo mốc giờ
 
 **Milestone:** Phase 2
-**Trạng thái:** 🟡 đang làm
+**Trạng thái:** ❌ BỊ THAY THẾ bởi Plan 22 (2026-08-06) — xem ghi chú ngay dưới
 **Phụ thuộc:** plan 07 (auto-post engine), plan 20 (publisher)
 **Spec tham chiếu:** `docs/03-database-design.md` §7 (picker), `docs/04-api-spec.md` §6
+
+---
+
+> **⚠️ BỊ THAY THẾ — không code tiếp, không dùng làm tham chiếu để implement mới.**
+> Cơ chế `assetsPerPost` (Bot tự động ghép N record đơn-ảnh RIÊNG BIỆT thành 1 bài
+> lúc đăng) đã code xong (735 test xanh) nhưng **chưa từng smoke test trên UI/Page
+> thật** (§5 chưa tick). User quyết định 2026-08-06 chọn hướng đơn giản hơn: gộp
+> nhiều ảnh ngay ở **1 content_assets record lúc upload** (xem Plan 22), thay vì để
+> Bot tự đoán cách ghép nhiều record rời rạc. Hệ quả: `AutoPostSlot.assetsPerPost`
+> và bảng `publish_job_assets` sẽ bị **xoá** (migration mới, không sửa migration
+> `20260805170928_album_post` cũ — rule 00), scheduler quay lại tạo 1 job/1 content
+> như trước plan này. Phần **hạ tầng đăng album** (`PublishMediaService.publishAlbum`,
+> `FacebookPublisherClient.publishImageAlbum`) **vẫn giữ nguyên, được Plan 22 tái sử
+> dụng** — chỉ nguồn dữ liệu "ảnh phụ" đổi từ `publish_job_assets` sang
+> `content_asset_files`. Chi tiết dọn dẹp: xem Plan 22 §3.4.
 
 ---
 

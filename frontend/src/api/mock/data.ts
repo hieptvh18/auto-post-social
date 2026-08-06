@@ -598,7 +598,6 @@ export const mockAutoPostConfigs: AutoPostConfig[] = [
         categories: ['Cơ xương khớp', 'Thăm khám'],
         mediaType: 'video',
         postCount: 1,
-        assetsPerPost: 1,
         enabled: true,
       },
       {
@@ -608,7 +607,6 @@ export const mockAutoPostConfigs: AutoPostConfig[] = [
         categories: ['Giáo dục sức khỏe'],
         mediaType: 'image',
         postCount: 1,
-        assetsPerPost: 1,
         enabled: true,
       },
       {
@@ -618,7 +616,6 @@ export const mockAutoPostConfigs: AutoPostConfig[] = [
         categories: ['Khuyến mãi', 'Sự kiện'],
         mediaType: 'all',
         postCount: 2,
-        assetsPerPost: 1,
         enabled: true,
       },
     ],
@@ -634,7 +631,6 @@ export const mockAutoPostConfigs: AutoPostConfig[] = [
         categories: ['Thăm khám', 'Câu chuyện bệnh nhân'],
         mediaType: 'all',
         postCount: 1,
-        assetsPerPost: 1,
         enabled: true,
       },
       {
@@ -644,7 +640,6 @@ export const mockAutoPostConfigs: AutoPostConfig[] = [
         categories: ['Khuyến mãi'],
         mediaType: 'image',
         postCount: 1,
-        assetsPerPost: 1,
         enabled: false,
       },
     ],
@@ -660,7 +655,6 @@ export const mockAutoPostConfigs: AutoPostConfig[] = [
         categories: ['Cơ xương khớp'],
         mediaType: 'video',
         postCount: 1,
-        assetsPerPost: 1,
         enabled: true,
       },
     ],

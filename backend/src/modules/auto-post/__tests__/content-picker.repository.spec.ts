@@ -98,7 +98,7 @@ describe('ContentPickerRepository', () => {
     );
   });
 
-  it('loại cả bài đang là ẢNH PHỤ của một album chờ đăng (plan 21)', async () => {
+  it('KHÔNG còn mệnh đề loại trừ theo publish_job_assets (bảng đã xoá ở plan 22)', async () => {
     await repository.pickForSlot({
       facebookPageId: 'page-1',
       categories: ['Review'],
@@ -106,17 +106,9 @@ describe('ContentPickerRepository', () => {
       limit: 3,
     });
 
-    // Thiếu mệnh đề này ⇒ tick sau Bot chọn lại đúng những ảnh vừa gom vào album
-    // trước và đăng chúng thêm lần nữa.
-    const sql = capturedSql();
-    expect(sql).toContain('publish_job_assets');
-    expect(sql).toContain("j2.status IN ('QUEUED', 'PUBLISHING', 'FAILED')");
-  });
-
-  it('đếm kho theo danh mục cũng loại ảnh phụ của album chờ đăng (khớp với picker)', async () => {
-    await repository.countByCategoryForPage('page-1');
-
-    expect(capturedSql()).toContain('publish_job_assets');
+    // Bài nhiều ảnh giờ nằm gọn trong 1 dòng content_assets ⇒ chỉ cần loại
+    // theo publish_jobs.content_asset_id như trước plan 21.
+    expect(capturedSql()).not.toContain('publish_job_assets');
   });
 
   it('xếp hàng theo updated_at tăng dần và tôn trọng postCount', async () => {

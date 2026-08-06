@@ -4,9 +4,39 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-06 (Plan 21 — đăng nhiều ảnh trong 1 bài / album)
-**Session gần nhất (mới nhất):** **Plan 21 — mốc giờ đăng có thêm "Số ảnh/video trong 1 bài"
-(`assetsPerPost`, mặc định 1).** Khi > 1, Bot lấy N ảnh liên tiếp trong danh mục (thứ tự
+**Cập nhật lần cuối:** 2026-08-06 (Plan 22 — nhiều ảnh trong 1 content record, THAY plan 21)
+**Session gần nhất (mới nhất):** **Plan 22 — đổi hướng "bài nhiều ảnh": gom ảnh ngay ở 1
+`content_assets` record lúc upload, thay cho `assetsPerPost` của plan 21.** Theo quyết định user
+2026-08-06: ở màn Quản lý Ảnh/Video chọn **nhiều ảnh cùng lúc** ⇒ tạo **1** record duy nhất (ảnh
+đầu là ảnh đại diện, phần còn lại vào bảng mới `content_asset_files` với `position >= 1`); khi đăng
+— **tay hay Bot đều vậy** — toàn bộ ảnh của record lên thành **1 bài Facebook nhiều ảnh**, không
+phải cấu hình gì thêm ở mốc giờ. **Vì sao bỏ hướng cũ:** để Bot tự ghép N record rời rạc thì picker
+phải loại trừ 2 đường (dễ đăng lặp), và đăng tay không dùng được. Hướng mới đơn giản hơn hẳn:
+picker quay lại **1 job = 1 content** như trước plan 21, và **đăng tay tự động có album** mà không
+cần code thêm ở `manual-post`. **Migration `20260806090000_content_asset_files` đảo ngược 1 phần
+`20260805170928_album_post`**: xoá `auto_post_slots.assets_per_post` + xoá nguyên bảng
+`publish_job_assets`, thêm `content_asset_files` (cascade theo content). Kiểm tra trước khi chạy:
+`publish_job_assets` **0 dòng**, mọi slot `assets_per_post = 1` ⇒ không mất dữ liệu. **Hạ tầng đăng
+album của plan 21 giữ nguyên** (`publishImageAlbum` 2 pha, mượn file tuần tự nên RAM phẳng) — chỉ
+đổi *nguồn* danh sách ảnh. **Ba cạm bẫy đã xử lý:** (1) `job.assets` giờ là danh sách **file** (id
+của `content_asset_files`) ⇒ executor phải ghi trạng thái bằng `[job.contentAssetId]`, dùng
+`asset.id` sẽ upsert assignment bằng id không tồn tại và nổ FK; (2) xoá bài phải xoá **mọi** file
+Drive — bảng con cascade nên sau đó không ai nhớ fileId ảnh phụ nữa; (3) việc ghép ảnh nằm ở **một**
+hàm duy nhất `toPublishContents()` (`publish-media.service.ts`) cho cả 2 đường publish. API:
+`ContentAssetResponse` thêm `imageCount` + `extraFiles`; `POST /content-assets` nhận `extraFiles`
+(chỉ với `mediaType=image`, tối đa `MAX_IMAGES_PER_CONTENT_ASSET` = 10, validate ở service). FE:
+Upload cho chọn nhiều ảnh (chọn video ⇒ ép về 1 file), badge `+N ảnh` trên bảng + tag "Bài N ảnh"
+trong Drawer, bỏ ô "Số ảnh/video trong 1 bài" ở `/auto-post`. Chi tiết:
+[plans/22-content-multi-image.md](./plans/22-content-multi-image.md). `erd.md` đã cập nhật.
+BE **737 test xanh (+10, đã xoá test cũ của plan 21)**, FE 41 test cũ xanh, lint/build 2 phía xanh.
+**Chưa test tay trên UI/Page thật** ⇒ plan 22 còn ở `plans/` (§6 mục 28). `plans/21-album-post.md`
+**ở lại `plans/`** với trạng thái ❌ BỊ THAY THẾ — không chuyển vào `DONE/`.
+
+---
+
+**Session trước đó:** **Plan 21 — mốc giờ đăng có thêm "Số ảnh/video trong 1 bài"
+(`assetsPerPost`, mặc định 1) — ❌ ĐÃ BỊ PLAN 22 THAY THẾ VÀ GỠ BỎ, giữ lại đoạn dưới chỉ để hiểu
+lịch sử.** Khi `assetsPerPost` > 1, Bot lấy N ảnh liên tiếp trong danh mục (thứ tự
 `updated_at ASC`, cũ → mới) và đăng thành **MỘT** bài Facebook nhiều ảnh, không phải N bài lẻ.
 Tổng ảnh lấy mỗi lần chạy = `postCount × assetsPerPost`; nhóm cuối thiếu vẫn đăng. **Album chỉ
 áp dụng cho ảnh** — Graph API không ghép nhiều video/trộn ảnh-video vào một bài feed, nên
@@ -20,7 +50,8 @@ gom vào album và đăng lần nữa. Publisher thêm `publishImageAlbum` (uplo
 luồng 1 ảnh. Khi thành công, **mọi** ảnh trong bài cùng nhận một `facebook_post_id` + assignment
 `published_at`. Chi tiết: [plans/21-album-post.md](./plans/21-album-post.md). `erd.md` đã cập nhật
 (migration `20260805170928_album_post`). BE **735 test xanh (+20)**, FE 41 test cũ xanh, lint/build
-2 phía xanh. **Chưa test tay trên UI/Page thật** ⇒ plan 21 còn ở `plans/`.
+2 phía xanh. **Chưa từng smoke UI/Page thật** — và sẽ không smoke nữa: toàn bộ cơ chế
+`assetsPerPost` + `publish_job_assets` mô tả ở trên **đã bị xoá khỏi code và DB** ở plan 22.
 
 ---
 
@@ -273,7 +304,7 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md` |
+| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md`, `plans/22-content-multi-image.md` (bài nhiều ảnh — chưa smoke UI), `plans/21-album-post.md` (❌ BỊ THAY THẾ, giữ làm lịch sử) |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
 | `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). `SettingsPage` đã nối API thật (Drive 2 authMode). **`QueueMonitorPage` / `FailedJobsPage` / `AuditLogsPage` đã nối API thật** (M8, plan 13 — vẫn giữ nhánh mock theo ADR-005). **`DashboardPage` ("Tổng quan") đã nối API thật** (M9, plan 14 — thẻ số + 2 chart + khối "Cần chú ý"). **Không còn trang nào chạy mock** (nhánh `VITE_USE_MOCK` vẫn giữ theo ADR-005). |
 | `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
@@ -1023,7 +1054,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 21 | **Đường UPLOAD vẫn buffer toàn bộ vào RAM** | `media.controller.ts` dùng multer `memoryStorage()` ⇒ file 300MB chiếm ~300MB RAM, cộng bản copy khi đẩy lên Drive là ~600MB **cho một request**. Plan 17 chỉ vá chiều **đăng bài** (Drive→FB), chưa vá chiều **upload** (browser→Drive). VPS dưới 2GB có thể OOM khi vừa upload vừa đăng. Hướng xử lý: stream thẳng request → Google Drive resumable upload, hoặc ghi ra file tạm rồi stream lên. |
 | 22 | **Plan 20 (resumable upload video) — hết 502, tốc độ đã điều tra xong; còn 2 việc nhỏ trước khi đóng plan** | Code xong (BE **710** test xanh) — `publishVideo` dùng Facebook Resumable Upload API, guard chặn job đăng trùng (manual + auto-post picker), video không bị hỏng khi chia chunk (test byte-exact). **Đã test tay 2 lần trên video thật (162.5MB, 130.5MB, 48MB, 2026-08-05): không còn 502 lần nào.** **Tốc độ ~5.5-7.4 Mbps đã điều tra xong và ĐÓNG (plan 20 §4c-§4d):** đối chiếu `curl` upload thô ra ~310 Mbps (chênh ~42 lần) loại bỏ giả thuyết băng thông VPS yếu; log chi tiết chunk đầu (1622ms) so với TB chunk sau (1425ms) chỉ chênh ~14% (loại bỏ giả thuyết lỗi tái dùng kết nối trong code); biên độ chunk sau chênh ~7 lần (881-6300ms) là dấu hiệu Facebook rate-limit kiểu bucket cho phiên Resumable Upload — **kết luận: giới hạn từ phía Meta, không sửa được bằng code, không cần điều tra thêm.** **Việc còn lại trước khi đóng plan:** thử bấm "Đăng bài thủ công" 2 lần liên tiếp cùng bài+page trên UI thật để xác nhận lần 2 bị 409 thay vì tạo bài trùng; `pm2 monit` RSS không vọt khi upload video lớn (đo thật, chưa làm). Xong thì `git mv plans/20-facebook-resumable-upload.md plans/DONE/`. |
 | 27 | **`docs/03-database-design.md` lệch code sau plan 20 §4b** | Dòng 381, mẫu SQL picker chỉ ghi `j.status IN ('QUEUED', 'PUBLISHING')`, thiếu `FAILED` — code (`content-picker.repository.ts`) giờ đã thêm `FAILED` để tránh Bot tự re-pick nội dung vừa đăng lỗi (đúng hành vi hơn, spec cũ thiếu case này). Theo rule 00 §1, không tự sửa `docs/` khi đang code — cần user xác nhận rồi cập nhật `docs/03-database-design.md` dòng 381 cho khớp. |
-| 28 | **Plan 21 (đăng nhiều ảnh trong 1 bài) chưa test tay trên UI/Page thật** | Code BE+FE xong (BE **735** test xanh, migration `20260805170928_album_post` đã apply DB dev). **Chưa bấm tay**: `/auto-post` → sửa/thêm mốc giờ, chọn Loại media = **Ảnh** rồi đặt "Số ảnh/video trong 1 bài" = 3 (chọn Video/Tất cả ⇒ ô này phải bị khoá và tự về 1); danh mục cần ≥3 ảnh đã duyệt + phân bổ cho page. Bấm "Chạy lại mốc này" ⇒ kiểm **Facebook hiện đúng 1 bài 3 ảnh** theo thứ tự cũ→mới, cả 3 bài trong kho chuyển `PUBLISHED` và 3 assignment cùng một `facebook_post_id`, chạy tick lần nữa ⇒ **không** chọn lại 3 ảnh đó. Cũng thử `assetsPerPost=3` mà kho chỉ còn 2 ảnh ⇒ vẫn ra 1 bài 2 ảnh. Xong thì `git mv plans/21-album-post.md plans/DONE/`. |
+| 28 | **Plan 22 (nhiều ảnh trong 1 content record) chưa test tay trên UI/Page thật** | *(Thay cho nợ cũ của plan 21 — hướng `assetsPerPost` đã bị xoá, xem plan 22.)* Code BE+FE xong (BE **737** test xanh, migration `20260806090000_content_asset_files` đã apply DB dev). **Chưa bấm tay**: `/content` → Upload, chọn **4 ảnh cùng lúc** ⇒ tạo đúng **1** bài, bảng hiện `Ảnh · +3 ảnh`, Drawer hiện tag "Bài 4 ảnh"; chọn **1 video** ⇒ vẫn upload bình thường như cũ; chọn **11 ảnh** ⇒ UI cắt còn 10 kèm cảnh báo (và nếu lách được thì BE trả 400). Sau đó bấm **"Đăng bài thủ công"** với bài 4 ảnh ⇒ **Facebook hiện đúng 1 bài 4 ảnh** (đăng tay giờ cũng có album — plan 21 không hỗ trợ); rồi thử đường **Bot**: `POST /auto-post/run-now` cho mốc giờ có bài đó ⇒ cũng ra 1 bài 4 ảnh, record chuyển `PUBLISHED`. Kiểm **hồi quy**: bài 1 ảnh cũ vẫn đăng bài thường. Kiểm **xoá**: xoá bài 4 ảnh ⇒ 4 file biến mất trên Drive và `content_asset_files` sạch (`SELECT COUNT(*) FROM content_asset_files`). Kiểm `/auto-post`: form mốc giờ **không còn** ô "Số ảnh/video trong 1 bài". Xong thì `git mv plans/22-content-multi-image.md plans/DONE/` (plan 21 **ở lại** `plans/` với trạng thái BỊ THAY THẾ, không chuyển DONE). |
 | 23 | **Worker concurrency vẫn = 1, chưa tách queue ảnh/video** | Giữ 1 là đúng khi RAM còn phình; sau plan 17 RAM đã phẳng nên nâng được, nhưng phải đo rate limit Meta trước. Hệ quả hiện tại: một video 300MB chiếm hàng đợi vài phút, mọi bài **ảnh** của page khác xếp sau phải chờ. Cân nhắc 2 queue riêng + `limiter` của BullMQ. |
 | 26 | **Multi action (plan 19) chưa smoke UI thật** | Code BE+FE xong (BE 687 test xanh), đã smoke API đủ case (xem plan 19 §6). **Chưa bấm tay UI**: `/content` — chọn nhiều dòng (dòng đã đăng phải **mờ checkbox**), thanh "Đã chọn N bài" hiện đúng, bấm **Ngưng dùng** ⇒ dòng mờ + tag, bấm **Xoá** với lô có bài đã đăng ⇒ notification liệt kê bài bị bỏ qua kèm lý do; ô lọc "Trạng thái dùng"; Switch "Đang dùng" trong Drawer sửa. Sau đó `POST /auto-post/run-now` xác nhận Bot **không** lấy bài đã ngưng. Đăng nhập CONTENT kiểm chỉ thao tác được trên bài của mình. Xong thì `git mv plans/19-bulk-actions.md plans/DONE/`. |
 | 24 | **Cột "Editor" chưa smoke UI thật** | Code BE+FE xong (plan 18, BE 653 test xanh), đã smoke API qua curl đủ case 400/gán/lọc/gỡ. **Chưa bấm tay UI**: `/content` — mở Modal upload chọn Editor (bỏ trống vẫn upload được), Drawer sửa đổi/gỡ Editor, cột "Editor" hiện đúng tên (bài chưa gán hiện "—"), ô filter "Editor" lọc đúng và gõ tìm được theo tên. Kiểm bằng account **CONTENT** (phải thấy danh sách Editor dù không có quyền `/users`). Lưu ý: DB dev hiện **không có EDITOR nào đang active** ⇒ dropdown rỗng là đúng, phải tạo 1 account role Editor ở `/users` trước. Xong thì `git mv plans/18-content-editor-field.md plans/DONE/`. |

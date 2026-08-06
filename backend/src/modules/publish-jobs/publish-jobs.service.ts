@@ -31,8 +31,6 @@ import {
 
 export interface CreateQueuedJobParams {
   contentAssetId: string;
-  /** Ảnh phụ của bài album (plan 21), đúng thứ tự đăng. Bỏ trống = bài 1 ảnh. */
-  extraContentAssetIds?: string[];
   facebookPageId: string;
   caption: string;
   hashtags?: string | null;
@@ -79,7 +77,6 @@ export class PublishJobsService {
   async createQueuedJob(params: CreateQueuedJobParams): Promise<PublishJob> {
     const job = await this.repository.create({
       contentAssetId: params.contentAssetId,
-      extraContentAssetIds: params.extraContentAssetIds,
       facebookPageId: params.facebookPageId,
       caption: params.caption,
       hashtags: params.hashtags,
@@ -97,10 +94,8 @@ export class PublishJobsService {
       event: PublishJobEventType.ENQUEUED,
       message: `Đã xếp hàng đăng lúc ${params.scheduleTime.toISOString()}`,
     });
-    const extraCount = params.extraContentAssetIds?.length ?? 0;
     this.logger.log(
-      `Đã tạo publish job=${job.id} content=${params.contentAssetId} page=${params.facebookPageId}` +
-        (extraCount > 0 ? ` (album ${extraCount + 1} ảnh)` : ''),
+      `Đã tạo publish job=${job.id} content=${params.contentAssetId} page=${params.facebookPageId}`,
     );
 
     return job;

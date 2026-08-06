@@ -70,7 +70,11 @@ export class PublishExecutorService {
       };
     }
 
-    const assetIds = job.assets.map((asset) => asset.id);
+    // Một job = đúng một `content_assets` record, kể cả khi record đó nhiều ảnh
+    // (album). `job.assets` chỉ là danh sách FILE để đẩy lên Graph — id trong đó
+    // là id của `content_asset_files`, **không** dùng để ghi trạng thái content.
+    const assetIds = [job.contentAssetId];
+    const imageCount = job.assets.length;
     await this.repository.markPublishing(job.id, assetIds, attemptNo);
     await this.events.log({
       publishJobId: job.id,
@@ -78,7 +82,7 @@ export class PublishExecutorService {
       event: PublishJobEventType.STARTED,
       message:
         `Bắt đầu đăng "${job.contentAsset.title}"` +
-        (assetIds.length > 1 ? ` + ${assetIds.length - 1} ảnh nữa` : '') +
+        (imageCount > 1 ? ` (bài ${imageCount} ảnh)` : '') +
         ` lên page "${job.facebookPage.pageName}"`,
     });
 

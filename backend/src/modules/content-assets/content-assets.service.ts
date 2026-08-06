@@ -5,7 +5,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ContentStatus, UserRole } from '../../../generated/prisma/client';
+import {
+  ContentStatus,
+  MediaType,
+  UserRole,
+} from '../../../generated/prisma/client';
 import {
   BulkItemError,
   runBulkSequential,
@@ -26,6 +30,7 @@ import {
   type ContentAssetWithActors,
   type UpdateContentAssetData,
 } from './content-assets.repository';
+import { MAX_IMAGES_PER_CONTENT_ASSET } from './content-assets.constants';
 import { planStatusChange } from './content-status.transition';
 import type { CreateContentAssetDto } from './dto/create-content-asset.dto';
 import type { QueryContentAssetsDto } from './dto/query-content-assets.dto';
@@ -180,6 +185,8 @@ export class ContentAssetsService {
     actor: AuthenticatedUser,
   ): Promise<ContentAssetResponse> {
     const assignedPageIds = dedupe(dto.assignedPageIds ?? []);
+    const extraFiles = dto.extraFiles ?? [];
+    this.assertExtraFilesValid(extraFiles, dto.mediaType);
     await this.assertPagesExist(assignedPageIds);
     await this.assertEditorSelectable(dto.editorId);
 
@@ -206,6 +213,7 @@ export class ContentAssetsService {
       assignedPageIds,
       status: autoApproved ? ContentStatus.APPROVED : undefined,
       approvedById: autoApproved ? actor.id : undefined,
+      extraFiles,
     });
 
     await this.auditService.log({
@@ -216,6 +224,7 @@ export class ContentAssetsService {
         title: created.title,
         driveFileId: created.driveFileId,
         status: created.status,
+        imageCount: 1 + extraFiles.length,
       },
     });
 
@@ -379,7 +388,11 @@ export class ContentAssetsService {
     }
 
     const storage = await this.driveFactory.get();
-    await storage.delete(current.driveFileId);
+    // Bài nhiều ảnh: xoá **mọi** file, không chỉ ảnh đại diện — `content_asset_files`
+    // cascade theo bản ghi nên không còn ai nhớ những fileId kia nữa.
+    for (const file of [current, ...(current.extraFiles ?? [])]) {
+      await storage.delete(file.driveFileId);
+    }
     await this.repository.delete(current.id);
   }
 
@@ -513,6 +526,32 @@ export class ContentAssetsService {
     if (editor === null || editor.role !== UserRole.EDITOR) {
       throw new BadRequestException(
         'Editor phải là tài khoản có vai trò Editor',
+      );
+    }
+  }
+
+  /**
+   * Ảnh phụ chỉ có nghĩa với bài **ảnh**: Graph API không ghép nhiều video (hay
+   * trộn ảnh–video) vào một bài feed, nên chặn ngay ở đây thay vì để lỗi nổ lúc
+   * đăng — khi đó file đã nằm trên Drive và bài đã vào kho.
+   */
+  private assertExtraFilesValid(
+    extraFiles: unknown[],
+    mediaType: MediaType,
+  ): void {
+    if (extraFiles.length === 0) return;
+
+    if (mediaType !== MediaType.image) {
+      throw new BadRequestException(
+        'Chỉ bài ảnh mới ghép được nhiều file trong 1 bài — video phải mỗi bài 1 file',
+      );
+    }
+
+    // +1 vì ảnh đầu tiên là chính record, không nằm trong `extraFiles`.
+    const total = extraFiles.length + 1;
+    if (total > MAX_IMAGES_PER_CONTENT_ASSET) {
+      throw new BadRequestException(
+        `Một bài chỉ ghép được tối đa ${MAX_IMAGES_PER_CONTENT_ASSET} ảnh (giới hạn của Facebook), đang gửi ${total}`,
       );
     }
   }

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type {
   ContentActor,
+  ContentAssetExtraFile,
   ContentAssetWithActors,
   ContentAssignment,
 } from '../content-assets.repository';
@@ -55,9 +56,24 @@ const makeAsset = (
   updatedBy: actor('content-1'),
   editor: null,
   assignments: [],
+  extraFiles: [],
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   ...overrides,
+});
+
+/** Ảnh phụ (`content_asset_files`) — `position` bắt đầu từ 1. */
+const makeExtraFile = (
+  position: number,
+  driveFileId: string,
+): ContentAssetExtraFile => ({
+  id: `file-${position}`,
+  position,
+  driveFileId,
+  driveUrl: null,
+  thumbnailUrl: null,
+  mimeType: 'image/png',
+  fileSize: null,
 });
 
 const makeAssignment = (
@@ -1120,6 +1136,141 @@ describe('ContentAssetsService', () => {
       expect(repository.delete).toHaveBeenCalledWith('asset-1');
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'CONTENT_DELETE' }),
+      );
+    });
+
+    it('bài nhiều ảnh: xoá MỌI file trên Drive, không chỉ ảnh đại diện', async () => {
+      repository.findById.mockResolvedValue(
+        makeAsset({
+          createdById: 'content-1',
+          driveFileId: 'drive-1',
+          extraFiles: [
+            makeExtraFile(1, 'drive-2'),
+            makeExtraFile(2, 'drive-3'),
+          ],
+        }),
+      );
+
+      await service.remove('asset-1', contentUser);
+
+      // Bản ghi con cascade theo content ⇒ quên xoá ở đây là file mồ côi vĩnh viễn.
+      expect(driveStorage.delete).toHaveBeenCalledTimes(3);
+      expect(driveStorage.delete).toHaveBeenNthCalledWith(1, 'drive-1');
+      expect(driveStorage.delete).toHaveBeenNthCalledWith(2, 'drive-2');
+      expect(driveStorage.delete).toHaveBeenNthCalledWith(3, 'drive-3');
+      expect(repository.delete).toHaveBeenCalledWith('asset-1');
+    });
+  });
+
+  describe('create — bài nhiều ảnh (plan 22)', () => {
+    const baseDto = {
+      title: 'Bài 4 ảnh',
+      category: 'Kiến thức',
+      caption: 'caption',
+      mediaType: MediaType.image,
+      driveFileId: 'drive-1',
+    };
+
+    it('truyền extraFiles xuống repository ĐÚNG thứ tự đã chọn', async () => {
+      repository.create.mockResolvedValue(makeAsset());
+
+      await service.create(
+        {
+          ...baseDto,
+          extraFiles: [
+            { driveFileId: 'drive-2' },
+            { driveFileId: 'drive-3' },
+            { driveFileId: 'drive-4' },
+          ],
+        },
+        contentUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          extraFiles: [
+            { driveFileId: 'drive-2' },
+            { driveFileId: 'drive-3' },
+            { driveFileId: 'drive-4' },
+          ],
+        }),
+      );
+    });
+
+    it('mediaType = video kèm ảnh phụ ⇒ 400, không tạo record dở dang', async () => {
+      await expect(
+        service.create(
+          {
+            ...baseDto,
+            mediaType: MediaType.video,
+            extraFiles: [{ driveFileId: 'drive-2' }],
+          },
+          contentUser,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('tổng 11 ảnh (1 chính + 10 phụ) ⇒ 400 vì vượt trần 10 của Facebook', async () => {
+      await expect(
+        service.create(
+          {
+            ...baseDto,
+            extraFiles: Array.from({ length: 10 }, (_unused, index) => ({
+              driveFileId: `drive-${index + 2}`,
+            })),
+          },
+          contentUser,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('đúng 10 ảnh (1 chính + 9 phụ) ⇒ vẫn tạo được', async () => {
+      repository.create.mockResolvedValue(makeAsset());
+
+      await service.create(
+        {
+          ...baseDto,
+          extraFiles: Array.from({ length: 9 }, (_unused, index) => ({
+            driveFileId: `drive-${index + 2}`,
+          })),
+        },
+        contentUser,
+      );
+
+      expect(repository.create).toHaveBeenCalled();
+    });
+
+    it('response trả imageCount = 1 + số ảnh phụ (nguồn badge "+N ảnh" trên UI)', async () => {
+      repository.create.mockResolvedValue(
+        makeAsset({
+          extraFiles: [
+            makeExtraFile(1, 'drive-2'),
+            makeExtraFile(2, 'drive-3'),
+          ],
+        }),
+      );
+
+      const result = await service.create(
+        { ...baseDto, extraFiles: [{ driveFileId: 'drive-2' }] },
+        contentUser,
+      );
+
+      expect(result.imageCount).toBe(3);
+      expect(result.extraFiles.map((file) => file.driveFileId)).toEqual([
+        'drive-2',
+        'drive-3',
+      ]);
+    });
+
+    it('không gửi extraFiles ⇒ bài 1 ảnh như cũ (hồi quy)', async () => {
+      repository.create.mockResolvedValue(makeAsset());
+
+      await service.create(baseDto, contentUser);
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ extraFiles: [] }),
       );
     });
   });

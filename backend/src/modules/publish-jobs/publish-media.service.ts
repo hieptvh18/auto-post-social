@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { MediaType, type ContentAsset } from '../../../generated/prisma/client';
+import {
+  MediaType,
+  type ContentAsset,
+  type ContentAssetFile,
+} from '../../../generated/prisma/client';
 import { FacebookPublisherClient } from '../../infra/facebook/facebook-publisher.client';
 import type {
   PublishFileInput,
@@ -8,10 +12,47 @@ import type {
 import { FacebookGraphError } from '../../infra/facebook/facebook.errors';
 import { MediaCacheService } from '../../infra/media-cache/media-cache.service';
 
+/** Ảnh phụ ở dạng tối thiểu — chỉ phần mô tả FILE (plan 22). */
+export type ExtraFileLike = Pick<
+  ContentAssetFile,
+  'id' | 'driveFileId' | 'driveUrl' | 'thumbnailUrl' | 'mimeType' | 'fileSize'
+>;
+
+/**
+ * Ghép record content thành danh sách file để đăng: ảnh đại diện trước, rồi ảnh
+ * phụ theo đúng thứ tự đã truyền vào. **Nơi duy nhất** làm việc ghép này — đăng
+ * tay và Bot tự động đều đi qua đây, hai bản copy sẽ lệch nhau lúc nào không hay.
+ *
+ * Ảnh phụ mượn shape `ContentAsset` để publisher xử lý mọi ảnh như nhau. Chỉ
+ * những field mô tả *file* được thay (kèm `id` để tên file tạm không đụng nhau);
+ * phần mô tả *bài* (`title`, `mediaType`, `caption`, `status`…) giữ nguyên của
+ * record chính — một bài chỉ có một caption, không phải N bản copy metadata.
+ *
+ * ⚠️ `id` của phần tử thứ 2 trở đi là id của **file**, không phải id content —
+ * không được dùng để ghi trạng thái vào `content_assets`.
+ */
+export function toPublishContents(
+  primary: ContentAsset,
+  extraFiles: ExtraFileLike[] = [],
+): ContentAsset[] {
+  return [
+    primary,
+    ...extraFiles.map((file) => ({
+      ...primary,
+      id: file.id,
+      driveFileId: file.driveFileId,
+      driveUrl: file.driveUrl,
+      thumbnailUrl: file.thumbnailUrl,
+      mimeType: file.mimeType,
+      fileSize: file.fileSize,
+    })),
+  ];
+}
+
 export interface PublishMediaParams {
   /**
-   * Ảnh của bài, đúng thứ tự đăng. 1 phần tử = bài thường (ảnh hoặc video);
-   * nhiều phần tử = bài album nhiều ảnh (plan 21).
+   * File của bài, đúng thứ tự đăng — luôn dựng bằng `toPublishContents()`.
+   * 1 phần tử = bài thường (ảnh hoặc video); nhiều phần tử = bài nhiều ảnh (album).
    */
   contents: ContentAsset[];
   /** ID page phía Meta (`facebook_pages.page_id`), không phải uuid nội bộ. */

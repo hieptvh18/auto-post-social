@@ -27,6 +27,20 @@ export interface ContentAssignment {
   facebookPage: { id: string; pageName: string };
 }
 
+/**
+ * Ảnh **phụ** của một bài nhiều ảnh (plan 22), `position >= 1`. Ảnh đầu tiên là
+ * chính `content_assets.drive_file_id` nên không nằm trong danh sách này.
+ */
+export interface ContentAssetExtraFile {
+  id: string;
+  position: number;
+  driveFileId: string;
+  driveUrl: string | null;
+  thumbnailUrl: string | null;
+  mimeType: string | null;
+  fileSize: bigint | null;
+}
+
 /** Content kèm quan hệ đã join — shape mà mapper nhận vào. */
 export interface ContentAssetWithActors extends ContentAsset {
   createdBy: ContentActor;
@@ -34,6 +48,8 @@ export interface ContentAssetWithActors extends ContentAsset {
   /** Người dựng video/ảnh (role EDITOR) — null khi bài chưa gán editor. */
   editor: ContentActor | null;
   assignments: ContentAssignment[];
+  /** Đã sắp theo `position` tăng dần — thứ tự này chính là thứ tự đăng album. */
+  extraFiles: ContentAssetExtraFile[];
 }
 
 const ACTOR_INCLUDE = {
@@ -49,6 +65,18 @@ const ACTOR_INCLUDE = {
       facebookPage: { select: { id: true, pageName: true } },
     },
     orderBy: { createdAt: 'asc' },
+  },
+  extraFiles: {
+    select: {
+      id: true,
+      position: true,
+      driveFileId: true,
+      driveUrl: true,
+      thumbnailUrl: true,
+      mimeType: true,
+      fileSize: true,
+    },
+    orderBy: { position: 'asc' },
   },
 } as const satisfies Prisma.ContentAssetInclude;
 
@@ -92,6 +120,21 @@ export interface CreateContentAssetData {
   approvedById?: string;
   /** Page gán ngay lúc upload; bổ sung sau qua PATCH cũng được. */
   assignedPageIds?: string[];
+  /**
+   * Ảnh phụ của bài nhiều ảnh, **đúng thứ tự đăng** (phần tử đầu là ảnh thứ 2 của
+   * bài). Ghi trong cùng transaction với record chính — tạo thiếu ảnh phụ nghĩa là
+   * bài album cụt.
+   */
+  extraFiles?: CreateContentAssetFileData[];
+}
+
+/** Một ảnh phụ lúc tạo record — file đã nằm sẵn trên Drive. */
+export interface CreateContentAssetFileData {
+  driveFileId: string;
+  driveUrl?: string;
+  thumbnailUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
 }
 
 export interface UpdateContentAssetData {
@@ -165,6 +208,7 @@ export class ContentAssetsRepository {
 
   create(data: CreateContentAssetData): Promise<ContentAssetWithActors> {
     const pageIds = data.assignedPageIds ?? [];
+    const extraFiles = data.extraFiles ?? [];
     return this.prisma.contentAsset.create({
       include: ACTOR_INCLUDE,
       data: {
@@ -189,6 +233,24 @@ export class ContentAssetsRepository {
           pageIds.length === 0
             ? undefined
             : { create: pageIds.map((facebookPageId) => ({ facebookPageId })) },
+        // Nested write ⇒ cùng một transaction với record chính.
+        extraFiles:
+          extraFiles.length === 0
+            ? undefined
+            : {
+                create: extraFiles.map((file, index) => ({
+                  // Vị trí 0 là chính `content_assets` ⇒ ảnh phụ bắt đầu từ 1.
+                  position: index + 1,
+                  driveFileId: file.driveFileId,
+                  driveUrl: file.driveUrl,
+                  thumbnailUrl: file.thumbnailUrl,
+                  mimeType: file.mimeType,
+                  fileSize:
+                    file.fileSize === undefined
+                      ? undefined
+                      : BigInt(file.fileSize),
+                })),
+              },
       },
     });
   }

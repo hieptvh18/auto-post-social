@@ -39,7 +39,6 @@ const makeSlot = (overrides: Partial<AutoPostSlot> = {}): AutoPostSlot => ({
   categories: ['Cơ xương khớp'],
   mediaType: SlotMediaType.all,
   postCount: 1,
-  assetsPerPost: 1,
   enabled: true,
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
@@ -332,7 +331,6 @@ describe('AutoPostConfigsService', () => {
         categories: ['Cơ xương khớp'],
         mediaType: SlotMediaType.video,
         postCount: 2,
-        assetsPerPost: undefined,
         enabled: undefined,
       });
       expect(result.postCount).toBe(2);
@@ -358,52 +356,6 @@ describe('AutoPostConfigsService', () => {
         service.createSlot('page-1', { ...dto, postCount: 21 }, admin),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(repository.createSlot).not.toHaveBeenCalled();
-    });
-
-    it('assetsPerPost > 1 với mediaType video/all ⇒ 400 (Facebook không ghép được)', async () => {
-      repository.findPageById.mockResolvedValue(makePage());
-
-      await expect(
-        service.createSlot('page-1', { ...dto, assetsPerPost: 3 }, admin),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      await expect(
-        service.createSlot(
-          'page-1',
-          { ...dto, mediaType: SlotMediaType.all, assetsPerPost: 2 },
-          admin,
-        ),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(repository.createSlot).not.toHaveBeenCalled();
-    });
-
-    it('assetsPerPost > MAX_ASSETS_PER_POST ⇒ 400 dù là ảnh', async () => {
-      repository.findPageById.mockResolvedValue(makePage());
-
-      await expect(
-        service.createSlot(
-          'page-1',
-          { ...dto, mediaType: SlotMediaType.image, assetsPerPost: 11 },
-          admin,
-        ),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(repository.createSlot).not.toHaveBeenCalled();
-    });
-
-    it('assetsPerPost > 1 với mediaType image ⇒ tạo được, truyền xuống repository', async () => {
-      repository.findPageById.mockResolvedValue(makePage());
-      repository.findSlotByPageAndTime.mockResolvedValue(null);
-      repository.createSlot.mockResolvedValue(
-        makeSlot({ mediaType: SlotMediaType.image, assetsPerPost: 4 }),
-      );
-
-      const result = await service.createSlot(
-        'page-1',
-        { ...dto, mediaType: SlotMediaType.image, assetsPerPost: 4 },
-        admin,
-      );
-
-      expect(repository.createSlot.mock.calls[0][0].assetsPerPost).toBe(4);
-      expect(result.assetsPerPost).toBe(4);
     });
 
     it('page không tồn tại ⇒ 404', async () => {
@@ -447,17 +399,6 @@ describe('AutoPostConfigsService', () => {
 
       await expect(
         service.updateSlot('slot-1', { postCount: 100 }, admin),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(repository.updateSlot).not.toHaveBeenCalled();
-    });
-
-    it('đổi RIÊNG mediaType sang video trên mốc giờ đang nhiều ảnh/bài ⇒ 400', async () => {
-      repository.findSlotById.mockResolvedValue(
-        makeSlot({ mediaType: SlotMediaType.image, assetsPerPost: 3 }),
-      );
-
-      await expect(
-        service.updateSlot('slot-1', { mediaType: SlotMediaType.video }, admin),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(repository.updateSlot).not.toHaveBeenCalled();
     });

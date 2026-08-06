@@ -52,6 +52,12 @@ export const CONTENT_STATUS_COLORS: Record<ContentStatus, string> = {
   PUBLISHED: 'success',
 };
 
+/**
+ * Trần số ảnh trong MỘT bài — khớp `MAX_IMAGES_PER_CONTENT_ASSET` của backend
+ * (giới hạn `attached_media` của Facebook cho một bài feed).
+ */
+export const MAX_IMAGES_PER_CONTENT_ASSET = 10;
+
 export const MEDIA_TYPE_LABELS = {
   image: 'Ảnh',
   video: 'Video',

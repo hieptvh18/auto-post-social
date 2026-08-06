@@ -4,7 +4,7 @@
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
 **Cập nhật:** 2026-08-06
-**Migration tương ứng:** `20260805170928_album_post` (plan 21)
+**Migration tương ứng:** `20260806*_content_asset_files` (plan 22)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -29,8 +29,7 @@ erDiagram
     facebook_pages ||--o{ auto_post_slots : schedules
     auto_post_slots ||--o{ slot_runs : "fired as"
     publish_jobs ||--o{ publish_job_events : "logs attempts"
-    publish_jobs ||--o{ publish_job_assets : "attaches extra photos"
-    content_assets ||--o{ publish_job_assets : "appears in album as"
+    content_assets ||--o{ content_asset_files : "has extra images"
 
     users {
         uuid id PK
@@ -113,7 +112,6 @@ erDiagram
         string_array categories
         enum media_type
         int post_count
-        int assets_per_post
         boolean enabled
         timestamp created_at
         timestamp updated_at
@@ -152,11 +150,16 @@ erDiagram
         timestamp updated_at
     }
 
-    publish_job_assets {
+    content_asset_files {
         uuid id PK
-        uuid publish_job_id FK
         uuid content_asset_id FK
         int position
+        string drive_file_id
+        string drive_url
+        string thumbnail_url
+        string mime_type
+        bigint file_size
+        timestamp created_at
     }
 
     publish_job_events {
@@ -229,9 +232,8 @@ erDiagram
 | `publish_job_events` | `(publish_job_id, created_at)` | Đọc nhật ký từng lần thử của một job theo thứ tự thời gian |
 | `publish_jobs` | `status` · `schedule_time` | Queue monitor + timeline |
 | `publish_jobs` | `(content_asset_id, facebook_page_id)` | Kiểm tra job trùng trong picker |
-| `publish_job_assets` | **UNIQUE `(publish_job_id, content_asset_id)`** | Một ảnh không được nằm 2 lần trong cùng một album |
-| `publish_job_assets` | **UNIQUE `(publish_job_id, position)`** | Thứ tự ảnh trong album là duy nhất, không nhập nhằng khi đăng |
-| `publish_job_assets` | `content_asset_id` | Picker hỏi ngược "ảnh này có đang là ảnh phụ của job dở nào không" |
+| `content_asset_files` | **UNIQUE `(content_asset_id, position)`** | Thứ tự ảnh trong bài là duy nhất, không nhập nhằng khi đăng album |
+| `content_asset_files` | `content_asset_id` | Lấy toàn bộ ảnh phụ của một bài lúc đăng và lúc mở Drawer chi tiết |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
 | `app_settings` | PK `key` | Số dòng rất nhỏ (1 dòng/nhóm config), tra bằng khoá chính là đủ — không cần index phụ |
 
@@ -269,15 +271,16 @@ erDiagram
 | Một `slot_runs` = một lần cron chạm slot đó trong ngày. **Không có dòng nào = cron chưa chạy**, khác hẳn `SKIPPED` (cron chạy nhưng hết bài) | `SlotRunService.claim()/finish()` — INSERT rồi UPDATE cùng một hàng |
 | `slot_runs.status = SKIPPED` bắt buộc có `skip_reason`; `ERROR` bắt buộc có `error_message` | `SlotRunService.finish()` |
 | `publish_job_events.raw_error` **không được chứa access token** (đi qua `sanitizeRawError`) | `PublishJobEventsService.log()` — có unit test riêng |
-| `publish_job_assets` chỉ chứa ảnh **phụ** (`position >= 1`). Ảnh đầu tiên của mọi job — kể cả album — vẫn là `publish_jobs.content_asset_id` (vị trí 0). Danh sách asset đầy đủ = `[content_asset_id, ...publish_job_assets ORDER BY position]` | `PublishJobsRepository` (nơi duy nhất được ghép; xem `plans/21-album-post.md` §3.1) |
-| `auto_post_slots.assets_per_post > 1` ⇒ bắt buộc `media_type = image` | `AutoPostConfigsService` (400) — Graph API không ghép nhiều video vào một bài feed |
-| Mỗi lần cron chạm slot lấy tối đa `post_count × assets_per_post` bài, cắt thành nhóm `assets_per_post` theo thứ tự `updated_at ASC`; nhóm cuối thiếu vẫn đăng | `AutoPostSchedulerService.runSlot()` |
-| Cả album thành công ⇒ **mọi** asset trong job đổi `PUBLISHED` + assignment ghi cùng một `facebook_post_id` | `PublishJobsRepository.markSuccess()` |
+| `content_asset_files` chỉ chứa ảnh **phụ** (`position >= 1`). Ảnh đầu tiên của bài vẫn là `content_assets.drive_file_id` (vị trí 0) ⇒ record 1 ảnh không cần backfill. Danh sách ảnh đầy đủ của một bài = `[content_assets.drive_file_id, ...content_asset_files ORDER BY position]` | `PublishJobsRepository.findForExecution()` (nơi **duy nhất** được ghép; xem `plans/22-content-multi-image.md` §3.2) |
+| Chỉ `media_type = image` mới có `content_asset_files`; tối đa `MAX_IMAGES_PER_CONTENT_ASSET` (10) ảnh/bài | `ContentAssetsService.create()` (400) — Graph API không ghép nhiều video vào một bài feed |
+| Danh sách ảnh của một bài **cố định lúc upload** — sửa bài không đổi được ảnh, muốn đổi thì xoá record và upload lại | `ContentAssetsService.update()` không nhận `extraFiles` |
+| Mỗi lần cron chạm slot lấy tối đa `post_count` bài, mỗi bài ⇒ đúng **1** job; bài nhiều ảnh tự thành 1 bài album lúc publish, picker không cần biết | `AutoPostSchedulerService.runSlot()` |
+| Bài album thành công ⇒ record `content_assets` đổi `PUBLISHED` + assignment ghi `facebook_post_id` của **bài feed** (mọi ảnh nằm chung một bài viết, không phải mỗi ảnh một bài) | `PublishJobsRepository.markSuccess()` |
 | `publish_job_events` là nhật ký kỹ thuật (retry, lỗi Graph); `audit_logs` là dấu vết nghiệp vụ (`AUTO_PUBLISH`, actor = Bot ⇒ `user_id = null`) | Hai đường ghi tách bạch, không nhồi stacktrace vào audit |
 
-**Cascade:** `content_page_assignments` xóa theo `content_assets`;
-`auto_post_slots` xóa theo `facebook_pages`; `slot_runs` xóa theo `auto_post_slots`;
-`publish_job_events` và `publish_job_assets` xóa theo `publish_jobs`. `publish_jobs`
+**Cascade:** `content_page_assignments` và `content_asset_files` xóa theo
+`content_assets`; `auto_post_slots` xóa theo `facebook_pages`; `slot_runs` xóa theo
+`auto_post_slots`; `publish_job_events` xóa theo `publish_jobs`. `publish_jobs`
 **không** cascade (giữ lịch sử).
 
 ---
@@ -286,6 +289,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-08-06 | `20260806*_content_asset_files` | **Plan 22 (nhiều ảnh trong 1 content record) — migration ĐẢO NGƯỢC MỘT PHẦN `20260805170928_album_post`.** (1) **Xoá** `auto_post_slots.assets_per_post` và **xoá nguyên bảng** `publish_job_assets`. (2) Bảng mới `content_asset_files` (`content_asset_id`, `position >= 1`, `drive_file_id`, `drive_url`, `thumbnail_url`, `mime_type`, `file_size`), UNIQUE `(content_asset_id, position)`, cascade theo `content_assets`. **Lý do đảo ngược (quyết định user 2026-08-06):** hướng cũ để Bot tự ghép N record rời rạc thành 1 album — phức tạp (picker phải loại 2 đường), chỉ chạy được với auto-post, và không giúp gì cho đăng tay. Hướng mới gom nhiều ảnh ngay ở **1 record lúc upload** ⇒ picker quay lại đơn giản (1 job/1 content), đăng tay **tự động** có album mà không phải code thêm. Kiểm tra trước khi migrate: `publish_job_assets` = 0 dòng, mọi slot `assets_per_post = 1` ⇒ không mất dữ liệu. |
 | 2026-08-06 | `20260805170928_album_post` | **Plan 21 (đăng nhiều ảnh trong 1 bài).** (1) Thêm `auto_post_slots.assets_per_post` (int, `DEFAULT 1` ⇒ mốc giờ cũ giữ nguyên hành vi 1 ảnh/bài). (2) Bảng mới `publish_job_assets` (`publish_job_id`, `content_asset_id`, `position`) giữ **ảnh phụ** của bài album, cascade theo `publish_jobs`. Lý do chỉ giữ ảnh phụ thay vì toàn bộ: `publish_jobs.content_asset_id` ở lại NOT NULL nên timeline/dashboard/monitor/đăng tay/retry không phải sửa và job cũ không cần backfill. Picker phải loại **cả hai** đường (job chính + ảnh phụ), nếu không Bot sẽ chọn lại chính ảnh phụ của album đang chờ đăng. |
 | 2026-08-03 | `20260803154543_content_assets_is_active` | **Plan 19 (Multi action).** Thêm `content_assets.is_active` (boolean, `DEFAULT true` ⇒ bài cũ giữ nguyên hành vi) + index `is_active`; đổi index picker `(status, updated_at)` → **`(status, is_active, updated_at)`**. Lý do: cần "ngưng dùng" một bài mà không xoá và không đụng tới quy trình duyệt (`status` có bảng chuyển trạng thái riêng, `PUBLISHING`/`PUBLISHED` chỉ Bot set — nhét "ngưng dùng" vào đó sẽ đẻ thêm ~10 cặp chuyển trạng thái). |
 | 2026-08-03 | `20260803130538_content_assets_editor` | **Plan 18.** Thêm cột `content_assets.editor_id` (uuid, **nullable**, FK → `users.id`, quan hệ `ContentEditor`) + index `editor_id`. Lý do: trang "Quản lý Ảnh/Video Edit" cần biết **ai dựng** video/ảnh — khác với `created_by` (ai upload lên hệ thống). Chỉ chọn được account role `EDITOR` đang active (kiểm ở service, DB không diễn tả được). Index vì trang list có filter theo Editor. |

@@ -147,13 +147,14 @@ describe('PublishExecutorService', () => {
       );
     });
 
-    it('bài album: MỌI ảnh trong bài đều được đánh dấu đăng, không chỉ ảnh đầu', async () => {
+    it('bài nhiều ảnh: đẩy đủ N file lên Graph nhưng chỉ ghi trạng thái cho ĐÚNG 1 content', async () => {
       repository.findForExecution.mockResolvedValue(
         makeJob({
           assets: [
             makeContent({ id: 'content-1' }),
-            makeContent({ id: 'content-2' }),
-            makeContent({ id: 'content-3' }),
+            // Ảnh phụ mang id của content_asset_files, KHÔNG phải id content.
+            makeContent({ id: 'file-2' }),
+            makeContent({ id: 'file-3' }),
           ],
         }),
       );
@@ -164,26 +165,26 @@ describe('PublishExecutorService', () => {
         isLastAttempt: false,
       });
 
+      // Một job = một content record, dù bài có bao nhiêu ảnh (plan 22).
       expect(repository.markPublishing).toHaveBeenCalledWith(
         'job-1',
-        ['content-1', 'content-2', 'content-3'],
+        ['content-1'],
         1,
       );
       expect(repository.markSuccess.mock.calls[0][0].contentAssetIds).toEqual([
         'content-1',
-        'content-2',
-        'content-3',
       ]);
       // Album là MỘT bài viết ⇒ đúng một lần gọi Graph cho cả nhóm.
       expect(publishMedia.publish).toHaveBeenCalledTimes(1);
+      expect(publishMedia.publish.mock.calls[0][0].contents).toHaveLength(3);
     });
 
-    it('album đăng hỏng ⇒ cả nhóm ảnh cùng quay về trạng thái cũ', async () => {
+    it('bài nhiều ảnh đăng hỏng ⇒ chỉ content đó quay về trạng thái cũ', async () => {
       repository.findForExecution.mockResolvedValue(
         makeJob({
           assets: [
             makeContent({ id: 'content-1' }),
-            makeContent({ id: 'content-2' }),
+            makeContent({ id: 'file-2' }),
           ],
         }),
       );
@@ -197,9 +198,9 @@ describe('PublishExecutorService', () => {
         }),
       ).rejects.toThrow('Graph 400');
 
+      // Không được lấy id của file phụ đem đi update content_assets.
       expect(repository.markFailure.mock.calls[0][1].contentAssetIds).toEqual([
         'content-1',
-        'content-2',
       ]);
     });
 
