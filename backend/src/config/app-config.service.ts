@@ -112,6 +112,21 @@ export class AppConfigService {
     };
   }
 
+  /** Hàng đợi đẩy file lên Drive (plan 23) — xem `modules/media-upload-jobs`. */
+  get mediaUpload(): {
+    tmpDir: string;
+    concurrency: number;
+    retentionMs: number;
+    maxPendingJobs: number;
+  } {
+    return {
+      tmpDir: this.get('MEDIA_UPLOAD_TMP_DIR'),
+      concurrency: this.get('MEDIA_UPLOAD_CONCURRENCY'),
+      retentionMs: this.get('MEDIA_UPLOAD_JOB_RETENTION_MS'),
+      maxPendingJobs: this.get('MEDIA_UPLOAD_MAX_PENDING_JOBS'),
+    };
+  }
+
   get autoPost(): { enabled: boolean; maxPostPerSlot: number } {
     return {
       enabled: this.get('AUTOPOST_ENABLED'),

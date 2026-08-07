@@ -62,6 +62,15 @@ enum PublishJobEventType {
   GAVE_UP
 }
 
+/// Vòng đời một lần "Upload Ảnh/Video" từ UI (plan 23). File đã nằm trên đĩa
+/// server, phần đẩy lên Drive + tạo `content_assets` chạy nền qua BullMQ.
+enum MediaUploadStatus {
+  QUEUED
+  UPLOADING_TO_DRIVE
+  SUCCESS
+  FAILED
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -80,6 +89,7 @@ model User {
   facebookPages   FacebookPage[]
   appSettings     AppSetting[]
   fbConnections   FacebookConnection[]
+  mediaUploadJobs MediaUploadJob[]
 
   @@map("users")
 }
@@ -167,9 +177,10 @@ model ContentAsset {
   approvedBy  User?                   @relation("ContentApprover", fields: [approvedById], references: [id])
   updatedBy   User?                   @relation("ContentUpdater", fields: [updatedById], references: [id])
   editor      User?                   @relation("ContentEditor", fields: [editorId], references: [id])
-  publishJobs PublishJob[]
-  assignments ContentPageAssignment[]
-  extraFiles  ContentAssetFile[] // ảnh phụ của bài nhiều ảnh (plan 22)
+  publishJobs     PublishJob[]
+  assignments     ContentPageAssignment[]
+  extraFiles      ContentAssetFile[] // ảnh phụ của bài nhiều ảnh (plan 22)
+  mediaUploadJobs MediaUploadJob[] // job upload đã sinh ra bài này (plan 23)
 
   @@index([status])
   @@index([editorId]) // filter "Editor" trên màn Quản lý Ảnh/Video
@@ -202,6 +213,39 @@ model ContentAssetFile {
   @@unique([contentAssetId, position])
   @@index([contentAssetId])
   @@map("content_asset_files")
+}
+
+/// Một lần bấm "Upload" ở màn Quản lý Ảnh/Video = một dòng (plan 23). Trình duyệt
+/// chỉ đẩy file lên **server**; phần đẩy Drive + tạo `content_assets` do worker
+/// `media-upload` làm sau, nên file phải nằm tạm trên đĩa ngoài vòng đời request.
+///
+/// `files` = mảng JSON `[{ originalFilename, mimeType, size, tempPath }]` theo đúng
+/// thứ tự đăng (phần tử 0 = ảnh đại diện). Bài nhiều ảnh ⇒ N file trong **một** job.
+/// `metadata` = form lúc submit `{ title, category, caption, hashtags, assignedPageIds, editorId }`.
+model MediaUploadJob {
+  id               String            @id @default(uuid()) @db.Uuid
+  status           MediaUploadStatus @default(QUEUED)
+  originalFilename String            @map("original_filename") // file đầu tiên — chỉ để hiện trên UI
+  fileCount        Int               @map("file_count")
+  totalSize        BigInt            @map("total_size")
+  files            Json
+  metadata         Json
+  errorMessage     String?           @map("error_message") @db.Text
+  attemptCount     Int               @default(0) @map("attempt_count")
+  bullJobId        String?           @map("bull_job_id")
+  /// != null = file tạm đã bị xoá ⇒ không "Thử lại" được nữa.
+  filesRemovedAt   DateTime?         @map("files_removed_at")
+  contentAssetId   String?           @map("content_asset_id") @db.Uuid
+  createdById      String            @map("created_by") @db.Uuid
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  contentAsset ContentAsset? @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
+  createdBy    User          @relation(fields: [createdById], references: [id])
+
+  @@index([status]) // Guard đếm job đang chạy ngầm + cron dọn job đã kết thúc
+  @@index([createdById, status]) // FE poll "job upload của tôi"
+  @@map("media_upload_jobs")
 }
 
 /// Phân bổ content -> page. publishedAt != null nghĩa là ĐÃ đăng trên page đó.

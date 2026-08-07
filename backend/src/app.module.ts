@@ -20,6 +20,7 @@ import { FacebookPagesModule } from './modules/facebook-pages/facebook-pages.mod
 import { HealthModule } from './modules/health/health.module';
 import { ManualPostModule } from './modules/manual-post/manual-post.module';
 import { MediaModule } from './modules/media/media.module';
+import { MediaUploadJobsModule } from './modules/media-upload-jobs/media-upload-jobs.module';
 import { MonitorModule } from './modules/monitor/monitor.module';
 import { PublishJobsModule } from './modules/publish-jobs/publish-jobs.module';
 import { PublishScheduleModule } from './modules/publish-schedule/publish-schedule.module';
@@ -50,6 +51,7 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     UsersModule,
     MediaModule,
+    MediaUploadJobsModule,
     SettingsHttpModule,
     ContentAssetsModule,
     FacebookPagesModule,

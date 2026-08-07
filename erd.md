@@ -3,8 +3,8 @@
 > **Bản đồ dữ liệu chính thức.** Mọi thay đổi schema PHẢI cập nhật file này —
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
-**Cập nhật:** 2026-08-06
-**Migration tương ứng:** `20260806*_content_asset_files` (plan 22)
+**Cập nhật:** 2026-08-07
+**Migration tương ứng:** `20260806171728_media_upload_jobs` (plan 23)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -30,6 +30,8 @@ erDiagram
     auto_post_slots ||--o{ slot_runs : "fired as"
     publish_jobs ||--o{ publish_job_events : "logs attempts"
     content_assets ||--o{ content_asset_files : "has extra images"
+    users ||--o{ media_upload_jobs : "uploads via queue"
+    content_assets |o--o{ media_upload_jobs : "created by"
 
     users {
         uuid id PK
@@ -162,6 +164,24 @@ erDiagram
         timestamp created_at
     }
 
+    media_upload_jobs {
+        uuid id PK
+        enum status
+        string original_filename
+        int file_count
+        bigint total_size
+        jsonb files
+        jsonb metadata
+        text error_message
+        int attempt_count
+        string bull_job_id
+        timestamp files_removed_at
+        uuid content_asset_id FK
+        uuid created_by FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
     publish_job_events {
         uuid id PK
         uuid publish_job_id FK
@@ -206,6 +226,7 @@ erDiagram
 | `SlotRunStatus` | `CLAIMED` · `DONE` · `SKIPPED` · `ERROR` | `slot_runs.status` |
 | `PublishJobEventType` | `ENQUEUED` · `STARTED` · `SUCCEEDED` · `FAILED` · `RETRY_SCHEDULED` · `GAVE_UP` | `publish_job_events.event` |
 | `FacebookConnectMode` | `MANUAL_TOKEN` · `FB_LOGIN` | `facebook_pages.connect_mode` |
+| `MediaUploadStatus` | `QUEUED` · `UPLOADING_TO_DRIVE` · `SUCCESS` · `FAILED` | `media_upload_jobs.status` |
 
 ---
 
@@ -234,6 +255,8 @@ erDiagram
 | `publish_jobs` | `(content_asset_id, facebook_page_id)` | Kiểm tra job trùng trong picker |
 | `content_asset_files` | **UNIQUE `(content_asset_id, position)`** | Thứ tự ảnh trong bài là duy nhất, không nhập nhằng khi đăng album |
 | `content_asset_files` | `content_asset_id` | Lấy toàn bộ ảnh phụ của một bài lúc đăng và lúc mở Drawer chi tiết |
+| `media_upload_jobs` | `status` | Guard đếm job `QUEUED`+`UPLOADING_TO_DRIVE` trước mỗi request upload (chạy rất thường xuyên) + cron dọn job đã kết thúc |
+| `media_upload_jobs` | `(created_by, status)` | FE poll "job upload của tôi" mỗi 3s trong lúc còn dòng "mờ" trên bảng |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
 | `app_settings` | PK `key` | Số dòng rất nhỏ (1 dòng/nhóm config), tra bằng khoá chính là đủ — không cần index phụ |
 
@@ -276,12 +299,18 @@ erDiagram
 | Danh sách ảnh của một bài **cố định lúc upload** — sửa bài không đổi được ảnh, muốn đổi thì xoá record và upload lại | `ContentAssetsService.update()` không nhận `extraFiles` |
 | Mỗi lần cron chạm slot lấy tối đa `post_count` bài, mỗi bài ⇒ đúng **1** job; bài nhiều ảnh tự thành 1 bài album lúc publish, picker không cần biết | `AutoPostSchedulerService.runSlot()` |
 | Bài album thành công ⇒ record `content_assets` đổi `PUBLISHED` + assignment ghi `facebook_post_id` của **bài feed** (mọi ảnh nằm chung một bài viết, không phải mỗi ảnh một bài) | `PublishJobsRepository.markSuccess()` |
+| `media_upload_jobs.files` = mảng JSON `[{ originalFilename, mimeType, size, tempPath }]` **đúng thứ tự đăng** (phần tử 0 = ảnh đại diện); `metadata` = form lúc submit. Không tách bảng con vì dữ liệu này chỉ sống tới lúc job xong, không ai query theo từng file | `MediaUploadJobsRepository` (parse JSON → type thật cho service/worker) |
+| `media_upload_jobs.files_removed_at != null` ⇒ file tạm đã bị dọn, **không "Thử lại" được nữa** (phải chọn lại file) | `MediaUploadJobsService.retry()` (422) |
+| Job ở `QUEUED`/`UPLOADING_TO_DRIVE` là job **đang chiếm đĩa**; tổng số job như vậy bị chặn ở `MEDIA_UPLOAD_MAX_PENDING_JOBS` (mặc định 20) trên **toàn hệ thống**, không theo từng user ⇒ trần đĩa tạm ≈ 20 × file lớn nhất | `MediaUploadLimitGuard` (503) — chạy trước multer nên request bị từ chối chưa ghi byte nào |
+| Job còn `QUEUED`/`UPLOADING_TO_DRIVE` lúc boot = worker chết giữa chừng ⇒ **không resume**, chuyển `FAILED` + xoá file tạm | `MediaUploadJobsService.onModuleInit()` |
+| Bài do worker upload tạo ra vẫn mang actor = **người bấm Upload** (không phải Bot), đi qua đúng `ContentAssetsService.create()` của `POST /content-assets` ⇒ quyền duyệt/ownership/audit `CONTENT_UPLOAD` giống hệt | `MediaUploadJobsService.uploadAndCreateAsset()` |
 | `publish_job_events` là nhật ký kỹ thuật (retry, lỗi Graph); `audit_logs` là dấu vết nghiệp vụ (`AUTO_PUBLISH`, actor = Bot ⇒ `user_id = null`) | Hai đường ghi tách bạch, không nhồi stacktrace vào audit |
 
 **Cascade:** `content_page_assignments` và `content_asset_files` xóa theo
 `content_assets`; `auto_post_slots` xóa theo `facebook_pages`; `slot_runs` xóa theo
 `auto_post_slots`; `publish_job_events` xóa theo `publish_jobs`. `publish_jobs`
-**không** cascade (giữ lịch sử).
+**không** cascade (giữ lịch sử). `media_upload_jobs.content_asset_id` dùng
+`ON DELETE SET NULL` — xoá bài không được kéo theo nhật ký upload của nó.
 
 ---
 
@@ -289,6 +318,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-08-07 | `20260806171728_media_upload_jobs` | **Plan 23 (upload media qua hàng đợi).** Enum mới `MediaUploadStatus` (`QUEUED`/`UPLOADING_TO_DRIVE`/`SUCCESS`/`FAILED`) + bảng mới `media_upload_jobs` (`original_filename`, `file_count`, `total_size`, `files` jsonb, `metadata` jsonb, `error_message`, `attempt_count`, `bull_job_id`, `files_removed_at`, `content_asset_id` FK `SET NULL`, `created_by` FK), index `status` và `(created_by, status)`. Lý do: bấm "Upload" không được đứng chờ Drive nữa — request chỉ nhận file xuống đĩa rồi trả 202, worker BullMQ `media-upload` (queue thứ 2 của dự án) đẩy lên Drive và tạo `content_assets` sau. **Hệ quả kiến trúc:** đảo ngược "chỉ stream, không ghi file xuống disk" (`PLAN-MVP.md` §4) — file phải sống ngoài vòng đời request; đổi lại có `MEDIA_UPLOAD_MAX_PENDING_JOBS` chặn trần đĩa + TTL dọn định kỳ. **Không đụng bảng nào có sẵn** ngoài 2 quan hệ ngược trên `users`/`content_assets`. |
 | 2026-08-06 | `20260806*_content_asset_files` | **Plan 22 (nhiều ảnh trong 1 content record) — migration ĐẢO NGƯỢC MỘT PHẦN `20260805170928_album_post`.** (1) **Xoá** `auto_post_slots.assets_per_post` và **xoá nguyên bảng** `publish_job_assets`. (2) Bảng mới `content_asset_files` (`content_asset_id`, `position >= 1`, `drive_file_id`, `drive_url`, `thumbnail_url`, `mime_type`, `file_size`), UNIQUE `(content_asset_id, position)`, cascade theo `content_assets`. **Lý do đảo ngược (quyết định user 2026-08-06):** hướng cũ để Bot tự ghép N record rời rạc thành 1 album — phức tạp (picker phải loại 2 đường), chỉ chạy được với auto-post, và không giúp gì cho đăng tay. Hướng mới gom nhiều ảnh ngay ở **1 record lúc upload** ⇒ picker quay lại đơn giản (1 job/1 content), đăng tay **tự động** có album mà không phải code thêm. Kiểm tra trước khi migrate: `publish_job_assets` = 0 dòng, mọi slot `assets_per_post = 1` ⇒ không mất dữ liệu. |
 | 2026-08-06 | `20260805170928_album_post` | **Plan 21 (đăng nhiều ảnh trong 1 bài).** (1) Thêm `auto_post_slots.assets_per_post` (int, `DEFAULT 1` ⇒ mốc giờ cũ giữ nguyên hành vi 1 ảnh/bài). (2) Bảng mới `publish_job_assets` (`publish_job_id`, `content_asset_id`, `position`) giữ **ảnh phụ** của bài album, cascade theo `publish_jobs`. Lý do chỉ giữ ảnh phụ thay vì toàn bộ: `publish_jobs.content_asset_id` ở lại NOT NULL nên timeline/dashboard/monitor/đăng tay/retry không phải sửa và job cũ không cần backfill. Picker phải loại **cả hai** đường (job chính + ảnh phụ), nếu không Bot sẽ chọn lại chính ảnh phụ của album đang chờ đăng. |
 | 2026-08-03 | `20260803154543_content_assets_is_active` | **Plan 19 (Multi action).** Thêm `content_assets.is_active` (boolean, `DEFAULT true` ⇒ bài cũ giữ nguyên hành vi) + index `is_active`; đổi index picker `(status, updated_at)` → **`(status, is_active, updated_at)`**. Lý do: cần "ngưng dùng" một bài mà không xoá và không đụng tới quy trình duyệt (`status` có bảng chuyển trạng thái riêng, `PUBLISHING`/`PUBLISHED` chỉ Bot set — nhét "ngưng dùng" vào đó sẽ đẻ thêm ~10 cặp chuyển trạng thái). |

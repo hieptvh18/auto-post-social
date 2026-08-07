@@ -44,6 +44,12 @@ const toBoolean = ({ value }: { value: unknown }): unknown => {
 const DEFAULT_MEDIA_CACHE_DIR = join(tmpdir(), 'tool-auto-fb-media');
 
 /**
+ * Thư mục giữ file đang chờ đẩy lên Drive (plan 23). **Khác** `MEDIA_CACHE_DIR`:
+ * thư mục kia bị xoá sạch mỗi lần boot, dùng chung sẽ mất file của job đang chờ.
+ */
+const DEFAULT_MEDIA_UPLOAD_TMP_DIR = join(tmpdir(), 'tool-auto-fb-upload');
+
+/**
  * Key có mặt trong `.env` nhưng để rỗng ⇒ dùng giá trị mặc định.
  *
  * Phải trả thẳng giá trị mặc định chứ KHÔNG trả `undefined`: `plainToInstance`
@@ -51,10 +57,13 @@ const DEFAULT_MEDIA_CACHE_DIR = join(tmpdir(), 'tool-auto-fb-media');
  * class, và `MEDIA_CACHE_DIR=` (đúng như trong `.env.example`) sẽ rơi vào
  * `@IsNotEmpty()` làm app crash lúc boot.
  */
-const emptyToDefaultDir = ({ value }: { value: unknown }): unknown =>
-  typeof value !== 'string' || value.trim() === ''
-    ? DEFAULT_MEDIA_CACHE_DIR
-    : value;
+const emptyToDir =
+  (fallback: string) =>
+  ({ value }: { value: unknown }): unknown =>
+    typeof value !== 'string' || value.trim() === '' ? fallback : value;
+
+const emptyToDefaultDir = emptyToDir(DEFAULT_MEDIA_CACHE_DIR);
+const emptyToDefaultUploadDir = emptyToDir(DEFAULT_MEDIA_UPLOAD_TMP_DIR);
 
 const toInt = ({ value }: { value: unknown }): unknown => {
   if (typeof value !== 'string' || value.trim() === '') return value;
@@ -201,6 +210,40 @@ export class EnvVars {
   @IsInt()
   @Min(0)
   MEDIA_CACHE_TTL_MS = 600_000;
+
+  /**
+   * Nơi giữ file đã nhận từ trình duyệt trong lúc chờ worker đẩy lên Drive
+   * (plan 23). KHÔNG dùng chung `MEDIA_CACHE_DIR` — thư mục đó bị xoá sạch mỗi
+   * lần boot, job đang chờ sẽ mất file.
+   */
+  @Transform(emptyToDefaultUploadDir)
+  @IsString()
+  @IsNotEmpty()
+  MEDIA_UPLOAD_TMP_DIR = DEFAULT_MEDIA_UPLOAD_TMP_DIR;
+
+  /**
+   * Số file được đẩy lên Drive **đồng thời**. Mỗi job đọc trọn file vào RAM
+   * trước khi gọi Drive API ⇒ RAM đỉnh ≈ giá trị này × file lớn nhất.
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  MEDIA_UPLOAD_CONCURRENCY = 3;
+
+  /** Giữ file tạm + job đã kết thúc bao lâu (ms) — đủ để bấm "Thử lại". */
+  @Transform(toInt)
+  @IsInt()
+  @Min(0)
+  MEDIA_UPLOAD_JOB_RETENTION_MS = 86_400_000;
+
+  /**
+   * Trần số job `QUEUED`/`UPLOADING_TO_DRIVE` trên **toàn hệ thống**. Vượt ngưỡng
+   * thì từ chối ngay ở Guard, trước khi multer ghi byte nào xuống đĩa.
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  MEDIA_UPLOAD_MAX_PENDING_JOBS = 20;
 
   @Transform(toBoolean)
   @IsBoolean()

@@ -36,3 +36,50 @@ body {
 .row-inactive > td {
   opacity: 0.55;
 }
+
+/* Dòng "mờ" của file đang được đưa lên Google Drive (plan 23): chưa phải bài
+   trong kho, nhưng phải thấy ngay là hệ thống đã nhận và đang xử lý. */
+.row-uploading > td {
+  opacity: 0.6;
+  background: rgba(22, 119, 255, 0.04);
+}
+
+/* Thanh tiến trình KHÔNG xác định % cho job upload nền: Drive API không trả
+   tiến độ byte nên không có số thật để hiện — thanh xám = đang chờ tới lượt,
+   thanh chạy = đang đẩy lên Drive. */
+.upload-bar {
+  position: relative;
+  width: 100%;
+  min-width: 90px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.upload-bar-active::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 2px;
+  background: #1677ff;
+  animation: upload-bar-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes upload-bar-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* Người dùng bật "giảm chuyển động" ⇒ thanh đứng yên, vẫn thấy màu đang chạy. */
+@media (prefers-reduced-motion: reduce) {
+  .upload-bar-active::after {
+    animation: none;
+    width: 100%;
+  }
+}

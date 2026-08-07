@@ -3,14 +3,13 @@ import { MediaType } from '../../../generated/prisma/client';
 import { DriveStorageFactory } from '../../infra/drive/drive-storage.factory';
 import type { UploadFileInput } from '../../infra/drive/drive-storage.interface';
 import { SettingsService } from '../settings/settings.service';
+import { resolveMediaType } from './media-type.util';
 
-export const ALLOWED_IMAGE_MIMES = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-] as const;
-
-export const ALLOWED_VIDEO_MIMES = ['video/mp4', 'video/quicktime'] as const;
+export {
+  ALLOWED_IMAGE_MIMES,
+  ALLOWED_VIDEO_MIMES,
+  resolveMediaType,
+} from './media-type.util';
 
 const BYTES_PER_MB = 1024 * 1024;
 
@@ -37,7 +36,7 @@ export class MediaService {
   ) {}
 
   async upload(file: UploadFileInput): Promise<UploadResult> {
-    const mediaType = this.resolveMediaType(file.mimeType);
+    const mediaType = resolveMediaType(file.mimeType);
 
     // Giới hạn size đọc từ cấu hình ĐỘNG, không phải hằng số lúc build.
     const { maxUploadMb } = await this.settingsService.getDriveConfig();
@@ -84,22 +83,5 @@ export class MediaService {
       authMode: config.authMode,
       message: `Kết nối thành công (authMode: ${config.authMode})`,
     };
-  }
-
-  /** Whitelist mime — suy ra mediaType, mime lạ ⇒ 400. */
-  private resolveMediaType(mimeType: string): MediaType {
-    if ((ALLOWED_IMAGE_MIMES as readonly string[]).includes(mimeType)) {
-      return MediaType.image;
-    }
-    if ((ALLOWED_VIDEO_MIMES as readonly string[]).includes(mimeType)) {
-      return MediaType.video;
-    }
-
-    throw new BadRequestException(
-      `Định dạng "${mimeType}" không được hỗ trợ. Chỉ nhận: ${[
-        ...ALLOWED_IMAGE_MIMES,
-        ...ALLOWED_VIDEO_MIMES,
-      ].join(', ')}`,
-    );
   }
 }

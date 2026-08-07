@@ -594,6 +594,48 @@ export interface MediaUploadResult {
   mediaType: MediaType;
 }
 
+/** Trạng thái một job upload nền (backend enum `MediaUploadStatus`, plan 23). */
+export type MediaUploadStatus =
+  | 'QUEUED'
+  | 'UPLOADING_TO_DRIVE'
+  | 'SUCCESS'
+  | 'FAILED';
+
+/**
+ * Response `GET/POST /media/upload-jobs` — một lần bấm "Upload" đang được xử lý
+ * nền. Dùng để vẽ dòng "mờ" trên bảng Quản lý Ảnh/Video trước khi có bài thật.
+ */
+export interface MediaUploadJobResponse {
+  id: string;
+  status: MediaUploadStatus;
+  title: string;
+  category: string;
+  mediaType: MediaType | null;
+  originalFilename: string;
+  fileCount: number;
+  totalSize: number;
+  errorMessage: string | null;
+  attemptCount: number;
+  /** Bài đã tạo xong — dòng mờ được thay bằng dòng thật. */
+  contentAssetId: string | null;
+  /** `true` = thất bại nhưng file tạm còn trên server ⇒ bấm "Thử lại" được. */
+  canRetry: boolean;
+  createdBy: { id: string; name: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Field form gửi kèm file trong multipart `POST /media/upload-jobs`. */
+export interface CreateMediaUploadJobBody {
+  title: string;
+  category: string;
+  caption: string;
+  description?: string;
+  hashtags?: string;
+  assignedPageIds?: string[];
+  editorId?: string;
+}
+
 export type DriveAuthMode = 'service_account' | 'oauth2';
 
 /** Response `GET/PUT /settings/google-drive` (backend `DriveSettingsResponse`). */

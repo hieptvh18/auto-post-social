@@ -32,7 +32,6 @@ import {
 } from './content-assets.repository';
 import { MAX_IMAGES_PER_CONTENT_ASSET } from './content-assets.constants';
 import { planStatusChange } from './content-status.transition';
-import type { CreateContentAssetDto } from './dto/create-content-asset.dto';
 import type { QueryContentAssetsDto } from './dto/query-content-assets.dto';
 import type { UpdateContentAssetDto } from './dto/update-content-asset.dto';
 
@@ -64,6 +63,38 @@ export interface EditorOption {
 
 /** Mã lỗi unique constraint của Prisma — dùng để đổi 500 thành 409. */
 const PRISMA_UNIQUE_VIOLATION = 'P2002';
+
+/**
+ * Đầu vào tạo bài **sau khi file đã nằm trên Drive**. `CreateContentAssetDto`
+ * khớp đúng shape này, nên `POST /content-assets` (người dùng gọi trực tiếp) và
+ * worker `media-upload` (plan 23) dùng **chung một** đường tạo bài — không có
+ * bản logic thứ hai để lệch nhau.
+ */
+export interface CreateContentAssetInput {
+  title: string;
+  description?: string;
+  category: string;
+  caption: string;
+  hashtags?: string;
+  mediaType: MediaType;
+  driveFileId: string;
+  driveUrl?: string;
+  thumbnailUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
+  editorId?: string;
+  assignedPageIds?: string[];
+  extraFiles?: CreateContentAssetFileInput[];
+}
+
+/** Một ảnh phụ của bài nhiều ảnh — file đã đẩy lên Drive xong. */
+export interface CreateContentAssetFileInput {
+  driveFileId: string;
+  driveUrl?: string;
+  thumbnailUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
+}
 
 @Injectable()
 export class ContentAssetsService {
@@ -181,7 +212,7 @@ export class ContentAssetsService {
   }
 
   async create(
-    dto: CreateContentAssetDto,
+    dto: CreateContentAssetInput,
     actor: AuthenticatedUser,
   ): Promise<ContentAssetResponse> {
     const assignedPageIds = dedupe(dto.assignedPageIds ?? []);

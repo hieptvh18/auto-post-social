@@ -13,6 +13,8 @@ import { ContentAssetsService } from './content-assets.service';
   controllers: [ContentAssetsController],
   providers: [ContentAssetsRepository, ContentAssetsService],
   // ManualPostModule (plan 09) đọc content qua repository này thay vì tự query Prisma.
-  exports: [ContentAssetsRepository],
+  // MediaUploadJobsModule (plan 23) tạo bài qua `create()` của service — dùng
+  // chung đúng một đường tạo bài với `POST /content-assets`.
+  exports: [ContentAssetsRepository, ContentAssetsService],
 })
 export class ContentAssetsModule {}

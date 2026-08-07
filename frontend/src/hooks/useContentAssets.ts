@@ -87,6 +87,20 @@ export function useContentAsset(
   });
 }
 
+/**
+ * Làm mới kho bài + các danh sách gợi ý ăn theo nó. Dùng khi bài được tạo
+ * **ngoài** mutation của hook này — cụ thể là worker upload nền (plan 23) báo
+ * job SUCCESS, lúc đó dòng "mờ" phải được thay bằng bản ghi thật.
+ */
+export function useInvalidateContentAssets(): () => void {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: [CONTENT_ASSETS_KEY] });
+    void queryClient.invalidateQueries({ queryKey: [HASHTAGS_KEY] });
+    void queryClient.invalidateQueries({ queryKey: [CATEGORIES_KEY] });
+  };
+}
+
 export function useCreateContentAsset() {
   const queryClient = useQueryClient();
   return useMutation({

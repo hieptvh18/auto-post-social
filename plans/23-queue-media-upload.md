@@ -1,7 +1,7 @@
 # Plan 23 — Upload media qua hàng đợi (song song, không chặn UI)
 
 **Milestone:** Phase 2
-**Trạng thái:** ⬜ chưa làm (đang ở bước thiết kế, chờ user confirm mới code)
+**Trạng thái:** 🟡 code + test xong (2026-08-07), **chưa test tay trên UI thật**
 **Phụ thuộc:** Plan 03 (Google Drive upload, DONE), Plan 04 (content-assets, DONE),
 Plan 07 (auto-post engine — nguồn của pattern BullMQ trong repo), Plan 13 (Monitor —
 nguồn của pattern UI "job đang chờ/đang chạy"), **Plan 22 (nhiều ảnh trong 1
@@ -231,36 +231,36 @@ MEDIA_UPLOAD_MAX_PENDING_JOBS=20
 
 ## 4. Task
 
-- [ ] Migration: enum `MediaUploadStatus` + bảng `media_upload_jobs` + quan hệ ngược
-- [ ] Cập nhật `erd.md` (bảng mới, enum mới, index, lịch sử thay đổi) — cùng lúc với
-      migration, không để "sau"
-- [ ] `MediaController`: đổi `FileInterceptor` sang `diskStorage()`, giữ endpoint cũ
-- [ ] Tách helper tạo ContentAsset dùng chung (§3.3), viết test cho helper này
-- [ ] Module `media-upload-jobs`: repository/service/controller/processor theo đúng
-      cấu trúc rule 01 (Controller mỏng, Service không đụng Prisma trực tiếp)
-- [ ] `MediaUploadProcessor`: đọc `MEDIA_UPLOAD_CONCURRENCY` từ `AppConfigService`, set
-      qua `this.worker.concurrency` trong `onModuleInit` (decorator `@Processor` không
-      nhận giá trị async)
-- [ ] `onModuleInit` của service mới: mọi job còn `QUEUED`/`UPLOADING_TO_DRIVE` từ phiên
-      trước → set `FAILED` + dọn file tạm liên quan (không cố resume, đúng tinh thần MVP)
-- [ ] Cron/TTL dọn file tạm + job terminal quá `MEDIA_UPLOAD_JOB_RETENTION_MS`
-- [ ] `MediaUploadLimitGuard` (§3.1b) — đếm `QUEUED`+`UPLOADING_TO_DRIVE`, gắn TRƯỚC
-      `FileInterceptor` trên route `POST /media/upload-jobs` (và route retry)
-- [ ] 3 endpoint mới + DTO + Swagger
-- [ ] Unit test: guard 20 job (đúng 20 → chặn, 19 → cho qua, đếm đúng cả 2 status
-      QUEUED/UPLOADING_TO_DRIVE), check size trước khi tạo job, chuyển trạng thái
-      QUEUED→UPLOADING→SUCCESS/FAILED, retry chỉ cho FAILED, RBAC list "chỉ thấy job
-      của mình" (đây là logic dễ sai — nên test kỹ dù không phải auto-post/crypto,
-      theo tinh thần rule 02)
-- [ ] FE: `api/mediaUploadJobs.api.ts`, `hooks/useMediaUploadJobs.ts`
-- [ ] FE: `ContentManagementPage` — modal fire-and-forget + dòng mờ + nút "Thử lại" +
-      toast rõ ràng khi dính 503 quá tải (giữ nguyên file đã chọn, không đóng modal)
-- [ ] `npm run lint && npm run build` xanh 2 phía (+ `npm run test` phần đã viết)
-- [ ] Cập nhật `.env.example` (4 biến mới, §3.5)
-- [ ] Cập nhật `contexts.md`
-- [ ] Ghi nợ kỹ thuật vào `contexts.md` §6: `docs/08-bullmq.md` mới chỉ mô tả queue
-      `publish-facebook`, có thể cần bổ sung mục cho `media-upload` sau — không tự sửa
-      `docs/` theo rule 00
+- [x] Migration: enum `MediaUploadStatus` + bảng `media_upload_jobs` + quan hệ ngược
+      (`20260806171728_media_upload_jobs`)
+- [x] Cập nhật `erd.md` (bảng mới, enum mới, index, ràng buộc, lịch sử thay đổi)
+- [x] ~~`MediaController`: đổi `FileInterceptor` sang `diskStorage()`~~ — **KHÔNG đổi**:
+      `POST /media/upload` cũ giữ nguyên `memoryStorage()` (đường đồng bộ, không có job
+      nào sở hữu file nên ghi đĩa ở đó chỉ đẻ rác). `diskStorage` khai ở
+      `MediaUploadJobsModule` qua `MulterModule.registerAsync` để đọc được
+      `MEDIA_UPLOAD_TMP_DIR` từ DI
+- [x] Tách helper tạo ContentAsset dùng chung (§3.3) — `ContentAssetsService.create()`
+      đổi tham số từ `CreateContentAssetDto` sang interface `CreateContentAssetInput`
+      (DTO khớp shape), worker gọi thẳng; test cũ của service phủ nguyên đường này
+- [x] Module `media-upload-jobs`: repository/service/controller/processor/guard/mapper
+- [x] `MediaUploadProcessor`: `this.worker.concurrency` trong `onModuleInit`
+- [x] `onModuleInit` của service: job `QUEUED`/`UPLOADING_TO_DRIVE` từ phiên trước →
+      `FAILED` + xoá file tạm + `queue.obliterate()` (dọn cả job cũ còn trong Redis)
+- [x] Cron/TTL dọn file tạm + xoá job terminal quá `MEDIA_UPLOAD_JOB_RETENTION_MS`
+- [x] `MediaUploadLimitGuard` (§3.1b) — gắn ở tầng Guard nên chạy trước multer
+- [x] 3 endpoint mới + DTO + Swagger
+- [x] Unit test: 30 test (guard 5, service 25) — ngưỡng 19/20/21, size động, N ảnh 1 job,
+      QUEUED→UPLOADING→SUCCESS, lỗi còn lượt → QUEUED (giữ file), lỗi lượt cuối → FAILED,
+      bỏ qua job không QUEUED, retry (422/403/ADMIN/bull jobId mới), RBAC list, cleanup
+- [x] FE: `api/mediaUploadJobs.api.ts` (+4 test), `hooks/useMediaUploadJobs.ts`
+- [x] FE: `ContentManagementPage` — modal fire-and-forget + dòng mờ + nút "Thử lại" +
+      giữ modal/file khi dính 503
+- [x] `npm run lint && npm run build` xanh 2 phía + test xanh (BE 767, FE 45)
+- [x] Cập nhật `.env.example` + `.env.production.example` (4 biến mới, §3.5)
+- [x] Cập nhật `contexts.md`
+- [x] Ghi nợ kỹ thuật vào `contexts.md` §6: `docs/08-bullmq.md` mới chỉ mô tả queue
+      `publish-facebook` — không tự sửa `docs/` theo rule 00
+- [ ] **Test tay trên UI thật** (§5 Điều kiện nghiệm thu) — chưa làm
 
 ## 5. Điều kiện nghiệm thu
 
@@ -294,10 +294,52 @@ MEDIA_UPLOAD_MAX_PENDING_JOBS=20
 
 ---
 
-## 7. Kết quả (điền khi xong)
+## 7. Kết quả
 
-- **Ngày xong:**
+- **Ngày xong (code):** 2026-08-07 — **chưa nghiệm thu trên UI thật**
 - **File chính:**
+  - BE: `backend/src/modules/media-upload-jobs/*` (constants · repository · service ·
+    controller · processor · `media-upload-limit.guard.ts` · mapper · dto),
+    `backend/src/modules/media/media-type.util.ts` (tách whitelist mime dùng chung),
+    `backend/prisma/migrations/20260806171728_media_upload_jobs/`
+  - FE: `frontend/src/api/mediaUploadJobs.api.ts`,
+    `frontend/src/hooks/useMediaUploadJobs.ts`,
+    `frontend/src/pages/ContentManagementPage.tsx`, `frontend/src/index.css`
+    (`.row-uploading`)
 - **Khác thiết kế ban đầu:**
-- **Test:** N test · coverage service ?%
+  1. **Schema khác §3.2:** thay `originalFilename`/`mimeType`/`fileSize`/`tempFilePath`
+     dạng **một file** bằng `files` (jsonb, mảng theo thứ tự đăng) + `file_count` +
+     `total_size`, giữ `original_filename` chỉ để hiện trên UI. Bắt buộc phải vậy vì
+     plan 22: một job = N ảnh = 1 bài. Thêm `files_removed_at` để biết còn "Thử lại"
+     được không (thay vì để `temp_file_path = null` mang hai nghĩa).
+  2. **Lỗi khi còn lượt retry ⇒ trả job về `QUEUED`, không phải `FAILED`.** Nếu để
+     `FAILED` giữa chừng thì guard "job đang chạy ngầm" đếm hụt, và processor (chỉ nhận
+     job `QUEUED` để tránh tạo bài trùng) sẽ tự bỏ qua chính lượt retry của mình.
+     `FAILED` chỉ đặt ở lượt cuối.
+  3. **`POST /media/upload` cũ không đổi sang `diskStorage`** — xem task list.
+  4. `MulterModule.registerAsync` trong module thay vì nhét option vào decorator, để
+     `MEDIA_UPLOAD_TMP_DIR` đọc được từ `AppConfigService` (rule 04: không `process.env`
+     rải rác).
+  5. Dòng "mờ" chỉ ghép vào bảng ở **trang 1**: chèn bản ghi chưa tồn tại vào một danh
+     sách đang lọc/phân trang sẽ mâu thuẫn với chính bộ lọc đó.
+  6. **Vá sau test tay lần 1 (user báo):** toast "Đã đưa … lên Google Drive xong" bắn
+     lại mỗi lần F5. Nguyên nhân: backend giữ job `SUCCESS` tới hết TTL nên lần nạp đầu
+     luôn thấy chúng, mà `Set` "đã báo" thì rỗng sau mỗi lần tải trang. Sửa: so **ảnh
+     chụp trạng thái trước đó** — ảnh chụp đầu tiên chỉ ghi nhận hiện trạng, chỉ báo khi
+     job *chuyển* sang `SUCCESS` trong phiên đang mở.
+  7. **Thanh tiến trình cho dòng đang chạy ngầm (user yêu cầu):** dùng thanh **không xác
+     định %** (`.upload-bar` trong `index.css`) chứ không phải `Progress` có số — Drive
+     API không trả tiến độ byte nên không có % thật; thanh xám = đang chờ tới lượt,
+     thanh chạy = đang đẩy lên Drive. Phần % thật vẫn còn ở modal lúc đẩy byte lên server.
+- **Test:** BE +30 test (**767** tổng, tất cả xanh) · FE +4 test (**45** tổng) ·
+  lint + build xanh 2 phía. Không đặt threshold coverage riêng (module này không thuộc
+  vùng bắt buộc phủ kỹ của rule 02, nhưng vẫn test kỹ vì nhiều nhánh trạng thái).
 - **Còn nợ:**
+  1. **Chưa bấm tay trên UI thật** — toàn bộ §5 chưa nghiệm thu (đặc biệt: 2 file cùng
+     "mờ", restart backend giữa chừng, job thứ 21 ⇒ 503).
+  2. `docs/08-bullmq.md` vẫn chỉ mô tả queue `publish-facebook` — không tự sửa `docs/`
+     (rule 00), đã ghi vào `contexts.md` §6.
+  3. `DriveStorage.upload()` vẫn nhận `Buffer` ⇒ mỗi job đọc trọn file vào RAM lúc đẩy
+     Drive (chặn bằng `MEDIA_UPLOAD_CONCURRENCY=3`). Đổi sang stream = nợ kỹ thuật riêng.
+  4. Chưa dọn **file mồ côi** trong `MEDIA_UPLOAD_TMP_DIR` (file không thuộc job nào —
+     chỉ sinh ra nếu process chết đúng giữa lúc multer ghi xong mà chưa kịp tạo job).

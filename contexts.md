@@ -4,8 +4,35 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-06 (Plan 22 — nhiều ảnh trong 1 content record, THAY plan 21)
-**Session gần nhất (mới nhất):** **Plan 22 — đổi hướng "bài nhiều ảnh": gom ảnh ngay ở 1
+**Cập nhật lần cuối:** 2026-08-07 (Plan 23 — upload media qua hàng đợi BullMQ)
+**Session gần nhất (mới nhất):** **Plan 23 — bấm "Upload" không còn phải đứng chờ Google Drive.**
+Trước đây một request upload ôm trọn: nhận file → đẩy Drive → tạo bài, nên modal khoá cho tới khi
+xong, upload liên tiếp phải chờ từng cái. Giờ request **chỉ nhận file xuống đĩa** (`MEDIA_UPLOAD_TMP_DIR`,
+multer `diskStorage`) rồi trả **202** ngay; phần đẩy Drive + tạo `content_assets` chuyển sang **queue
+BullMQ thứ hai của dự án: `media-upload`** (concurrency `MEDIA_UPLOAD_CONCURRENCY`, mặc định 3 — cửa
+sổ trượt, job xong là job kế tiếp vào ngay). Trong lúc chờ, bảng `/content` hiện **dòng "mờ"** kèm
+trạng thái (FE poll `GET /media/upload-jobs` mỗi 3s, **chỉ khi còn job chạy**), xong thì dòng thật thay
+chỗ; lỗi thì dòng mờ đổi đỏ + nút **"Thử lại"** dùng lại file tạm (không bắt chọn lại file).
+**Chặn quá tải bằng `MediaUploadLimitGuard`** đặt ở tầng **Guard** (chạy TRƯỚC multer): đủ
+`MEDIA_UPLOAD_MAX_PENDING_JOBS` (20) job đang chạy ngầm ⇒ **503 ngay khi chưa ghi byte nào xuống đĩa**;
+FE giữ nguyên modal + file đã chọn. **Đảo ngược có kiểm soát quyết định "chỉ stream, không ghi disk"**
+(`PLAN-MVP.md` §4) — worker chạy sau khi response đã trả nên file **bắt buộc** phải sống ngoài vòng đời
+request; bù lại có trần 20 job (⇒ trần đĩa ≈ 20 × file lớn nhất), TTL dọn định kỳ
+(`MEDIA_UPLOAD_JOB_RETENTION_MS`) và dọn sạch lúc boot. **Ba chỗ dễ sai đã xử lý:** (1) lỗi khi **còn
+lượt retry** phải trả job về `QUEUED` chứ không `FAILED` — để `FAILED` thì guard đếm hụt và processor
+(chỉ nhận job `QUEUED` để không tạo bài trùng) tự bỏ qua chính lượt retry của mình; (2) retry phải
+`queue.remove` rồi add bằng **jobId mới** (Bull bỏ qua lặng lẽ jobId trùng — cùng cạm bẫy plan 07);
+(3) worker tạo bài qua **đúng** `ContentAssetsService.create()` của `POST /content-assets` với actor =
+**người bấm Upload** (không phải Bot) ⇒ quyền duyệt/ownership/audit `CONTENT_UPLOAD` giống hệt, không
+có bản logic thứ hai. Schema lệch bản nháp plan: dùng `files` (jsonb, N file/1 job cho bài nhiều ảnh
+của plan 22) thay vì các cột 1-file, thêm `files_removed_at`. `POST /media/upload` cũ **giữ nguyên**.
+Chi tiết: [plans/23-queue-media-upload.md](./plans/23-queue-media-upload.md). `erd.md` đã cập nhật
+(migration `20260806171728_media_upload_jobs`). BE **767 test xanh (+30)**, FE **45 test (+4)**,
+lint/build 2 phía xanh. **Chưa test tay trên UI thật** ⇒ plan 23 còn ở `plans/` (§6 mục 29).
+
+---
+
+**Session trước đó:** **Plan 22 — đổi hướng "bài nhiều ảnh": gom ảnh ngay ở 1
 `content_assets` record lúc upload, thay cho `assetsPerPost` của plan 21.** Theo quyết định user
 2026-08-06: ở màn Quản lý Ảnh/Video chọn **nhiều ảnh cùng lúc** ⇒ tạo **1** record duy nhất (ảnh
 đầu là ảnh đại diện, phần còn lại vào bảng mới `content_asset_files` với `position >= 1`); khi đăng
@@ -304,10 +331,10 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md`, `plans/22-content-multi-image.md` (bài nhiều ảnh — chưa smoke UI), `plans/21-album-post.md` (❌ BỊ THAY THẾ, giữ làm lịch sử) |
+| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md`, `plans/22-content-multi-image.md` (bài nhiều ảnh — chưa smoke UI), `plans/23-queue-media-upload.md` (upload qua hàng đợi — chưa smoke UI), `plans/21-album-post.md` (❌ BỊ THAY THẾ, giữ làm lịch sử) |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
 | `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). `SettingsPage` đã nối API thật (Drive 2 authMode). **`QueueMonitorPage` / `FailedJobsPage` / `AuditLogsPage` đã nối API thật** (M8, plan 13 — vẫn giữ nhánh mock theo ADR-005). **`DashboardPage` ("Tổng quan") đã nối API thật** (M9, plan 14 — thẻ số + 2 chart + khối "Cần chú ý"). **Không còn trang nào chạy mock** (nhánh `VITE_USE_MOCK` vẫn giữ theo ADR-005). |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** + **media-upload-jobs (upload qua hàng đợi BullMQ `media-upload`, plan 23)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
@@ -395,6 +422,25 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 ## 5. Nhật ký module đã hoàn thành
 
 > Mỗi module xong ghi 1 mục ở đây theo mẫu trong `.claude/rules/03-context-protocol.md`.
+
+### Upload media qua hàng đợi (Plan 23) — 🟡 2026-08-07 (chưa smoke UI)
+
+- **Phạm vi:** 3 endpoint mới `POST /media/upload-jobs` (multipart N file, trả **202**),
+  `GET /media/upload-jobs`, `POST /media/upload-jobs/:id/retry` + queue BullMQ thứ hai
+  `media-upload` (worker đẩy Drive → tạo `content_assets`). FE `/content`: modal upload
+  fire-and-forget + dòng "mờ" + nút "Thử lại".
+- **File chính:** `backend/src/modules/media-upload-jobs/*`,
+  `backend/src/modules/media/media-type.util.ts`,
+  `frontend/src/{api/mediaUploadJobs.api,hooks/useMediaUploadJobs,pages/ContentManagementPage}.ts(x)`
+- **Quyết định:** (1) chấp nhận **ghi file tạm xuống đĩa** — đảo ngược "chỉ stream"
+  (`PLAN-MVP.md` §4), vì worker chạy sau khi response đã trả; kiểm soát bằng trần 20 job
+  + TTL + dọn lúc boot. (2) Giới hạn quá tải đặt ở **Guard** (trước multer) chứ không
+  trong controller, để 503 không tốn băng thông/đĩa. (3) Lỗi khi còn lượt retry ⇒ job về
+  `QUEUED`, chỉ lượt cuối mới `FAILED`. (4) Worker tạo bài qua đúng
+  `ContentAssetsService.create()` với actor = người upload, không nhân bản logic.
+- **Test:** BE +30 (767 tổng) · FE +4 (45 tổng) · lint/build 2 phía xanh
+- **Còn nợ:** chưa test tay UI (§6 mục 29); `docs/08-bullmq.md` chưa có mục cho queue mới
+  (§6 mục 30); Drive vẫn nhận `Buffer` (§6 mục 21)
 
 ### M0 Scaffold (Plan 01) — ✅ 2026-07-22
 
@@ -1051,13 +1097,15 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 17 | **M8 Monitor chưa smoke UI thật** | Code BE+FE xong (plan 13, BE 516 test xanh), đã smoke API thật đủ case (Redis chết ⇒ 200 + `queue: null`, job kẹt 30 phút ⇒ `stuckMinutes: 30`, phân trang + lọc `/publish-jobs` và `/audit-logs`, EDITOR ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/queue` (thẻ số tự nhảy trong 10s sau `POST /auto-post/run-now`, tắt container Redis ⇒ badge "Mất kết nối" chứ không trắng trang), `/failed` (phân trang >20 job, "Xem nhật ký", "Đăng lại" ⇒ 409 khi bấm lại lúc đang QUEUED), `/audit` (lọc ngày/action/user, Drawer diff JSON, log cron hiện tag "Bot"), và **mở lại `/timeline`** xác nhận không gãy sau khi đổi shape `/publish-jobs`. EDITOR gõ thẳng `/queue`,`/failed`,`/audit` ⇒ bị đá về `/dashboard`. Xong thì `git mv plans/13-monitor.md plans/DONE/`. Còn thiếu: ô tìm kiếm theo tiêu đề ở `/failed` (backend đã hỗ trợ `search`). |
 | 19 | **M10 Kết nối Facebook chưa smoke với Meta app thật** | Code BE+FE xong (plan 15, BE 590 test xanh, +41 test mới), nhưng **chưa chạy lần nào với Meta app thật** vì cần user tạo app + tự thêm mình vào **App roles → Tester** (nếu không, đăng nhập vẫn thành công nhưng `/me/accounts` rỗng — đúng cái bẫy đã gặp ở mục 10). Cần: `/settings` tab "Facebook App" nhập App ID/Secret, copy Redirect URI dán vào Meta (Facebook Login → Valid OAuth Redirect URIs), `/pages` bấm "Kết nối bằng Facebook" → consent → modal chọn page → import. **Bằng chứng làm đúng: page vừa import phải hiện "Hết hạn: Vĩnh viễn" và Test kết nối trả `tokenType=PAGE`, `expiresAt=null`.** Nếu ra một ngày cụ thể ⇒ bước đổi long-lived hỏng. Sau đó trả nốt mục 10/11/15 (đăng thật lên Page). Xong thì `git mv plans/15-facebook-login-connect.md plans/DONE/`. |
 | 20 | **Plan 17 chưa smoke trên VPS thật** | Cache media + stream đã xong, 644 test xanh, nhưng **chưa chạy lần nào với video lớn thật**. Cần: 1 video ~300MB phân bổ 4 page, cùng mốc giờ. Bằng chứng làm đúng: log `Đã tải file <id> (300MB) xuống cache` xuất hiện **đúng 1 lần** cho 4 job; `pm2 monit` RSS **không** vọt lên ~1GB; 4 bài lên đủ 4 page. Kiểm luôn `MEDIA_CACHE_DIR` không phình sau vài ngày (cron dọn 10 phút/lần). Xong thì `git mv plans/17-publish-media-optimize.md plans/DONE/`. |
-| 21 | **Đường UPLOAD vẫn buffer toàn bộ vào RAM** | `media.controller.ts` dùng multer `memoryStorage()` ⇒ file 300MB chiếm ~300MB RAM, cộng bản copy khi đẩy lên Drive là ~600MB **cho một request**. Plan 17 chỉ vá chiều **đăng bài** (Drive→FB), chưa vá chiều **upload** (browser→Drive). VPS dưới 2GB có thể OOM khi vừa upload vừa đăng. Hướng xử lý: stream thẳng request → Google Drive resumable upload, hoặc ghi ra file tạm rồi stream lên. |
+| 21 | **Đường UPLOAD vẫn nạp trọn file vào RAM lúc đẩy Drive** | *(Cập nhật 2026-08-07 sau plan 23 — đã vá một nửa.)* Đường mới `POST /media/upload-jobs` (UI dùng đường này) ghi thẳng xuống đĩa bằng multer `diskStorage` ⇒ **nhận** file không còn tốn RAM; nhưng worker vẫn `readFile()` toàn bộ rồi mới gọi Drive vì `DriveStorage.upload()` chỉ nhận `Buffer` ⇒ RAM đỉnh ≈ `MEDIA_UPLOAD_CONCURRENCY` (3) × file lớn nhất. Đường cũ `POST /media/upload` vẫn `memoryStorage()` (giữ nguyên, không còn UI nào gọi). Hướng xử lý còn lại: đổi interface Drive sang stream / resumable upload để bỏ nốt bản copy trong RAM. |
 | 22 | **Plan 20 (resumable upload video) — hết 502, tốc độ đã điều tra xong; còn 2 việc nhỏ trước khi đóng plan** | Code xong (BE **710** test xanh) — `publishVideo` dùng Facebook Resumable Upload API, guard chặn job đăng trùng (manual + auto-post picker), video không bị hỏng khi chia chunk (test byte-exact). **Đã test tay 2 lần trên video thật (162.5MB, 130.5MB, 48MB, 2026-08-05): không còn 502 lần nào.** **Tốc độ ~5.5-7.4 Mbps đã điều tra xong và ĐÓNG (plan 20 §4c-§4d):** đối chiếu `curl` upload thô ra ~310 Mbps (chênh ~42 lần) loại bỏ giả thuyết băng thông VPS yếu; log chi tiết chunk đầu (1622ms) so với TB chunk sau (1425ms) chỉ chênh ~14% (loại bỏ giả thuyết lỗi tái dùng kết nối trong code); biên độ chunk sau chênh ~7 lần (881-6300ms) là dấu hiệu Facebook rate-limit kiểu bucket cho phiên Resumable Upload — **kết luận: giới hạn từ phía Meta, không sửa được bằng code, không cần điều tra thêm.** **Việc còn lại trước khi đóng plan:** thử bấm "Đăng bài thủ công" 2 lần liên tiếp cùng bài+page trên UI thật để xác nhận lần 2 bị 409 thay vì tạo bài trùng; `pm2 monit` RSS không vọt khi upload video lớn (đo thật, chưa làm). Xong thì `git mv plans/20-facebook-resumable-upload.md plans/DONE/`. |
 | 27 | **`docs/03-database-design.md` lệch code sau plan 20 §4b** | Dòng 381, mẫu SQL picker chỉ ghi `j.status IN ('QUEUED', 'PUBLISHING')`, thiếu `FAILED` — code (`content-picker.repository.ts`) giờ đã thêm `FAILED` để tránh Bot tự re-pick nội dung vừa đăng lỗi (đúng hành vi hơn, spec cũ thiếu case này). Theo rule 00 §1, không tự sửa `docs/` khi đang code — cần user xác nhận rồi cập nhật `docs/03-database-design.md` dòng 381 cho khớp. |
 | 28 | **Plan 22 (nhiều ảnh trong 1 content record) chưa test tay trên UI/Page thật** | *(Thay cho nợ cũ của plan 21 — hướng `assetsPerPost` đã bị xoá, xem plan 22.)* Code BE+FE xong (BE **737** test xanh, migration `20260806090000_content_asset_files` đã apply DB dev). **Chưa bấm tay**: `/content` → Upload, chọn **4 ảnh cùng lúc** ⇒ tạo đúng **1** bài, bảng hiện `Ảnh · +3 ảnh`, Drawer hiện tag "Bài 4 ảnh"; chọn **1 video** ⇒ vẫn upload bình thường như cũ; chọn **11 ảnh** ⇒ UI cắt còn 10 kèm cảnh báo (và nếu lách được thì BE trả 400). Sau đó bấm **"Đăng bài thủ công"** với bài 4 ảnh ⇒ **Facebook hiện đúng 1 bài 4 ảnh** (đăng tay giờ cũng có album — plan 21 không hỗ trợ); rồi thử đường **Bot**: `POST /auto-post/run-now` cho mốc giờ có bài đó ⇒ cũng ra 1 bài 4 ảnh, record chuyển `PUBLISHED`. Kiểm **hồi quy**: bài 1 ảnh cũ vẫn đăng bài thường. Kiểm **xoá**: xoá bài 4 ảnh ⇒ 4 file biến mất trên Drive và `content_asset_files` sạch (`SELECT COUNT(*) FROM content_asset_files`). Kiểm `/auto-post`: form mốc giờ **không còn** ô "Số ảnh/video trong 1 bài". Xong thì `git mv plans/22-content-multi-image.md plans/DONE/` (plan 21 **ở lại** `plans/` với trạng thái BỊ THAY THẾ, không chuyển DONE). |
 | 23 | **Worker concurrency vẫn = 1, chưa tách queue ảnh/video** | Giữ 1 là đúng khi RAM còn phình; sau plan 17 RAM đã phẳng nên nâng được, nhưng phải đo rate limit Meta trước. Hệ quả hiện tại: một video 300MB chiếm hàng đợi vài phút, mọi bài **ảnh** của page khác xếp sau phải chờ. Cân nhắc 2 queue riêng + `limiter` của BullMQ. |
 | 26 | **Multi action (plan 19) chưa smoke UI thật** | Code BE+FE xong (BE 687 test xanh), đã smoke API đủ case (xem plan 19 §6). **Chưa bấm tay UI**: `/content` — chọn nhiều dòng (dòng đã đăng phải **mờ checkbox**), thanh "Đã chọn N bài" hiện đúng, bấm **Ngưng dùng** ⇒ dòng mờ + tag, bấm **Xoá** với lô có bài đã đăng ⇒ notification liệt kê bài bị bỏ qua kèm lý do; ô lọc "Trạng thái dùng"; Switch "Đang dùng" trong Drawer sửa. Sau đó `POST /auto-post/run-now` xác nhận Bot **không** lấy bài đã ngưng. Đăng nhập CONTENT kiểm chỉ thao tác được trên bài của mình. Xong thì `git mv plans/19-bulk-actions.md plans/DONE/`. |
 | 24 | **Cột "Editor" chưa smoke UI thật** | Code BE+FE xong (plan 18, BE 653 test xanh), đã smoke API qua curl đủ case 400/gán/lọc/gỡ. **Chưa bấm tay UI**: `/content` — mở Modal upload chọn Editor (bỏ trống vẫn upload được), Drawer sửa đổi/gỡ Editor, cột "Editor" hiện đúng tên (bài chưa gán hiện "—"), ô filter "Editor" lọc đúng và gõ tìm được theo tên. Kiểm bằng account **CONTENT** (phải thấy danh sách Editor dù không có quyền `/users`). Lưu ý: DB dev hiện **không có EDITOR nào đang active** ⇒ dropdown rỗng là đúng, phải tạo 1 account role Editor ở `/users` trước. Xong thì `git mv plans/18-content-editor-field.md plans/DONE/`. |
+| 29 | **Plan 23 (upload qua hàng đợi) chưa test tay trên UI thật** | Code BE+FE xong (BE **767** test xanh, FE 45; migration `20260806171728_media_upload_jobs` đã apply DB dev). **Chưa bấm tay** — chạy đủ §5 của plan: (1) `/content` → Upload 1 file ⇒ **modal đóng ngay**, bảng hiện dòng "mờ"; (2) mở modal lần nữa upload file B ⇒ A và B cùng mờ, tối đa `MEDIA_UPLOAD_CONCURRENCY` job thật sự lên Drive cùng lúc; (3) A xong ⇒ dòng mờ tự thành bài thật (PENDING_REVIEW/APPROVED); (4) làm hỏng credential Drive giữa chừng ⇒ job FAILED, bấm **"Thử lại"** chạy lại **không** phải chọn lại file; (5) file vượt `maxUploadMb` ⇒ 400 ngay, không sinh dòng mờ nào; (6) **restart backend** khi có job đang chạy ⇒ job tự về FAILED kèm message, không kẹt mãi; (7) account CONTENT chỉ thấy job của chính mình; (8) tạo đủ `MEDIA_UPLOAD_MAX_PENDING_JOBS` job rồi upload thêm ⇒ **503** và modal **không** đóng, file đã chọn còn nguyên. Kiểm hồi quy: upload **nhiều ảnh** vẫn ra **1** bài (plan 22), `POST /media/upload` cũ vẫn chạy. Kiểm đĩa: `MEDIA_UPLOAD_TMP_DIR` sạch sau khi job xong. Xong thì `git mv plans/23-queue-media-upload.md plans/DONE/`. |
+| 30 | **`docs/08-bullmq.md` mới chỉ mô tả queue `publish-facebook`** | Từ plan 23 dự án có **queue thứ hai** `media-upload` (3 attempts, backoff mũ 30s, `removeOnComplete: 100`, concurrency theo env, payload chỉ chứa `mediaUploadJobId`) nhưng `docs/` chưa có mục nào cho nó. Theo rule 00 §1 không tự sửa `docs/` khi đang code — cần user xác nhận rồi bổ sung một mục cho `media-upload` vào `docs/08-bullmq.md`. |
 | 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
 
 ---
