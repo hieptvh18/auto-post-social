@@ -106,4 +106,31 @@ describe('AutoPostConfigsRepository', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('findPagesWithSlots', () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const repository = new AutoPostConfigsRepository({
+      facebookPage: { findMany },
+    } as unknown as PrismaService);
+
+    beforeEach(() => findMany.mockClear());
+
+    it('activeOnly = true ⇒ loại page đang tạm dừng', async () => {
+      await repository.findPagesWithSlots(true);
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { deletedAt: null, isActive: true },
+        }),
+      );
+    });
+
+    it('mặc định vẫn lấy cả page tạm dừng', async () => {
+      await repository.findPagesWithSlots();
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { deletedAt: null } }),
+      );
+    });
+  });
 });

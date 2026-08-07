@@ -45,6 +45,24 @@ nhận link **folder** (báo lỗi riêng), có checkbox **gộp ảnh thành 1 
 (migration `20260807130353_drive_link_import`). BE **832 test xanh (+65)**, FE **49 test (+4)**,
 lint/build 2 phía xanh. **Chưa test tay trên UI/Drive thật** ⇒ plan 24 ở `plans/`.
 
+
+**Bổ sung cùng ngày (user test video ~200MB, plan 24b):** bấm Upload ở tab "Tải từ máy" vẫn
+đứng chờ trong modal ⇒ **queue của plan 23 chỉ bỏ được chặng server → Drive, không bỏ được
+chặng trình duyệt → server** (byte nằm trên máy user, không code nào rút ngắn được — 200MB
+qua uplink 20Mbps là ~80s). Thứ sửa được là **sự chặn**, không phải thời gian: thêm hàng đợi
+phía client (`useLocalUploadQueue` + `utils/uploadQueue.ts`) — bấm Upload là **đóng modal
+ngay**, byte chạy nền tối đa **2 luồng song song** (uplink hẹp, chạy 5 luồng không nhanh hơn),
+% THẬT từ XHR hiện trên chính dòng "mờ" của bảng, xong 100% thì `media_upload_jobs` phía
+server tiếp quản (dòng đổi sang "Đang lên Google Drive"). Lỗi ⇒ dòng đỏ + "Thử lại" dùng lại
+đúng `File` đã chọn (giữ trong ref, không vào state) + nút "Bỏ". Đã **xoá overlay khoá modal**
+và toàn bộ state `uploading/uploadPercent/uploadPhase`. **Giới hạn đã biết:** F5/đóng tab giữa
+chừng là mất file — có cảnh báo `beforeunload`; muốn bền hơn phải làm upload chunk/resumable
+(đã cân nhắc, user chọn không làm vì **không nhanh hơn**, chỉ bền hơn khi rớt mạng).
+**Cũng vá 1 regression do gộp modal 2 tab:** `closeCreateModal()` bị nhét guard
+`if (uploading) return` nên luồng thành công gọi nó lúc `uploading` còn true ⇒ modal không
+đóng, nhìn như mất fire-and-forget; guard đã chuyển về `onCancel` của Modal. FE **57 test
+(+8)**, lint/build xanh. Lỗi này không test nào bắt được vì rule 02 không test component —
+ghi nhận là loại lỗi chỉ lộ khi bấm tay.
 ---
 
 **Session trước đó:** **Plan 23 — bấm "Upload" không còn phải đứng chờ Google Drive.**
@@ -1109,6 +1127,20 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   nguyên (ADR-005).
 - **Test:** `media.api.test.ts` viết lại theo XHR giả lập, +2 case (onProgress,
   ApiError từ body lỗi). 41 test FE xanh, lint/build xanh.
+- **Còn nợ:** không.
+
+### Fix — ẩn page tạm dừng khỏi Cài đặt đăng bài tự động — ✅ 2026-08-07
+
+- **Phạm vi:** `GET /auto-post-configs` chỉ trả page `is_active = TRUE`; màn Cài
+  đặt đăng bài tự động (kèm dropdown lọc + chọn page ở modal Đăng ngay) không còn
+  hiện page bị tạm dừng ở màn Quản lý FB Page.
+- **File chính:** `backend/src/modules/auto-post-configs/auto-post-configs.repository.ts`
+  (`findPagesWithSlots(activeOnly)`), `auto-post-configs.service.ts`,
+  `frontend/src/pages/AutoPostSettingsPage.tsx` (đổi text empty state).
+- **Quyết định:** thêm cờ `activeOnly` thay vì lọc cứng — `publish-schedule`
+  (Timeline) dùng chung method này và vẫn cần thấy page tạm dừng.
+- **Test:** +2 test repository (where có/không `isActive`). 40 test auto-post-configs
+  + publish-schedule xanh; lint/build BE & FE xanh.
 - **Còn nợ:** không.
 
 ---

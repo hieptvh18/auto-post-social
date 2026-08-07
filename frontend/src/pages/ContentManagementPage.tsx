@@ -40,6 +40,8 @@ import { getPageName, getUserDisplayName, mockPages, mockUsers } from '../api/mo
 import { env } from '../config/env';
 import { CategorySelect } from '../components/common/CategorySelect';
 import { DriveImportPanel } from '../components/common/DriveImportPanel';
+import { useLocalUploadQueue } from '../hooks/useLocalUploadQueue';
+import type { LocalUpload } from '../utils/uploadQueue';
 import { HashtagInput } from '../components/common/HashtagInput';
 import { PageHeader } from '../components/common/PageHeader';
 import { ContentStatusTag } from '../components/common/StatusTag';
@@ -58,7 +60,6 @@ import {
 } from '../hooks/useContentAssets';
 import {
   isActiveUploadJob,
-  useCreateMediaUploadJob,
   useMediaUploadJobs,
   useRetryMediaUploadJob,
 } from '../hooks/useMediaUploadJobs';
@@ -223,7 +224,16 @@ function reportBulk(result: BulkResult, doneVerb: string): void {
  * dạng `ContentAssetResponse` để không phải viết lại toàn bộ cột — các cột chỉ
  * cần rẽ nhánh ở đúng chỗ hiển thị khác nhau.
  */
-type ContentRow = ContentAssetResponse & { uploadJob?: MediaUploadJobResponse };
+type ContentRow = ContentAssetResponse & {
+  uploadJob?: MediaUploadJobResponse;
+  /** Dòng "mờ" ở chặng SỚM hơn: byte còn đang đi từ máy người dùng lên server. */
+  localUpload?: LocalUpload;
+};
+
+/** Dòng chưa phải bài trong kho (đang tải lên server, hoặc đang lên Drive). */
+function isPendingRow(record: ContentRow): boolean {
+  return record.uploadJob !== undefined || record.localUpload !== undefined;
+}
 
 const UPLOAD_JOB_STATUS_META: Record<
   MediaUploadJobResponse['status'],
@@ -270,6 +280,79 @@ function uploadJobToRow(job: MediaUploadJobResponse): ContentRow {
     updatedAt: job.updatedAt,
     uploadJob: job,
   };
+}
+
+/** Lượt upload phía client -> dòng giả, hiện ngay khi bấm Upload. */
+function localUploadToRow(upload: LocalUpload): ContentRow {
+  return {
+    ...uploadJobToRow({
+      id: upload.id,
+      status: 'QUEUED',
+      source: 'LOCAL_FILE',
+      title: upload.title,
+      category: upload.category,
+      mediaType: null,
+      originalFilename: upload.filename,
+      fileCount: upload.fileCount,
+      totalSize: upload.totalSize,
+      errorMessage: upload.errorMessage ?? null,
+      attemptCount: 0,
+      contentAssetId: null,
+      canRetry: false,
+      createdBy: { id: '', name: '' },
+      createdAt: upload.createdAt,
+      updatedAt: upload.createdAt,
+    }),
+    id: `local-upload:${upload.id}`,
+    uploadJob: undefined,
+    localUpload: upload,
+  };
+}
+
+/**
+ * Ô trạng thái của dòng đang đẩy byte lên server: có **% thật** từ XHR (khác
+ * chặng lên Drive — Drive API không trả tiến độ nên chỉ có thanh chạy).
+ */
+function LocalUploadStatusCell({
+  upload,
+  onRetry,
+  onDismiss,
+}: {
+  upload: LocalUpload;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  if (upload.status === 'FAILED') {
+    return (
+      <Space direction="vertical" size={2} style={{ width: '100%' }}>
+        <Tag color="error">Gửi lên server lỗi</Tag>
+        <Tooltip title={upload.errorMessage ?? 'Không rõ nguyên nhân'}>
+          <Text type="danger" style={{ fontSize: 12 }} ellipsis>
+            {upload.errorMessage ?? 'Không rõ nguyên nhân'}
+          </Text>
+        </Tooltip>
+        <Space size={4}>
+          <Button size="small" onClick={onRetry}>
+            Thử lại
+          </Button>
+          <Button size="small" type="text" onClick={onDismiss}>
+            Bỏ
+          </Button>
+        </Space>
+      </Space>
+    );
+  }
+
+  return (
+    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+      <Tag color={upload.status === 'PENDING' ? 'default' : 'processing'}>
+        {upload.status === 'PENDING' ? 'Chờ tới lượt' : 'Đang tải lên server'}
+      </Tag>
+      {upload.status === 'SENDING' && (
+        <Progress percent={upload.percent} size="small" status="active" />
+      )}
+    </Space>
+  );
 }
 
 /**
@@ -942,16 +1025,11 @@ function RealContentManagementPage() {
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   /** Tab đang mở trong modal "Thêm bài": tải từ máy hay nhập từ link Drive. */
   const [createTab, setCreateTab] = useState<'local' | 'drive'>('local');
-  const [uploading, setUploading] = useState(false);
-  /** % byte đã đẩy lên server (0–100) — nguồn dữ liệu cho thanh progress. */
-  const [uploadPercent, setUploadPercent] = useState(0);
   /**
-   * `uploading`: đang đẩy byte lên server · `processing`: server đã nhận đủ file,
-   * đang stream sang Drive + tạo bản ghi content (không còn % để hiện).
+   * Hàng đợi phía trình duyệt cho chặng "đẩy byte lên server". Bấm Upload là
+   * modal đóng ngay, byte chạy nền — video 200MB không còn khoá giao diện.
    */
-  const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploading' | 'processing'>(
-    'idle',
-  );
+  const localQueue = useLocalUploadQueue();
   const [titleTouched, setTitleTouched] = useState(false);
   const [editForm] = Form.useForm();
   const [createForm] = Form.useForm();
@@ -1012,26 +1090,17 @@ function RealContentManagementPage() {
     label: e.isActive ? e.name : `${e.name} (đã khoá)`,
   }));
   const editorSelectOptions = editorFilterOptions;
-  const createJobMutation = useCreateMediaUploadJob();
   const retryJobMutation = useRetryMediaUploadJob();
   const invalidateContentAssets = useInvalidateContentAssets();
   // Chỉ poll khi có job chưa kết thúc — hook tự tắt interval khi danh sách sạch.
   const { data: uploadJobs } = useMediaUploadJobs();
-  /**
-   * Modal chỉ bị khoá trong lúc **đẩy byte lên server**. Xong bước đó là 202 →
-   * đóng modal, phần đẩy Drive chạy nền nên người dùng bấm Upload tiếp được ngay.
-   */
-  const uploadBusy = uploading;
-
   /** Đóng + reset modal "Thêm bài" — dùng chung cho cả hai tab. */
   const closeCreateModal = useCallback(() => {
-    // Đang đẩy byte lên server thì không cho đóng giữa chừng.
-    if (uploading) return;
     setCreateOpen(false);
     setFileList([]);
     setTitleTouched(false);
     createForm.resetFields();
-  }, [uploading, createForm]);
+  }, [createForm]);
   const bulkDeleteMutation = useBulkDeleteContentAssets();
   const bulkActiveMutation = useBulkSetActiveContentAssets();
   const updateMutation = useUpdateContentAsset();
@@ -1115,10 +1184,14 @@ function RealContentManagementPage() {
    */
   const pendingJobRows = useMemo<ContentRow[]>(() => {
     if (page !== 1) return [];
-    return (uploadJobs ?? [])
-      .filter((job) => isActiveUploadJob(job) || job.status === 'FAILED')
-      .map(uploadJobToRow);
-  }, [uploadJobs, page]);
+    return [
+      // Chặng sớm nhất trước: byte còn đang đi từ máy người dùng lên server.
+      ...localQueue.uploads.map(localUploadToRow),
+      ...(uploadJobs ?? [])
+        .filter((job) => isActiveUploadJob(job) || job.status === 'FAILED')
+        .map(uploadJobToRow),
+    ];
+  }, [uploadJobs, localQueue.uploads, page]);
 
   // PUBLISHING/PUBLISHED là địa hạt của bot — khoá luôn ô trạng thái ở UI.
   const editStatusLocked =
@@ -1222,46 +1295,27 @@ function RealContentManagementPage() {
       (item) => (item.originFileObj ?? item) as unknown as File,
     );
 
-    setUploading(true);
-    setUploadPercent(0);
-    setUploadPhase('uploading');
-    try {
-      // Cả lô ảnh đi trong MỘT request (⇒ 1 bài nhiều ảnh) và chỉ đẩy tới
-      // **server**; phần lên Google Drive do worker nền làm sau.
-      await createJobMutation.mutateAsync({
-        body: {
-          title: values.title,
-          category: values.category,
-          caption: values.caption,
-          hashtags: values.hashtags,
-          assignedPageIds: values.assignedPageIds ?? [],
-          editorId: values.editorId,
-        },
-        files: rawFiles,
-        onProgress: (percent) => {
-          setUploadPercent(percent);
-          if (percent >= 100) setUploadPhase('processing');
-        },
-      });
+    // Không await gì cả: xếp vào hàng đợi client rồi đóng modal NGAY. Byte đi
+    // lên server ở nền, tiến độ % thật hiện trên chính dòng "mờ" của bảng —
+    // video 200MB không còn bắt người dùng ngồi nhìn modal (plan 24b).
+    localQueue.enqueue(
+      {
+        title: values.title,
+        category: values.category,
+        caption: values.caption,
+        hashtags: values.hashtags,
+        assignedPageIds: values.assignedPageIds ?? [],
+        editorId: values.editorId,
+      },
+      rawFiles,
+    );
 
-      message.success(
-        rawFiles.length > 1
-          ? `Đã nhận ${rawFiles.length} ảnh — đang đưa lên Google Drive, bạn có thể upload tiếp`
-          : 'Đã nhận file — đang đưa lên Google Drive, bạn có thể upload tiếp',
-      );
-      // Fire-and-forget: đóng modal ngay, dòng "mờ" trên bảng lo phần còn lại.
-      closeCreateModal();
-    } catch (err) {
-      // Lỗi (kể cả 503 "đang xử lý tối đa N file") ⇒ GIỮ nguyên modal và file đã
-      // chọn, để bấm thử lại ngay mà không phải chọn lại file (plan 23 §3.1).
-      message.error(
-        err instanceof ApiError ? err.message : 'Gửi file lên server thất bại',
-      );
-    } finally {
-      setUploading(false);
-      setUploadPhase('idle');
-      setUploadPercent(0);
-    }
+    message.success(
+      rawFiles.length > 1
+        ? `Đã xếp ${rawFiles.length} ảnh vào hàng đợi tải lên — bạn làm việc khác được ngay`
+        : 'Đã xếp file vào hàng đợi tải lên — bạn làm việc khác được ngay',
+    );
+    closeCreateModal();
   };
 
   /** "Thử lại" ngay trên dòng mờ bị lỗi — dùng lại file tạm còn trên server. */
@@ -1281,7 +1335,7 @@ function RealContentManagementPage() {
       align: 'center',
       // Dòng mờ chưa phải bài trong kho ⇒ không chiếm số thứ tự của bài thật.
       render: (_, record, index) =>
-        record.uploadJob
+        isPendingRow(record)
           ? '—'
           : (page - 1) * pageSize + index + 1 - pendingJobRows.length,
     },
@@ -1301,13 +1355,15 @@ function RealContentManagementPage() {
             {v}
           </Text>
           <Text type="secondary" style={{ fontSize: 12 }} ellipsis title={record.createdBy.email}>
-            {record.uploadJob
-              ? `${record.uploadJob.originalFilename}${
-                  record.uploadJob.fileCount > 1
-                    ? ` +${record.uploadJob.fileCount - 1} file`
-                    : ''
-                }`
-              : record.createdBy.name}
+            {(() => {
+              const pending = record.uploadJob ?? record.localUpload;
+              if (pending === undefined) return record.createdBy.name;
+              const name =
+                'originalFilename' in pending
+                  ? pending.originalFilename
+                  : pending.filename;
+              return `${name}${pending.fileCount > 1 ? ` +${pending.fileCount - 1} file` : ''}`;
+            })()}
           </Text>
         </Space>
       ),
@@ -1318,6 +1374,16 @@ function RealContentManagementPage() {
       width: 150,
       render: (_, record) => {
         const job = record.uploadJob;
+        if (record.localUpload) {
+          const local = record.localUpload;
+          return (
+            <LocalUploadStatusCell
+              upload={local}
+              onRetry={() => localQueue.retry(local.id)}
+              onDismiss={() => localQueue.dismiss(local.id)}
+            />
+          );
+        }
         return job ? (
           <UploadJobStatusCell
             job={job}
@@ -1391,7 +1457,7 @@ function RealContentManagementPage() {
       dataIndex: 'assignments',
       width: 220,
       render: (_, record) =>
-        record.uploadJob ? (
+        isPendingRow(record) ? (
           // Phân bổ đã gửi kèm form nhưng chỉ được ghi khi worker tạo bài xong.
           <Text type="secondary">Chờ xử lý xong</Text>
         ) : record.assignments.length === 0 ? (
@@ -1419,7 +1485,7 @@ function RealContentManagementPage() {
       width: 100,
       render: (_, record) =>
         // Dòng "mờ" chưa có bài để sửa/xoá — nút "Thử lại" nằm ở cột Trạng thái.
-        record.uploadJob ? null : (
+        isPendingRow(record) ? null : (
           <Space>
             {can(user.role, 'content:edit') && (
               <Button type="text" icon={<EditOutlined />} onClick={() => openEdit(record)} />
@@ -1611,8 +1677,8 @@ function RealContentManagementPage() {
                 // Bài đã đăng lên page thì backend từ chối xoá ⇒ khoá luôn ở đây
                 // cho khỏi chọn nhầm (chọn-tất-cả cũng tự bỏ qua các dòng này).
                 getCheckboxProps: (record) => ({
-                  disabled: record.uploadJob !== undefined || !isDeletable(record),
-                  title: record.uploadJob
+                  disabled: isPendingRow(record) || !isDeletable(record),
+                  title: isPendingRow(record)
                     ? 'File đang được xử lý — chưa phải bài trong kho'
                     : isDeletable(record)
                       ? undefined
@@ -1622,7 +1688,7 @@ function RealContentManagementPage() {
             : undefined
         }
         rowClassName={(record) =>
-          record.uploadJob ? 'row-uploading' : record.isActive ? '' : 'row-inactive'
+          isPendingRow(record) ? 'row-uploading' : record.isActive ? '' : 'row-inactive'
         }
         pagination={{
           current: page,
@@ -1801,13 +1867,8 @@ function RealContentManagementPage() {
         onCancel={closeCreateModal}
         onOk={() => createForm.submit()}
         okText="Upload"
-        confirmLoading={uploadBusy}
-        // Đang upload: khoá mọi lối thoát (nút X, click mask, phím Esc, nút Huỷ)
-        // để không ai đóng modal giữa chừng khi file đang đẩy lên Drive.
-        closable={!uploadBusy}
-        maskClosable={!uploadBusy}
-        keyboard={!uploadBusy}
-        cancelButtonProps={{ disabled: uploadBusy }}
+        // Không còn trạng thái "đang bận": bấm Upload là xếp hàng đợi rồi đóng
+        // ngay, nên modal không bao giờ phải khoá (plan 24b).
         // Tab nhập-từ-link tự dựng nút bấm riêng (Kiểm tra / Nhập N bài) nên
         // footer mặc định của Modal chỉ đúng cho tab tải-từ-máy.
         footer={createTab === 'drive' ? null : undefined}
@@ -1821,43 +1882,8 @@ function RealContentManagementPage() {
               key: 'local',
               label: 'Tải từ máy',
               children: (
-        <div style={{ position: 'relative' }}>
-          {uploadBusy && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: -8,
-                zIndex: 10,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 12,
-                padding: 24,
-                borderRadius: 8,
-                background: 'rgba(255, 255, 255, 0.88)',
-                backdropFilter: 'blur(2px)',
-                cursor: 'progress',
-              }}
-              // Chặn mọi thao tác chuột/bàn phím vào form phía dưới.
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Progress
-                percent={uploadPercent}
-                status="active"
-                style={{ width: '80%', margin: 0 }}
-              />
-              <Text strong>
-                {uploadPhase === 'processing'
-                  ? 'Đang xử lý trên Google Drive...'
-                  : `Đang tải file lên... ${uploadPercent}%`}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12, textAlign: 'center' }}>
-                Vui lòng không đóng cửa sổ này cho tới khi hoàn tất.
-              </Text>
-            </div>
-          )}
-          <Form form={createForm} layout="vertical" onFinish={handleCreate} disabled={uploadBusy}>
+        <div>
+          <Form form={createForm} layout="vertical" onFinish={handleCreate}>
           <Form.Item
             label="File ảnh/video"
             required

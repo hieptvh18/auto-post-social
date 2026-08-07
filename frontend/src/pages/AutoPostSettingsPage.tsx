@@ -343,7 +343,7 @@ function RealAutoPostSettingsPage() {
       {isLoading ? (
         <Spin />
       ) : !configs || configs.length === 0 ? (
-        <Empty description="Chưa có Facebook Page nào — thêm page ở mục Quản lý Page trước" />
+        <Empty description="Chưa có Facebook Page nào đang hoạt động — thêm page hoặc bỏ tạm dừng ở mục Quản lý Page trước" />
       ) : visibleConfigs.length === 0 ? (
         <Empty description="Không có page nào khớp bộ lọc" />
       ) : (

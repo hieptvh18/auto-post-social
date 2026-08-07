@@ -65,7 +65,7 @@ export class AutoPostConfigsService {
    * giờ nhưng bài chưa được phân bổ page ⇒ SKIPPED/NO_CONTENT).
    */
   async findAllConfigs(): Promise<AutoPostConfigResponse[]> {
-    const pages = await this.repository.findPagesWithSlots();
+    const pages = await this.repository.findPagesWithSlots(true);
     const today = todayInTz(this.clock.now(), this.appConfig.timezone);
     const runs = await this.slotRuns.findByRunDate(today);
     const runBySlotId = new Map(runs.map((run) => [run.slotId, run]));

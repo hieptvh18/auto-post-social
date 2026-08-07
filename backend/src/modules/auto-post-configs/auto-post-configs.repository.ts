@@ -34,10 +34,14 @@ export interface UpdateSlotData {
 export class AutoPostConfigsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Chỉ page chưa xoá. Page tạm dừng (`isActive=false`) vẫn hiện để còn sửa config. */
-  findPagesWithSlots(): Promise<PageWithSlots[]> {
+  /**
+   * Chỉ page chưa xoá. `activeOnly = true` bỏ luôn page đang tạm dừng
+   * (`isActive = false`) — màn Cài đặt đăng bài tự động không hiện page tạm dừng
+   * vì Bot không bao giờ chạy cho page đó.
+   */
+  findPagesWithSlots(activeOnly = false): Promise<PageWithSlots[]> {
     return this.prisma.facebookPage.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(activeOnly ? { isActive: true } : {}) },
       orderBy: { pageName: 'asc' },
       include: { autoPostSlots: { orderBy: { time: 'asc' } } },
     });
