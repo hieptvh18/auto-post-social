@@ -109,6 +109,8 @@ export interface CreateContentAssetData {
   thumbnailUrl?: string;
   mimeType?: string;
   fileSize?: number;
+  /** Plan 24: fileId gốc bên Drive người khác (bài nhập từ link). */
+  sourceDriveFileId?: string;
   createdById: string;
   /** Người upload cũng là người "sửa" đầu tiên — UI không bị trống cột này. */
   updatedById: string;
@@ -224,6 +226,7 @@ export class ContentAssetsRepository {
         mimeType: data.mimeType,
         fileSize:
           data.fileSize === undefined ? undefined : BigInt(data.fileSize),
+        sourceDriveFileId: data.sourceDriveFileId,
         createdById: data.createdById,
         updatedById: data.updatedById,
         editorId: data.editorId,

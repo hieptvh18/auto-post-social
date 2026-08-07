@@ -127,6 +127,14 @@ export class AppConfigService {
     };
   }
 
+  /** Nhập bài từ link Google Drive (plan 24) — `modules/media-upload-jobs`. */
+  get driveImport(): { concurrency: number; maxLinksPerRequest: number } {
+    return {
+      concurrency: this.get('DRIVE_IMPORT_CONCURRENCY'),
+      maxLinksPerRequest: this.get('DRIVE_IMPORT_MAX_LINKS_PER_REQUEST'),
+    };
+  }
+
   get autoPost(): { enabled: boolean; maxPostPerSlot: number } {
     return {
       enabled: this.get('AUTOPOST_ENABLED'),

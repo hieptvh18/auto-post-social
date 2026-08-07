@@ -45,6 +45,95 @@ function isInvalidGrant(error: GoogleApiErrorShape): boolean {
 }
 
 /**
+ * Mã lỗi khi thao tác trên file **nguồn** (ngoài folder của tool, plan 24).
+ *
+ * Tách riêng khỏi `mapDriveError` vì bước "Kiểm tra link" cần **phân loại** được
+ * lỗi để hiện đúng cách khắc phục cho từng dòng, chứ không chỉ cần một câu 502.
+ */
+export type DriveFileErrorCode =
+  | 'NOT_FOUND_OR_NO_ACCESS'
+  | 'COPY_DISABLED'
+  | 'RATE_LIMITED'
+  | 'QUOTA_EXCEEDED'
+  | 'UNKNOWN';
+
+/** Lỗi thao tác trên một file Drive cụ thể, có mã để UI hiện đúng gợi ý. */
+export class DriveFileError extends BadGatewayException {
+  constructor(
+    readonly code: DriveFileErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Phân loại lỗi googleapis cho `getMetadata()`/`copy()`.
+ *
+ * Khác `mapDriveError` ở chỗ: 403/404 ở đây **không** phải "sai Folder ID của
+ * tool" mà là "file của người khác chưa được chia sẻ" — thông điệp phải nói
+ * đúng việc user cần làm (§0.4 của plan 24).
+ */
+export function mapDriveFileError(error: unknown, context: string): never {
+  const parsed = readError(error);
+  const { code, message, errors } = parsed;
+  const reason = errors?.[0]?.reason;
+
+  logger.error(
+    `Google Drive lỗi khi ${context}: code=${String(code)} reason=${String(
+      reason,
+    )} message=${String(message)}`,
+  );
+
+  // Token chết vẫn phải là DriveAuthExpiredError để factory xoá token đã lưu.
+  if (isInvalidGrant(parsed)) throw new DriveAuthExpiredError();
+
+  if (reason === 'cannotCopyFile') {
+    throw new DriveFileError(
+      'COPY_DISABLED',
+      'Chủ file đã tắt quyền tải/sao chép nên không copy được. ' +
+        'Hãy xin quyền Người chỉnh sửa, hoặc nhờ họ bỏ tuỳ chọn "Người xem không được tải xuống, in, sao chép".',
+    );
+  }
+
+  if (
+    reason === 'storageQuotaExceeded' ||
+    /storage quota/i.test(message ?? '')
+  ) {
+    throw new DriveFileError(
+      'QUOTA_EXCEEDED',
+      'Google Drive của tài khoản đang kết nối đã hết dung lượng — không tạo được bản sao. ' +
+        'Hãy dọn bớt file hoặc nâng dung lượng rồi thử lại.',
+    );
+  }
+
+  if (
+    code === 429 ||
+    reason === 'rateLimitExceeded' ||
+    reason === 'userRateLimitExceeded'
+  ) {
+    throw new DriveFileError(
+      'RATE_LIMITED',
+      'Google Drive đang giới hạn tốc độ truy cập — chờ một lát rồi bấm Kiểm tra lại.',
+    );
+  }
+
+  if (code === 404 || code === 403) {
+    throw new DriveFileError(
+      'NOT_FOUND_OR_NO_ACCESS',
+      'Không đọc được file: link sai hoặc file đang ở chế độ riêng tư.',
+    );
+  }
+
+  throw new DriveFileError(
+    'UNKNOWN',
+    `Lỗi khi ${context} trên Google Drive: ${String(
+      message ?? 'không rõ nguyên nhân',
+    )}`,
+  );
+}
+
+/**
  * Wrap lỗi googleapis thành domain error (rule 01 §Lỗi).
  * Log nguyên response gốc, nhưng message trả ra ngoài phải nói được cách khắc phục.
  */

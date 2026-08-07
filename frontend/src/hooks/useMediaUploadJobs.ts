@@ -17,6 +17,7 @@ export const MEDIA_UPLOAD_JOBS_KEY = 'media-upload-jobs';
 const ACTIVE_STATUSES: MediaUploadJobResponse['status'][] = [
   'QUEUED',
   'UPLOADING_TO_DRIVE',
+  'COPYING_FROM_DRIVE',
 ];
 
 /** Đủ nhanh để thấy dòng mờ đổi trạng thái, đủ chậm để không đập vào backend. */

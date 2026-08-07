@@ -85,6 +85,14 @@ export interface CreateContentAssetInput {
   editorId?: string;
   assignedPageIds?: string[];
   extraFiles?: CreateContentAssetFileInput[];
+  /** Plan 24: fileId GỐC bên Drive người khác khi bài được nhập bằng link. */
+  sourceDriveFileId?: string;
+  /**
+   * Plan 24 §0.3-1: ép bài vào hàng chờ duyệt **kể cả** khi actor là ADMIN.
+   * Dùng khi nhập từ link mà chưa có caption — caption `'-'` không phải nội
+   * dung đăng được, tự duyệt là mở đường cho Bot đăng bài "-" lên Page thật.
+   */
+  forceReview?: boolean;
 }
 
 /** Một ảnh phụ của bài nhiều ảnh — file đã đẩy lên Drive xong. */
@@ -223,7 +231,9 @@ export class ContentAssetsService {
 
     // ADMIN tự upload thì khỏi phải tự duyệt lại bài của chính mình: vào thẳng
     // APPROVED và ghi luôn người duyệt. Role khác vẫn qua hàng chờ duyệt.
-    const autoApproved = actor.role === UserRole.ADMIN;
+    // `forceReview` thắng tất cả (bài nhập từ link chưa có caption).
+    const autoApproved =
+      actor.role === UserRole.ADMIN && dto.forceReview !== true;
 
     const created = await this.repository.create({
       title: dto.title,
@@ -238,6 +248,7 @@ export class ContentAssetsService {
       thumbnailUrl: dto.thumbnailUrl,
       mimeType: dto.mimeType,
       fileSize: dto.fileSize,
+      sourceDriveFileId: dto.sourceDriveFileId,
       createdById: actor.id,
       updatedById: actor.id,
       editorId: dto.editorId,

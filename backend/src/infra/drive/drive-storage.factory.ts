@@ -4,6 +4,7 @@ import { SettingsService } from '../../modules/settings/settings.service';
 import type { ResolvedDriveConfig } from '../../modules/settings/settings.types';
 import type {
   DriveFile,
+  DriveFileMeta,
   DriveStorage,
   UploadFileInput,
 } from './drive-storage.interface';
@@ -39,6 +40,14 @@ class OauthAwareDriveStorage implements DriveStorage {
 
   delete(fileId: string): Promise<void> {
     return this.run(() => this.inner.delete(fileId));
+  }
+
+  getMetadata(fileId: string): Promise<DriveFileMeta> {
+    return this.run(() => this.inner.getMetadata(fileId));
+  }
+
+  copy(fileId: string, name?: string): Promise<DriveFile> {
+    return this.run(() => this.inner.copy(fileId, name));
   }
 
   private async run<T>(action: () => Promise<T>): Promise<T> {

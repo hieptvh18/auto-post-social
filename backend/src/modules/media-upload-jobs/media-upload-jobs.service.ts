@@ -13,6 +13,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Queue } from 'bullmq';
 import {
   MediaType,
+  MediaUploadSource,
   MediaUploadStatus,
   UserRole,
 } from '../../../generated/prisma/client';
@@ -34,7 +35,8 @@ import {
   type MediaUploadJobResponse,
 } from './media-upload-job.mapper';
 import {
-  MEDIA_UPLOAD_BACKOFF_MS,
+  buildMediaJobOptions,
+  DRIVE_IMPORT_QUEUE,
   MEDIA_UPLOAD_MAX_ATTEMPTS,
   MEDIA_UPLOAD_QUEUE,
   type MediaUploadFileInfo,
@@ -75,6 +77,10 @@ export class MediaUploadJobsService implements OnModuleInit {
     private readonly clock: ClockService,
     @InjectQueue(MEDIA_UPLOAD_QUEUE)
     private readonly queue: Queue<MediaUploadJobData>,
+    // Retry dùng chung cho cả 2 luồng ⇒ service này phải biết cả hàng đợi nhập
+    // từ link, nếu không job DRIVE_LINK sẽ được đẩy vào worker sai (plan 24).
+    @InjectQueue(DRIVE_IMPORT_QUEUE)
+    private readonly driveImportQueue: Queue<MediaUploadJobData>,
   ) {}
 
   /**
@@ -88,10 +94,14 @@ export class MediaUploadJobsService implements OnModuleInit {
 
     // Xoá job cũ khỏi Redis TRƯỚC khi đánh FAILED: nếu để lại, worker vừa khởi
     // động sẽ nhận đúng những job vừa bị xoá file tạm và chỉ tạo thêm rác log.
-    try {
-      await this.queue.obliterate({ force: true });
-    } catch (error) {
-      this.logger.warn(`Không dọn được hàng đợi upload: ${String(error)}`);
+    for (const queue of [this.queue, this.driveImportQueue]) {
+      try {
+        await queue.obliterate({ force: true });
+      } catch (error) {
+        this.logger.warn(
+          `Không dọn được hàng đợi ${queue.name}: ${String(error)}`,
+        );
+      }
     }
 
     for (const job of stale) {
@@ -134,7 +144,7 @@ export class MediaUploadJobsService implements OnModuleInit {
         createdById: actor.id,
       });
 
-      await this.enqueue(job.id, `media-upload-${job.id}`);
+      await this.enqueue(job.id, `media-upload-${job.id}`, job.source);
       return toMediaUploadJobResponse(job);
     } catch (error) {
       // Không tạo được job ⇒ file tạm không còn ai sở hữu, xoá ngay.
@@ -171,7 +181,12 @@ export class MediaUploadJobsService implements OnModuleInit {
         'Chỉ thử lại được job đang ở trạng thái thất bại',
       );
     }
-    if (job.filesRemovedAt !== null) {
+    // Job nhập từ link không có file tạm: nguồn nằm bên Drive nên thử lại lúc
+    // nào cũng được (miễn là quyền chia sẻ chưa bị gỡ).
+    if (
+      job.source === MediaUploadSource.LOCAL_FILE &&
+      job.filesRemovedAt !== null
+    ) {
       throw new UnprocessableEntityException(
         'File tạm của job này đã bị dọn — vui lòng chọn lại file và upload lại',
       );
@@ -183,23 +198,57 @@ export class MediaUploadJobsService implements OnModuleInit {
     });
     // Bull bỏ qua LẶNG LẼ khi add trùng jobId đã tồn tại trong Redis ⇒ phải xoá
     // bản cũ và dùng id mới (cùng cạm bẫy đã gặp ở publish job retry, plan 07).
+    const queue = this.queueFor(job.source);
     if (job.bullJobId !== null) {
-      await this.queue.remove(job.bullJobId).catch(() => undefined);
+      await queue.remove(job.bullJobId).catch(() => undefined);
     }
-    await this.enqueue(id, `media-upload-${id}-retry-${Date.now()}`);
+    await this.enqueue(
+      id,
+      `${queue.name}-${id}-retry-${Date.now()}`,
+      job.source,
+    );
 
     return toMediaUploadJobResponse(updated);
   }
 
   /**
-   * Một lượt worker: đẩy toàn bộ file của job lên Drive rồi tạo bài qua **đúng**
-   * `ContentAssetsService.create()` mà `POST /content-assets` dùng.
+   * Một lượt worker của luồng **upload từ máy**: đẩy file lên Drive rồi tạo bài
+   * qua **đúng** `ContentAssetsService.create()` mà `POST /content-assets` dùng.
    */
   async process(input: ProcessMediaUploadInput): Promise<void> {
+    await this.runJob(
+      input,
+      MediaUploadSource.LOCAL_FILE,
+      MediaUploadStatus.UPLOADING_TO_DRIVE,
+      (job) => this.uploadAndCreateAsset(job),
+    );
+  }
+
+  /**
+   * Khung chung cho **cả hai** luồng job media (upload từ máy · nhập từ link):
+   * chống chạy trùng, ghi trạng thái, và — chỗ dễ sai nhất — **lỗi khi còn lượt
+   * retry phải trả job về `QUEUED`**, không phải `FAILED`. Để `FAILED` giữa
+   * chừng thì guard đếm hụt job đang chạy và chính lượt retry sau đó bị bỏ qua
+   * (vì worker chỉ nhận job `QUEUED` để không tạo bài trùng).
+   *
+   * `work` chỉ lo phần khác nhau: đưa file lên Drive rồi trả `contentAssetId`.
+   */
+  async runJob(
+    input: ProcessMediaUploadInput,
+    source: MediaUploadSource,
+    runningStatus: MediaUploadStatus,
+    work: (job: MediaUploadJobRecord) => Promise<string>,
+  ): Promise<void> {
     const job = await this.repository.findById(input.mediaUploadJobId);
     if (job === null) {
       this.logger.warn(
         `Job upload ${input.mediaUploadJobId} không còn tồn tại`,
+      );
+      return;
+    }
+    if (job.source !== source) {
+      this.logger.warn(
+        `Bỏ qua job ${job.id}: nguồn ${job.source} không thuộc worker ${source}`,
       );
       return;
     }
@@ -212,12 +261,12 @@ export class MediaUploadJobsService implements OnModuleInit {
     }
 
     await this.repository.update(job.id, {
-      status: MediaUploadStatus.UPLOADING_TO_DRIVE,
+      status: runningStatus,
       attemptCount: input.attemptNo,
     });
 
     try {
-      const contentAssetId = await this.uploadAndCreateAsset(job);
+      const contentAssetId = await work(job);
       await this.removeTempFiles(job);
       await this.repository.update(job.id, {
         status: MediaUploadStatus.SUCCESS,
@@ -225,7 +274,7 @@ export class MediaUploadJobsService implements OnModuleInit {
         errorMessage: null,
         filesRemovedAt: this.clock.now(),
       });
-      this.logger.log(`Job upload ${job.id} xong → content ${contentAssetId}`);
+      this.logger.log(`Job media ${job.id} xong → content ${contentAssetId}`);
     } catch (error) {
       const message = messageOf(error);
       // Còn lượt thử ⇒ trả về QUEUED để lượt sau chạy tiếp (và job vẫn được
@@ -282,6 +331,11 @@ export class MediaUploadJobsService implements OnModuleInit {
     // Tuần tự trong 1 job: song song hoá ở đây sẽ nhân RAM lên theo số ảnh,
     // trong khi độ song song mong muốn đã được điều khiển bằng concurrency worker.
     for (const file of job.files) {
+      if (file.tempPath === undefined) {
+        throw new Error(
+          `File "${file.originalFilename}" không có đường dẫn tạm — job hỏng dữ liệu`,
+        );
+      }
       const buffer = await readFile(file.tempPath);
       const result = await storage.upload({
         filename: file.originalFilename,
@@ -322,6 +376,7 @@ export class MediaUploadJobsService implements OnModuleInit {
         editorId: job.metadata.editorId,
         assignedPageIds: job.metadata.assignedPageIds,
         extraFiles,
+        forceReview: job.metadata.forceReview,
       },
       // Actor = người bấm Upload, không phải "Bot": quyền duyệt/ownership của
       // bài phải giống hệt khi họ gọi `POST /content-assets` trực tiếp.
@@ -382,23 +437,36 @@ export class MediaUploadJobsService implements OnModuleInit {
     }));
   }
 
-  private async enqueue(jobId: string, bullJobId: string): Promise<void> {
-    await this.queue.add(
-      MEDIA_UPLOAD_QUEUE,
+  private queueFor(source: MediaUploadSource): Queue<MediaUploadJobData> {
+    return source === MediaUploadSource.DRIVE_LINK
+      ? this.driveImportQueue
+      : this.queue;
+  }
+
+  private async enqueue(
+    jobId: string,
+    bullJobId: string,
+    source: MediaUploadSource,
+  ): Promise<void> {
+    const queue = this.queueFor(source);
+    await queue.add(
+      queue.name,
       { mediaUploadJobId: jobId },
-      {
-        jobId: bullJobId,
-        attempts: MEDIA_UPLOAD_MAX_ATTEMPTS,
-        backoff: { type: 'exponential', delay: MEDIA_UPLOAD_BACKOFF_MS },
-        removeOnComplete: 100,
-        removeOnFail: 500,
-      },
+      buildMediaJobOptions(bullJobId),
     );
     await this.repository.update(jobId, { bullJobId });
   }
 
+  /**
+   * Job nhập từ link không có `tempPath` ⇒ không có gì để dọn. Lọc ở đây thay vì
+   * ở nơi gọi để cron/`onModuleInit`/retry không phải nhớ luật này.
+   */
   private async removeTempFiles(job: MediaUploadJobRecord): Promise<void> {
-    await this.removeFilePaths(job.files.map((file) => file.tempPath));
+    await this.removeFilePaths(
+      job.files.flatMap((file) =>
+        file.tempPath === undefined ? [] : [file.tempPath],
+      ),
+    );
   }
 
   private async removeFilePaths(paths: string[]): Promise<void> {

@@ -17,6 +17,10 @@ import { MediaUploadJobsRepository } from './media-upload-jobs.repository';
  *
  * Đếm trên **toàn hệ thống**, không theo từng user: tài nguyên bị bảo vệ (đĩa,
  * RAM) là của cả server, giới hạn per-user không chặn được gì.
+ *
+ * Plan 24: chỉ đếm job `LOCAL_FILE`. Job nhập từ link Drive không ghi byte nào
+ * xuống đĩa (copy phía Google) nên đưa nó vào trần này chỉ khiến dán vài chục
+ * link là dính 503 vô lý — nó có giới hạn riêng ở tầng DTO.
  */
 @Injectable()
 export class MediaUploadLimitGuard implements CanActivate {
@@ -27,7 +31,7 @@ export class MediaUploadLimitGuard implements CanActivate {
 
   async canActivate(): Promise<boolean> {
     const max = this.config.mediaUpload.maxPendingJobs;
-    const pending = await this.repository.countPending();
+    const pending = await this.repository.countPendingLocalFiles();
 
     if (pending >= max) {
       // Quá tải tạm thời, không phải lỗi input của request này ⇒ 503.

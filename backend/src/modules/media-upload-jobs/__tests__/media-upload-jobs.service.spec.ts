@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import {
+  MediaUploadSource,
   MediaUploadStatus,
   UserRole,
 } from '../../../../generated/prisma/client';
@@ -73,6 +74,7 @@ const makeJob = (
 ): MediaUploadJobRecord => ({
   id: 'job-1',
   status: MediaUploadStatus.QUEUED,
+  source: MediaUploadSource.LOCAL_FILE,
   originalFilename: 'anh-1.jpg',
   fileCount: 1,
   totalSize: 1024n,
@@ -117,7 +119,7 @@ interface Mocks {
   repository: jest.Mocked<
     Pick<
       MediaUploadJobsRepository,
-      | 'countPending'
+      | 'countPendingLocalFiles'
       | 'create'
       | 'findById'
       | 'findMany'
@@ -131,7 +133,10 @@ interface Mocks {
   storage: jest.Mocked<Pick<DriveStorage, 'upload'>>;
   queue: jest.Mocked<
     Pick<Queue<MediaUploadJobData>, 'add' | 'remove' | 'obliterate'>
-  >;
+  > & { name: string };
+  driveImportQueue: jest.Mocked<
+    Pick<Queue<MediaUploadJobData>, 'add' | 'remove' | 'obliterate'>
+  > & { name: string };
   settings: jest.Mocked<Pick<SettingsService, 'getDriveConfig'>>;
 }
 
@@ -139,7 +144,7 @@ const build = (
   overrides: Partial<Mocks> = {},
 ): { service: MediaUploadJobsService } & Mocks => {
   const repository: Mocks['repository'] = {
-    countPending: jest.fn().mockResolvedValue(0),
+    countPendingLocalFiles: jest.fn().mockResolvedValue(0),
     create: jest
       .fn()
       .mockImplementation((data: Record<string, unknown>) => makeJob(data)),
@@ -174,10 +179,21 @@ const build = (
   };
 
   const queue: Mocks['queue'] = {
+    name: 'media-upload',
     add: jest.fn().mockResolvedValue(undefined),
     remove: jest.fn().mockResolvedValue(1),
     obliterate: jest.fn().mockResolvedValue(undefined),
     ...overrides.queue,
+  };
+
+  // Queue thứ hai (plan 24) — service phải biết cả hai để retry đẩy job nhập
+  // từ link vào đúng worker.
+  const driveImportQueue: Mocks['queue'] = {
+    name: 'media-drive-import',
+    add: jest.fn().mockResolvedValue(undefined),
+    remove: jest.fn().mockResolvedValue(1),
+    obliterate: jest.fn().mockResolvedValue(undefined),
+    ...overrides.driveImportQueue,
   };
 
   const settings: Mocks['settings'] = {
@@ -202,9 +218,18 @@ const build = (
     } as unknown as AppConfigService,
     { now: () => NOW },
     queue as unknown as Queue<MediaUploadJobData>,
+    driveImportQueue as unknown as Queue<MediaUploadJobData>,
   );
 
-  return { service, repository, contentAssets, storage, queue, settings };
+  return {
+    service,
+    repository,
+    contentAssets,
+    storage,
+    queue,
+    driveImportQueue,
+    settings,
+  };
 };
 
 beforeEach(() => {

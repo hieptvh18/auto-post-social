@@ -598,8 +598,13 @@ export interface MediaUploadResult {
 export type MediaUploadStatus =
   | 'QUEUED'
   | 'UPLOADING_TO_DRIVE'
+  /** Plan 24: đang copy từ Drive nguồn (không byte nào qua backend). */
+  | 'COPYING_FROM_DRIVE'
   | 'SUCCESS'
   | 'FAILED';
+
+/** Nguồn của một job media: file từ máy (plan 23) hay link Drive (plan 24). */
+export type MediaUploadSource = 'LOCAL_FILE' | 'DRIVE_LINK';
 
 /**
  * Response `GET/POST /media/upload-jobs` — một lần bấm "Upload" đang được xử lý
@@ -608,6 +613,7 @@ export type MediaUploadStatus =
 export interface MediaUploadJobResponse {
   id: string;
   status: MediaUploadStatus;
+  source: MediaUploadSource;
   title: string;
   category: string;
   mediaType: MediaType | null;
@@ -634,6 +640,61 @@ export interface CreateMediaUploadJobBody {
   hashtags?: string;
   assignedPageIds?: string[];
   editorId?: string;
+}
+
+/** Vì sao một dòng link bị bỏ qua khi nhập từ Drive (plan 24). */
+export type DriveImportReason =
+  | 'LINK_INVALID'
+  | 'IS_FOLDER'
+  | 'DUPLICATE_IN_LIST'
+  | 'NOT_FOUND_OR_NO_ACCESS'
+  | 'COPY_DISABLED'
+  | 'NOT_MEDIA'
+  | 'TOO_LARGE'
+  | 'RATE_LIMITED'
+  | 'UNKNOWN';
+
+/** Một dòng KHÔNG nhập được, kèm cách khắc phục để hiện thẳng lên modal. */
+export interface DriveImportSkipped {
+  line: number;
+  link: string;
+  reason: DriveImportReason;
+  message: string;
+}
+
+/**
+ * Một dòng đã dò trước (`POST /media/drive-imports/inspect`). UI dùng để khoá
+ * checkbox "gộp ảnh" khi lô có video — Facebook không ghép video và không trộn
+ * ảnh–video vào một bài feed.
+ */
+export interface DriveImportInspectItem {
+  line: number;
+  link: string;
+  ok: boolean;
+  name: string | null;
+  /** `null` = chưa xác định (link hỏng / không có quyền / không phải media). */
+  mediaType: MediaType | null;
+  reason: DriveImportReason | null;
+  message: string | null;
+}
+
+/** Response `POST /media/drive-imports`. */
+export interface DriveImportResult {
+  jobs: MediaUploadJobResponse[];
+  /** Rỗng = nhập trọn vẹn. */
+  skipped: DriveImportSkipped[];
+  /** File đã từng nhập vào kho — cảnh báo, không chặn. */
+  duplicates: { line: number; link: string; title: string }[];
+}
+
+/**
+ * Body `POST /media/drive-imports` — **chỉ hai thứ người dùng nhập**. Tiêu đề
+ * lấy từ tên file, caption/danh mục/page do backend đặt mặc định (bài vào Chờ
+ * duyệt), sửa sau ở màn Quản lý Ảnh/Video.
+ */
+export interface CreateDriveImportBody {
+  links: string[];
+  mergeImagesIntoOnePost?: boolean;
 }
 
 export type DriveAuthMode = 'service_account' | 'oauth2';

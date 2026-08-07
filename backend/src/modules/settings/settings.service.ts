@@ -125,6 +125,20 @@ export class SettingsService {
     };
   }
 
+  /**
+   * Email của tài khoản Drive đang kết nối — dùng cho câu lỗi "hãy chia sẻ file
+   * cho email này" khi nhập bài từ link (plan 24 §0.4).
+   *
+   * Mượn lại `getDriveSettings()` (bản đã mask) thay vì tự giải mã: ở đây chỉ
+   * cần **đúng một** field email, không được chạm tới phần còn lại của credential.
+   */
+  async getDriveAccountEmail(): Promise<string | null> {
+    const settings = await this.getDriveSettings();
+    return settings.authMode === DriveAuthMode.oauth2
+      ? settings.oauthAccountEmail
+      : settings.serviceAccountEmail;
+  }
+
   async updateDriveSettings(
     dto: UpdateDriveSettingsDto,
     actorId: string,

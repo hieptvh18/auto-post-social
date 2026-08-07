@@ -67,8 +67,17 @@ enum PublishJobEventType {
 enum MediaUploadStatus {
   QUEUED
   UPLOADING_TO_DRIVE
+  /// Plan 24: đang gọi `files.copy` từ Drive nguồn (không byte nào qua server).
+  COPYING_FROM_DRIVE
   SUCCESS
   FAILED
+}
+
+/// Nguồn của một job media (plan 24). Quyết định worker nào xử lý và job có
+/// chiếm đĩa tạm hay không — `MediaUploadLimitGuard` chỉ đếm `LOCAL_FILE`.
+enum MediaUploadSource {
+  LOCAL_FILE
+  DRIVE_LINK
 }
 
 model User {
@@ -162,6 +171,9 @@ model ContentAsset {
   thumbnailUrl  String?       @map("thumbnail_url")
   mimeType      String?       @map("mime_type")
   fileSize      BigInt?       @map("file_size")
+  /// Plan 24: fileId GỐC bên Drive người khác khi bài được nhập bằng link
+  /// (`drive_file_id` là bản copy trong folder tool). null = upload từ máy.
+  sourceDriveFileId String?   @map("source_drive_file_id")
   status        ContentStatus @default(PENDING_REVIEW)
   isAds         Boolean       @default(false) @map("is_ads") // Đạt ADS
   isActive      Boolean       @default(true) @map("is_active") // false = ngưng dùng: Bot không lấy nữa (khác status duyệt)
@@ -189,6 +201,7 @@ model ContentAsset {
   @@index([createdById])
   @@index([isAds])
   @@index([isActive])
+  @@index([sourceDriveFileId]) // Cảnh báo "link này đã nhập rồi" (plan 24)
   @@index([status, isActive, updatedAt]) // Cron picker: APPROVED + đang dùng, order by updated_at ASC
   @@map("content_assets")
 }
@@ -225,6 +238,7 @@ model ContentAssetFile {
 model MediaUploadJob {
   id               String            @id @default(uuid()) @db.Uuid
   status           MediaUploadStatus @default(QUEUED)
+  source           MediaUploadSource @default(LOCAL_FILE)
   originalFilename String            @map("original_filename") // file đầu tiên — chỉ để hiện trên UI
   fileCount        Int               @map("file_count")
   totalSize        BigInt            @map("total_size")
@@ -243,7 +257,8 @@ model MediaUploadJob {
   contentAsset ContentAsset? @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
   createdBy    User          @relation(fields: [createdById], references: [id])
 
-  @@index([status]) // Guard đếm job đang chạy ngầm + cron dọn job đã kết thúc
+  @@index([status]) // Cron dọn job đã kết thúc
+  @@index([source, status]) // Guard chỉ đếm job LOCAL_FILE đang chiếm đĩa (plan 24)
   @@index([createdById, status]) // FE poll "job upload của tôi"
   @@map("media_upload_jobs")
 }

@@ -1,4 +1,8 @@
-import { MediaType, MediaUploadStatus } from '../../../generated/prisma/client';
+import {
+  MediaType,
+  MediaUploadSource,
+  MediaUploadStatus,
+} from '../../../generated/prisma/client';
 import {
   ALLOWED_VIDEO_MIMES,
   ALLOWED_IMAGE_MIMES,
@@ -9,6 +13,8 @@ import type { MediaUploadJobRecord } from './media-upload-jobs.repository';
 export interface MediaUploadJobResponse {
   id: string;
   status: MediaUploadStatus;
+  /** `DRIVE_LINK` ⇒ FE hiện "Đang copy từ Drive" thay vì "Đang tải lên". */
+  source: MediaUploadSource;
   title: string;
   category: string;
   /** `null` khi mime lạ (không nên xảy ra — đã chặn lúc nhận file). */
@@ -34,6 +40,7 @@ export function toMediaUploadJobResponse(
   return {
     id: job.id,
     status: job.status,
+    source: job.source,
     title: job.metadata.title,
     category: job.metadata.category,
     mediaType: detectMediaType(job.files[0]?.mimeType),
@@ -43,8 +50,12 @@ export function toMediaUploadJobResponse(
     errorMessage: job.errorMessage,
     attemptCount: job.attemptCount,
     contentAssetId: job.contentAssetId,
+    // Job nhập từ link luôn thử lại được: nguồn nằm trên Drive người khác, không
+    // phải file tạm trên đĩa server nên `filesRemovedAt` không nói lên điều gì.
     canRetry:
-      job.status === MediaUploadStatus.FAILED && job.filesRemovedAt === null,
+      job.status === MediaUploadStatus.FAILED &&
+      (job.source === MediaUploadSource.DRIVE_LINK ||
+        job.filesRemovedAt === null),
     createdBy: { id: job.createdBy.id, name: job.createdBy.name },
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),

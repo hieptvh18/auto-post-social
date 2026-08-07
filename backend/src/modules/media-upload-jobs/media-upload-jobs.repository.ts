@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  MediaUploadSource,
   MediaUploadStatus,
   type Prisma,
 } from '../../../generated/prisma/client';
@@ -9,10 +10,11 @@ import type {
   MediaUploadMetadata,
 } from './media-upload.constants';
 
-/** Hai trạng thái "đang chiếm tài nguyên" (đĩa + slot hàng đợi). */
+/** Mọi trạng thái "chưa kết thúc" — job đang chiếm slot hàng đợi. */
 export const PENDING_STATUSES = [
   MediaUploadStatus.QUEUED,
   MediaUploadStatus.UPLOADING_TO_DRIVE,
+  MediaUploadStatus.COPYING_FROM_DRIVE,
 ] as const;
 
 /** Người tạo job — cần `role` để worker tạo bài với đúng quyền của người đó. */
@@ -27,6 +29,7 @@ export interface MediaUploadJobActor {
 export interface MediaUploadJobRecord {
   id: string;
   status: MediaUploadStatus;
+  source: MediaUploadSource;
   originalFilename: string;
   fileCount: number;
   totalSize: bigint;
@@ -44,6 +47,8 @@ export interface MediaUploadJobRecord {
 }
 
 export interface CreateMediaUploadJobData {
+  /** Bỏ trống ⇒ `LOCAL_FILE` (đường upload từ máy của plan 23). */
+  source?: MediaUploadSource;
   originalFilename: string;
   files: MediaUploadFileInfo[];
   metadata: MediaUploadMetadata;
@@ -66,6 +71,13 @@ export interface FindMediaUploadJobsFilter {
   limit: number;
 }
 
+/** Đủ để biết một fileId nguồn đã được nhập vào bài nào (plan 24). */
+export interface ImportedSourceFile {
+  sourceDriveFileId: string;
+  contentAssetId: string;
+  title: string;
+}
+
 const CREATOR_INCLUDE = {
   createdBy: { select: { id: true, name: true, email: true, role: true } },
 } as const;
@@ -75,12 +87,18 @@ export class MediaUploadJobsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Đếm job đang chiếm chỗ trên **toàn hệ thống** — tài nguyên bị bảo vệ là đĩa
-   * và RAM của cả server, đếm theo từng user sẽ không chặn được gì.
+   * Đếm job đang chiếm **đĩa tạm** trên toàn hệ thống — tài nguyên bị bảo vệ là
+   * đĩa/RAM của cả server, đếm theo từng user sẽ không chặn được gì.
+   *
+   * Chỉ đếm `LOCAL_FILE`: job `DRIVE_LINK` copy phía Google, không ghi byte nào
+   * xuống đĩa nên không được chiếm suất của trần này (plan 24 §3.5).
    */
-  countPending(): Promise<number> {
+  countPendingLocalFiles(): Promise<number> {
     return this.prisma.mediaUploadJob.count({
-      where: { status: { in: [...PENDING_STATUSES] } },
+      where: {
+        source: MediaUploadSource.LOCAL_FILE,
+        status: { in: [...PENDING_STATUSES] },
+      },
     });
   }
 
@@ -88,6 +106,7 @@ export class MediaUploadJobsRepository {
     const created = await this.prisma.mediaUploadJob.create({
       include: CREATOR_INCLUDE,
       data: {
+        source: data.source,
         originalFilename: data.originalFilename,
         fileCount: data.files.length,
         totalSize: BigInt(data.files.reduce((sum, file) => sum + file.size, 0)),
@@ -159,6 +178,31 @@ export class MediaUploadJobsRepository {
       .then((rows) => rows.map(toRecord));
   }
 
+  /**
+   * Những fileId nguồn nào trong danh sách đã được nhập vào kho rồi — dùng để
+   * **cảnh báo** (không chặn) ở bước xem trước.
+   */
+  async findImportedSourceFiles(
+    sourceDriveFileIds: string[],
+  ): Promise<ImportedSourceFile[]> {
+    if (sourceDriveFileIds.length === 0) return [];
+    const rows = await this.prisma.contentAsset.findMany({
+      where: { sourceDriveFileId: { in: sourceDriveFileIds } },
+      select: { id: true, title: true, sourceDriveFileId: true },
+    });
+    return rows.flatMap((row) =>
+      row.sourceDriveFileId === null
+        ? []
+        : [
+            {
+              sourceDriveFileId: row.sourceDriveFileId,
+              contentAssetId: row.id,
+              title: row.title,
+            },
+          ],
+    );
+  }
+
   async deleteMany(ids: string[]): Promise<number> {
     if (ids.length === 0) return 0;
     const { count } = await this.prisma.mediaUploadJob.deleteMany({
@@ -172,6 +216,7 @@ export class MediaUploadJobsRepository {
 function toRecord(row: {
   id: string;
   status: MediaUploadStatus;
+  source: MediaUploadSource;
   originalFilename: string;
   fileCount: number;
   totalSize: bigint;

@@ -12,12 +12,18 @@ import { DriveModule } from '../../infra/drive/drive.module';
 import { PrismaModule } from '../../infra/prisma/prisma.module';
 import { ContentAssetsModule } from '../content-assets/content-assets.module';
 import { SettingsModule } from '../settings/settings.module';
+import { DriveImportProcessor } from './drive-import.processor';
+import { DriveImportsController } from './drive-imports.controller';
+import { DriveImportsService } from './drive-imports.service';
 import { MediaUploadJobsController } from './media-upload-jobs.controller';
 import { MediaUploadJobsRepository } from './media-upload-jobs.repository';
 import { MediaUploadJobsService } from './media-upload-jobs.service';
 import { MediaUploadLimitGuard } from './media-upload-limit.guard';
 import { MediaUploadProcessor } from './media-upload.processor';
-import { MEDIA_UPLOAD_QUEUE } from './media-upload.constants';
+import {
+  DRIVE_IMPORT_QUEUE,
+  MEDIA_UPLOAD_QUEUE,
+} from './media-upload.constants';
 
 /**
  * Upload media qua hàng đợi (plan 23): request chỉ nhận file xuống đĩa rồi trả
@@ -34,7 +40,12 @@ import { MEDIA_UPLOAD_QUEUE } from './media-upload.constants';
     ClockModule,
     SettingsModule,
     ContentAssetsModule,
-    BullModule.registerQueue({ name: MEDIA_UPLOAD_QUEUE }),
+    BullModule.registerQueue(
+      { name: MEDIA_UPLOAD_QUEUE },
+      // Queue riêng cho nhập-từ-link: 2 loại việc không giành slot của nhau
+      // (plan 24 §3.5).
+      { name: DRIVE_IMPORT_QUEUE },
+    ),
     MulterModule.registerAsync({
       imports: [AppConfigModule],
       inject: [AppConfigService],
@@ -55,13 +66,15 @@ import { MEDIA_UPLOAD_QUEUE } from './media-upload.constants';
       }),
     }),
   ],
-  controllers: [MediaUploadJobsController],
+  controllers: [MediaUploadJobsController, DriveImportsController],
   providers: [
     MediaUploadJobsRepository,
     MediaUploadJobsService,
     MediaUploadLimitGuard,
     MediaUploadProcessor,
+    DriveImportsService,
+    DriveImportProcessor,
   ],
-  exports: [MediaUploadJobsService],
+  exports: [MediaUploadJobsService, DriveImportsService],
 })
 export class MediaUploadJobsModule {}

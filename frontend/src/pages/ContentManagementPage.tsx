@@ -21,6 +21,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -38,6 +39,7 @@ import { mediaApi } from '../api/media.api';
 import { getPageName, getUserDisplayName, mockPages, mockUsers } from '../api/mock/data';
 import { env } from '../config/env';
 import { CategorySelect } from '../components/common/CategorySelect';
+import { DriveImportPanel } from '../components/common/DriveImportPanel';
 import { HashtagInput } from '../components/common/HashtagInput';
 import { PageHeader } from '../components/common/PageHeader';
 import { ContentStatusTag } from '../components/common/StatusTag';
@@ -229,6 +231,7 @@ const UPLOAD_JOB_STATUS_META: Record<
 > = {
   QUEUED: { label: 'Trong hàng đợi', color: 'default' },
   UPLOADING_TO_DRIVE: { label: 'Đang lên Google Drive', color: 'processing' },
+  COPYING_FROM_DRIVE: { label: 'Đang copy từ Drive', color: 'processing' },
   SUCCESS: { label: 'Đã xong', color: 'success' },
   FAILED: { label: 'Upload lỗi', color: 'error' },
 };
@@ -283,7 +286,10 @@ function UploadJobStatusCell({
   onRetry: () => void;
 }) {
   const meta = UPLOAD_JOB_STATUS_META[job.status];
-  const running = job.status === 'QUEUED' || job.status === 'UPLOADING_TO_DRIVE';
+  const running =
+    job.status === 'QUEUED' ||
+    job.status === 'UPLOADING_TO_DRIVE' ||
+    job.status === 'COPYING_FROM_DRIVE';
   return (
     <Space direction="vertical" size={2} style={{ width: '100%' }}>
       <Tag color={meta.color}>{meta.label}</Tag>
@@ -934,6 +940,8 @@ function RealContentManagementPage() {
   const [editing, setEditing] = useState<ContentAssetResponse | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  /** Tab đang mở trong modal "Thêm bài": tải từ máy hay nhập từ link Drive. */
+  const [createTab, setCreateTab] = useState<'local' | 'drive'>('local');
   const [uploading, setUploading] = useState(false);
   /** % byte đã đẩy lên server (0–100) — nguồn dữ liệu cho thanh progress. */
   const [uploadPercent, setUploadPercent] = useState(0);
@@ -1014,6 +1022,16 @@ function RealContentManagementPage() {
    * đóng modal, phần đẩy Drive chạy nền nên người dùng bấm Upload tiếp được ngay.
    */
   const uploadBusy = uploading;
+
+  /** Đóng + reset modal "Thêm bài" — dùng chung cho cả hai tab. */
+  const closeCreateModal = useCallback(() => {
+    // Đang đẩy byte lên server thì không cho đóng giữa chừng.
+    if (uploading) return;
+    setCreateOpen(false);
+    setFileList([]);
+    setTitleTouched(false);
+    createForm.resetFields();
+  }, [uploading, createForm]);
   const bulkDeleteMutation = useBulkDeleteContentAssets();
   const bulkActiveMutation = useBulkSetActiveContentAssets();
   const updateMutation = useUpdateContentAsset();
@@ -1232,10 +1250,7 @@ function RealContentManagementPage() {
           : 'Đã nhận file — đang đưa lên Google Drive, bạn có thể upload tiếp',
       );
       // Fire-and-forget: đóng modal ngay, dòng "mờ" trên bảng lo phần còn lại.
-      setCreateOpen(false);
-      setFileList([]);
-      setTitleTouched(false);
-      createForm.resetFields();
+      closeCreateModal();
     } catch (err) {
       // Lỗi (kể cả 503 "đang xử lý tối đa N file") ⇒ GIỮ nguyên modal và file đã
       // chọn, để bấm thử lại ngay mà không phải chọn lại file (plan 23 §3.1).
@@ -1781,15 +1796,9 @@ function RealContentManagementPage() {
       </Drawer>
 
       <Modal
-        title="Upload Ảnh/Video"
+        title="Thêm Ảnh/Video vào kho"
         open={createOpen}
-        onCancel={() => {
-          if (uploadBusy) return;
-          setCreateOpen(false);
-          setFileList([]);
-          setTitleTouched(false);
-          createForm.resetFields();
-        }}
+        onCancel={closeCreateModal}
         onOk={() => createForm.submit()}
         okText="Upload"
         confirmLoading={uploadBusy}
@@ -1799,8 +1808,19 @@ function RealContentManagementPage() {
         maskClosable={!uploadBusy}
         keyboard={!uploadBusy}
         cancelButtonProps={{ disabled: uploadBusy }}
-        width={560}
+        // Tab nhập-từ-link tự dựng nút bấm riêng (Kiểm tra / Nhập N bài) nên
+        // footer mặc định của Modal chỉ đúng cho tab tải-từ-máy.
+        footer={createTab === 'drive' ? null : undefined}
+        width={createTab === 'drive' ? 760 : 560}
       >
+        <Tabs
+          activeKey={createTab}
+          onChange={(key) => setCreateTab(key as 'local' | 'drive')}
+          items={[
+            {
+              key: 'local',
+              label: 'Tải từ máy',
+              children: (
         <div style={{ position: 'relative' }}>
           {uploadBusy && (
             <div
@@ -1934,6 +1954,27 @@ function RealContentManagementPage() {
           </Form.Item>
           </Form>
         </div>
+              ),
+            },
+            {
+              key: 'drive',
+              label: 'Nhập từ link Google Drive',
+              children: (
+                <DriveImportPanel
+                  onCreated={(jobCount) => {
+                    closeCreateModal();
+                    message.success(
+                      jobCount === 1
+                        ? 'Đã nhận link — đang copy từ Google Drive, bạn có thể làm việc khác'
+                        : `Đã nhận ${jobCount} bài — đang copy từ Google Drive`,
+                    );
+                  }}
+                  onCancel={closeCreateModal}
+                />
+              ),
+            },
+          ]}
+        />
       </Modal>
     </div>
   );

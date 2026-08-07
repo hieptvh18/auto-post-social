@@ -3,12 +3,15 @@ import type { AppConfigService } from '../../../config/app-config.service';
 import type { MediaUploadJobsRepository } from '../media-upload-jobs.repository';
 import { MediaUploadLimitGuard } from '../media-upload-limit.guard';
 
+const countPendingLocalFiles = jest.fn();
+
 const makeGuard = (
   pending: number,
   maxPendingJobs = 20,
 ): MediaUploadLimitGuard => {
+  countPendingLocalFiles.mockResolvedValue(pending);
   const repository = {
-    countPending: jest.fn().mockResolvedValue(pending),
+    countPendingLocalFiles,
   } as unknown as MediaUploadJobsRepository;
   const config = {
     mediaUpload: { maxPendingJobs },
@@ -39,6 +42,16 @@ describe('MediaUploadLimitGuard', () => {
       await expect(makeGuard(5, 5).canActivate()).rejects.toThrow(
         /tối đa 5 file/,
       );
+    });
+
+    it('CHỈ đếm job upload từ máy — job nhập từ link Drive không chiếm đĩa', async () => {
+      // Trần 20 sinh ra để chặn đĩa tạm; job DRIVE_LINK copy phía Google nên
+      // không được tính vào đây, nếu không dán vài chục link là dính 503 vô lý.
+      countPendingLocalFiles.mockClear();
+
+      await makeGuard(0).canActivate();
+
+      expect(countPendingLocalFiles).toHaveBeenCalledTimes(1);
     });
 
     it('đọc ngưỡng từ env, không hardcode 20', async () => {

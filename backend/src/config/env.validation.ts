@@ -245,6 +245,22 @@ export class EnvVars {
   @Min(1)
   MEDIA_UPLOAD_MAX_PENDING_JOBS = 20;
 
+  /**
+   * Số lệnh `files.copy` chạy đồng thời khi nhập bài từ link Drive (plan 24).
+   * Copy chạy phía server Google — **không** tốn RAM/băng thông của mình, nên
+   * để cao hơn `MEDIA_UPLOAD_CONCURRENCY` được.
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  DRIVE_IMPORT_CONCURRENCY = 5;
+
+  /** Trần số link nhận trong MỘT lần dán/một request nhập từ Drive. */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1)
+  DRIVE_IMPORT_MAX_LINKS_PER_REQUEST = 50;
+
   @Transform(toBoolean)
   @IsBoolean()
   AUTOPOST_ENABLED = true;

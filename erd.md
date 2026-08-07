@@ -4,7 +4,7 @@
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
 **Cập nhật:** 2026-08-07
-**Migration tương ứng:** `20260806171728_media_upload_jobs` (plan 23)
+**Migration tương ứng:** `20260807130353_drive_link_import` (plan 24)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -86,6 +86,7 @@ erDiagram
         string thumbnail_url
         string mime_type
         bigint file_size
+        string source_drive_file_id
         enum status
         boolean is_ads
         boolean is_active
@@ -167,6 +168,7 @@ erDiagram
     media_upload_jobs {
         uuid id PK
         enum status
+        enum source
         string original_filename
         int file_count
         bigint total_size
@@ -226,7 +228,8 @@ erDiagram
 | `SlotRunStatus` | `CLAIMED` · `DONE` · `SKIPPED` · `ERROR` | `slot_runs.status` |
 | `PublishJobEventType` | `ENQUEUED` · `STARTED` · `SUCCEEDED` · `FAILED` · `RETRY_SCHEDULED` · `GAVE_UP` | `publish_job_events.event` |
 | `FacebookConnectMode` | `MANUAL_TOKEN` · `FB_LOGIN` | `facebook_pages.connect_mode` |
-| `MediaUploadStatus` | `QUEUED` · `UPLOADING_TO_DRIVE` · `SUCCESS` · `FAILED` | `media_upload_jobs.status` |
+| `MediaUploadStatus` | `QUEUED` · `UPLOADING_TO_DRIVE` · `COPYING_FROM_DRIVE` · `SUCCESS` · `FAILED` | `media_upload_jobs.status` |
+| `MediaUploadSource` | `LOCAL_FILE` · `DRIVE_LINK` | `media_upload_jobs.source` |
 
 ---
 
@@ -255,7 +258,9 @@ erDiagram
 | `publish_jobs` | `(content_asset_id, facebook_page_id)` | Kiểm tra job trùng trong picker |
 | `content_asset_files` | **UNIQUE `(content_asset_id, position)`** | Thứ tự ảnh trong bài là duy nhất, không nhập nhằng khi đăng album |
 | `content_asset_files` | `content_asset_id` | Lấy toàn bộ ảnh phụ của một bài lúc đăng và lúc mở Drawer chi tiết |
-| `media_upload_jobs` | `status` | Guard đếm job `QUEUED`+`UPLOADING_TO_DRIVE` trước mỗi request upload (chạy rất thường xuyên) + cron dọn job đã kết thúc |
+| `media_upload_jobs` | `status` | Cron dọn job đã kết thúc (`SUCCESS`/`FAILED` quá TTL) |
+| `media_upload_jobs` | `(source, status)` | Guard đếm job **`LOCAL_FILE`** đang `QUEUED`/`UPLOADING_TO_DRIVE` trước mỗi request upload (chạy rất thường xuyên). Job `DRIVE_LINK` không chiếm đĩa nên không bị đếm — xem plan 24 §3.5 |
+| `content_assets` | `source_drive_file_id` | Cảnh báo "link Drive này đã nhập vào bài nào rồi" ở bước xem trước của nhập-từ-link |
 | `media_upload_jobs` | `(created_by, status)` | FE poll "job upload của tôi" mỗi 3s trong lúc còn dòng "mờ" trên bảng |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
 | `app_settings` | PK `key` | Số dòng rất nhỏ (1 dòng/nhóm config), tra bằng khoá chính là đủ — không cần index phụ |
@@ -301,7 +306,10 @@ erDiagram
 | Bài album thành công ⇒ record `content_assets` đổi `PUBLISHED` + assignment ghi `facebook_post_id` của **bài feed** (mọi ảnh nằm chung một bài viết, không phải mỗi ảnh một bài) | `PublishJobsRepository.markSuccess()` |
 | `media_upload_jobs.files` = mảng JSON `[{ originalFilename, mimeType, size, tempPath }]` **đúng thứ tự đăng** (phần tử 0 = ảnh đại diện); `metadata` = form lúc submit. Không tách bảng con vì dữ liệu này chỉ sống tới lúc job xong, không ai query theo từng file | `MediaUploadJobsRepository` (parse JSON → type thật cho service/worker) |
 | `media_upload_jobs.files_removed_at != null` ⇒ file tạm đã bị dọn, **không "Thử lại" được nữa** (phải chọn lại file) | `MediaUploadJobsService.retry()` (422) |
-| Job ở `QUEUED`/`UPLOADING_TO_DRIVE` là job **đang chiếm đĩa**; tổng số job như vậy bị chặn ở `MEDIA_UPLOAD_MAX_PENDING_JOBS` (mặc định 20) trên **toàn hệ thống**, không theo từng user ⇒ trần đĩa tạm ≈ 20 × file lớn nhất | `MediaUploadLimitGuard` (503) — chạy trước multer nên request bị từ chối chưa ghi byte nào |
+| Job ở `QUEUED`/`UPLOADING_TO_DRIVE` **và `source = LOCAL_FILE`** là job **đang chiếm đĩa**; tổng số job như vậy bị chặn ở `MEDIA_UPLOAD_MAX_PENDING_JOBS` (mặc định 20) trên **toàn hệ thống**, không theo từng user ⇒ trần đĩa tạm ≈ 20 × file lớn nhất. Job `DRIVE_LINK` **không** bị đếm (copy server-side, 0 byte qua server) | `MediaUploadLimitGuard` (503) — chạy trước multer nên request bị từ chối chưa ghi byte nào |
+| `source = DRIVE_LINK` ⇒ `files[].tempPath` **không tồn tại**, thay bằng `sourceFileId` (fileId gốc bên Drive người khác); job này luôn "Thử lại" được vì nguồn không nằm trên đĩa server ⇒ `files_removed_at` luôn null | `DriveImportsService`, `MediaUploadJobsService.removeTempFiles()` bỏ qua file không có `tempPath` |
+| `content_assets.source_drive_file_id != null` ⇒ bài được nhập từ link Drive; `drive_file_id` là **bản copy** trong folder tool, xoá bài chỉ xoá bản copy, **file gốc bên Drive người khác không bị đụng tới** | `DriveImportsService.processImport()`, `ContentAssetsService.remove()` (chỉ xoá `drive_file_id`) |
+| Nhập từ link mà **caption bỏ trống** ⇒ bài luôn vào `PENDING_REVIEW` kể cả actor là ADMIN (caption `'-'` là placeholder, không phải nội dung đăng được) | `ContentAssetsService.create()` với `forceReview` (plan 24 §0.3-1) |
 | Job còn `QUEUED`/`UPLOADING_TO_DRIVE` lúc boot = worker chết giữa chừng ⇒ **không resume**, chuyển `FAILED` + xoá file tạm | `MediaUploadJobsService.onModuleInit()` |
 | Bài do worker upload tạo ra vẫn mang actor = **người bấm Upload** (không phải Bot), đi qua đúng `ContentAssetsService.create()` của `POST /content-assets` ⇒ quyền duyệt/ownership/audit `CONTENT_UPLOAD` giống hệt | `MediaUploadJobsService.uploadAndCreateAsset()` |
 | `publish_job_events` là nhật ký kỹ thuật (retry, lỗi Graph); `audit_logs` là dấu vết nghiệp vụ (`AUTO_PUBLISH`, actor = Bot ⇒ `user_id = null`) | Hai đường ghi tách bạch, không nhồi stacktrace vào audit |
@@ -318,6 +326,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-08-07 | `20260807130353_drive_link_import` | **Plan 24 (nhập bài từ link Google Drive).** Enum mới `MediaUploadSource` (`LOCAL_FILE`/`DRIVE_LINK`) + giá trị mới `COPYING_FROM_DRIVE` cho `MediaUploadStatus`; `media_upload_jobs.source` (NOT NULL, default `LOCAL_FILE` ⇒ **không cần backfill**) + index `(source, status)`; `content_assets.source_drive_file_id` (nullable) + index. Lý do: thêm đường thứ hai để đưa bài vào kho — dán link Drive, tool gọi `files.copy` (copy phía server Google, **0 byte qua backend**) về folder cấu hình. Dùng lại nguyên bảng `media_upload_jobs` của plan 23 nên dòng "mờ"/"Thử lại"/cron dọn không phải viết lại; cột `source` là thứ duy nhất phân biệt 2 luồng. `source_drive_file_id` chỉ để cảnh báo nhập trùng, **không** unique (user được phép cố ý nhập lại). |
 | 2026-08-07 | `20260806171728_media_upload_jobs` | **Plan 23 (upload media qua hàng đợi).** Enum mới `MediaUploadStatus` (`QUEUED`/`UPLOADING_TO_DRIVE`/`SUCCESS`/`FAILED`) + bảng mới `media_upload_jobs` (`original_filename`, `file_count`, `total_size`, `files` jsonb, `metadata` jsonb, `error_message`, `attempt_count`, `bull_job_id`, `files_removed_at`, `content_asset_id` FK `SET NULL`, `created_by` FK), index `status` và `(created_by, status)`. Lý do: bấm "Upload" không được đứng chờ Drive nữa — request chỉ nhận file xuống đĩa rồi trả 202, worker BullMQ `media-upload` (queue thứ 2 của dự án) đẩy lên Drive và tạo `content_assets` sau. **Hệ quả kiến trúc:** đảo ngược "chỉ stream, không ghi file xuống disk" (`PLAN-MVP.md` §4) — file phải sống ngoài vòng đời request; đổi lại có `MEDIA_UPLOAD_MAX_PENDING_JOBS` chặn trần đĩa + TTL dọn định kỳ. **Không đụng bảng nào có sẵn** ngoài 2 quan hệ ngược trên `users`/`content_assets`. |
 | 2026-08-06 | `20260806*_content_asset_files` | **Plan 22 (nhiều ảnh trong 1 content record) — migration ĐẢO NGƯỢC MỘT PHẦN `20260805170928_album_post`.** (1) **Xoá** `auto_post_slots.assets_per_post` và **xoá nguyên bảng** `publish_job_assets`. (2) Bảng mới `content_asset_files` (`content_asset_id`, `position >= 1`, `drive_file_id`, `drive_url`, `thumbnail_url`, `mime_type`, `file_size`), UNIQUE `(content_asset_id, position)`, cascade theo `content_assets`. **Lý do đảo ngược (quyết định user 2026-08-06):** hướng cũ để Bot tự ghép N record rời rạc thành 1 album — phức tạp (picker phải loại 2 đường), chỉ chạy được với auto-post, và không giúp gì cho đăng tay. Hướng mới gom nhiều ảnh ngay ở **1 record lúc upload** ⇒ picker quay lại đơn giản (1 job/1 content), đăng tay **tự động** có album mà không phải code thêm. Kiểm tra trước khi migrate: `publish_job_assets` = 0 dòng, mọi slot `assets_per_post = 1` ⇒ không mất dữ liệu. |
 | 2026-08-06 | `20260805170928_album_post` | **Plan 21 (đăng nhiều ảnh trong 1 bài).** (1) Thêm `auto_post_slots.assets_per_post` (int, `DEFAULT 1` ⇒ mốc giờ cũ giữ nguyên hành vi 1 ảnh/bài). (2) Bảng mới `publish_job_assets` (`publish_job_id`, `content_asset_id`, `position`) giữ **ảnh phụ** của bài album, cascade theo `publish_jobs`. Lý do chỉ giữ ảnh phụ thay vì toàn bộ: `publish_jobs.content_asset_id` ở lại NOT NULL nên timeline/dashboard/monitor/đăng tay/retry không phải sửa và job cũ không cần backfill. Picker phải loại **cả hai** đường (job chính + ảnh phụ), nếu không Bot sẽ chọn lại chính ảnh phụ của album đang chờ đăng. |

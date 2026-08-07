@@ -4,8 +4,50 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-07 (Plan 23 — upload media qua hàng đợi BullMQ)
-**Session gần nhất (mới nhất):** **Plan 23 — bấm "Upload" không còn phải đứng chờ Google Drive.**
+**Cập nhật lần cuối:** 2026-08-07 (Plan 24 — nhập bài từ link Google Drive)
+**Session gần nhất (mới nhất):** **Plan 24 — thêm bài vào kho bằng cách DÁN LINK Google Drive.**
+Modal "Thêm Ảnh/Video" giờ có **2 tab**: *Tải từ máy* (plan 23, giữ nguyên) và *Nhập từ link
+Google Drive* (mới). **Kỹ thuật cốt lõi — user chốt: `drive.files.copy`**, tức Google tự nhân
+bản file ở phía họ và **không byte nào của file đi qua backend** — link 2GB cũng chỉ là 1
+request, không RAM/đĩa/băng thông, khác hẳn upload từ máy. Cấm tuyệt đối đường "tải về rồi đẩy
+lên lại" (ghi thành ràng buộc cứng ở plan §0.1). **Modal chỉ có ĐÚNG 2 field** (user chốt): ô dán link (mỗi dòng
+1 file) + checkbox "Gộp tất cả ảnh thành 1 bài nhiều ảnh". Mọi thứ khác ngầm định: tiêu đề =
+tên file, caption `'-'` ⇒ **bài luôn vào Chờ duyệt** (kể cả ADMIN), danh mục `'Chưa phân
+loại'`, không gán page/editor — biên tập sau lúc duyệt. Mặc định **mỗi dòng = 1
+`content_assets`**, tick gộp mới về 1 record nhiều ảnh. **Luật gộp = "toàn ảnh"** (đã kiểm chứng
+lại: `attached_media` của Graph API **chỉ nhận photo id** ⇒ không gộp nhiều video, **cũng
+không trộn ảnh–video** trong một bài feed) — nên checkbox bị **khoá thật** cho cả 3 ca (toàn
+video · trộn · quá 10 ảnh). Để khoá được thì phải biết loại file trước khi submit, mà link Drive
+không chứa tên file ⇒ thêm endpoint **chỉ đọc** `POST /media/drive-imports/inspect`, FE gọi
+**ngầm** (debounce 800ms sau khi ngừng gõ) — UI vẫn đúng 2 field. **Không có bước "Kiểm tra" riêng**:
+một lần `POST /media/drive-imports` vừa soi link vừa tạo job, trả `{ jobs, skipped,
+duplicates }`; dòng hỏng **không làm hỏng cả lô** (chỉ "không dòng nào dùng được" mới 400),
+modal ở lại và giữ đúng những dòng hỏng trong ô dán kèm lý do để sửa rồi bấm lại. **Quyền truy cập (§0.4,
+user chốt sau khi cân nhắc Google Picker/per-user OAuth/Playwright): chỉ 2 đường** — file được
+share cho **email tài khoản Drive đang cấu hình**, hoặc để *"Bất kỳ ai có đường liên kết"*;
+**private thì báo lỗi**, câu lỗi **nêu đúng email cần share tới** (thêm
+`SettingsService.getDriveAccountEmail()`). Quyền Drive gắn với **tài khoản**, không gắn với
+thiết bị — server không dùng được phiên đăng nhập trên máy user. **Dùng lại gần như toàn bộ
+hạ tầng plan 23**: cùng bảng `media_upload_jobs` (thêm cột `source`), cùng dòng "mờ" + poll +
+nút "Thử lại" + cron dọn. **Bốn chỗ dễ sai đã xử lý:** (1) khung vòng đời job tách thành
+`MediaUploadJobsService.runJob()` **dùng chung 2 luồng** — luật "lỗi khi còn lượt retry ⇒ về
+`QUEUED` chứ không `FAILED`" mà chép ra bản thứ hai thì sớm muộn cũng lệch; (2)
+`MediaUploadLimitGuard` **chỉ đếm `source = LOCAL_FILE`** (trần 20 là trần **đĩa tạm**, job
+copy không chạm đĩa — để nguyên thì dán 30 link là dính 503 vô lý); (3) **queue riêng
+`media-drive-import`** để một video 500MB không chặn đầu hàng đợi hàng chục lệnh copy vài
+giây; (4) job nhập từ link **luôn** retry được (`filesRemovedAt` vô nghĩa với nó). Caption bỏ
+trống ⇒ lưu `'-'` **và ép `PENDING_REVIEW` kể cả ADMIN** — nếu để tự duyệt thì Bot có thể đăng
+bài "-" lên Page thật. Thêm `content_assets.source_drive_file_id` để **cảnh báo** (không chặn)
+nhập trùng; xoá bài chỉ xoá **bản copy**, file gốc bên Drive người khác không bị đụng. Không
+nhận link **folder** (báo lỗi riêng), có checkbox **gộp ảnh thành 1 bài nhiều ảnh** (tắt mặc
+định, dùng lại đường album của plan 22). Chi tiết:
+[plans/24-drive-link-import.md](./plans/24-drive-link-import.md). `erd.md` đã cập nhật
+(migration `20260807130353_drive_link_import`). BE **832 test xanh (+65)**, FE **49 test (+4)**,
+lint/build 2 phía xanh. **Chưa test tay trên UI/Drive thật** ⇒ plan 24 ở `plans/`.
+
+---
+
+**Session trước đó:** **Plan 23 — bấm "Upload" không còn phải đứng chờ Google Drive.**
 Trước đây một request upload ôm trọn: nhận file → đẩy Drive → tạo bài, nên modal khoá cho tới khi
 xong, upload liên tiếp phải chờ từng cái. Giờ request **chỉ nhận file xuống đĩa** (`MEDIA_UPLOAD_TMP_DIR`,
 multer `diskStorage`) rồi trả **202** ngay; phần đẩy Drive + tạo `content_assets` chuyển sang **queue
@@ -331,10 +373,10 @@ tài liệu cũ chưa cập nhật).
 |-----------|-----------|---------|
 | `docs/` | ✅ Hoàn thiện | Spec v3.0, không sửa khi code |
 | `.claude/rules/` | ✅ Hoàn thiện | 6 rule: workflow, coding, testing, context, env, ERD |
-| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md`, `plans/22-content-multi-image.md` (bài nhiều ảnh — chưa smoke UI), `plans/23-queue-media-upload.md` (upload qua hàng đợi — chưa smoke UI), `plans/21-album-post.md` (❌ BỊ THAY THẾ, giữ làm lịch sử) |
+| `plans/` | ✅ Hoàn thiện | **14 file plan đã xong nằm hết ở `plans/DONE/`** (MVP đóng 2026-07-25). Đang mở: `plans/13-monitor.md` (M8), `plans/14-dashboard.md` (M9) + `_TEMPLATE.md`, `plans/22-content-multi-image.md` (bài nhiều ảnh — chưa smoke UI), `plans/23-queue-media-upload.md` (upload qua hàng đợi — chưa smoke UI), `plans/24-drive-link-import.md` (nhập bài từ link Drive — chưa smoke UI), `plans/21-album-post.md` (❌ BỊ THAY THẾ, giữ làm lịch sử) |
 | `erd.md` | ✅ Thiết kế xong | Mermaid; **bắt buộc cập nhật khi đổi schema** |
 | `frontend/` | 🟡 UI mock + auth thật + content CRUD + pages CRUD + auto-post CRUD | 10 page mock; **auth/login đã nối API thật** (M2.5). **`ContentManagementPage` đã nối API thật đầy đủ** (upload+CRUD+duyệt+Đạt ADS+phân bổ page+hashtag/danh mục quick-update). **`PageManagementPage` đã nối API thật** (CRUD + token mask). **`AutoPostSettingsPage` đã nối API thật** (CRUD mốc giờ + bật/tắt auto + filter page + đăng bài thủ công). **`UserManagementPage` đã nối API thật** (CRUD + vô hiệu hóa). **`TimelinePage` ("Lịch đăng bài") đã nối API thật** (lịch slot × page theo ngày + tiến độ + bài đăng tay). `SettingsPage` đã nối API thật (Drive 2 authMode). **`QueueMonitorPage` / `FailedJobsPage` / `AuditLogsPage` đã nối API thật** (M8, plan 13 — vẫn giữ nhánh mock theo ADR-005). **`DashboardPage` ("Tổng quan") đã nối API thật** (M9, plan 14 — thẻ số + 2 chart + khối "Cần chú ý"). **Không còn trang nào chạy mock** (nhánh `VITE_USE_MOCK` vẫn giữ theo ADR-005). |
-| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** + **media-upload-jobs (upload qua hàng đợi BullMQ `media-upload`, plan 23)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
+| `backend/` | 🟡 Đang xây | Khung + **auth/RBAC/users** + **settings/media (Drive)** + **content-assets (CRUD + duyệt/ADS/phân bổ page + gợi ý hashtag/danh mục)** + **facebook-pages (CRUD + token crypto)** + **auto-post-configs (CRUD slot)** + **manual-post (đăng tay ngay qua Graph)** + **tracking người upload/sửa content** + **publish-schedule (lịch đăng bài, chỉ đọc)** + **auto-post engine (cron picker + BullMQ + publisher + log DB, plan 07)** + **monitor (queue summary + audit log đọc + publish-jobs phân trang, plan 13)** + **media-upload-jobs (upload qua hàng đợi BullMQ `media-upload`, plan 23; + nhập bài từ link Drive qua queue `media-drive-import` bằng `files.copy`, plan 24)** xong. Còn: đăng thật lên Facebook (thiếu Page token) |
 | `worker/` | ⬜ Chưa có | Gộp vào backend process ở MVP (xem ADR-002) |
 | `docker/` | ✅ Chạy được | Postgres 16 (55432) + Redis 7 (56379), cả hai healthy |
 
