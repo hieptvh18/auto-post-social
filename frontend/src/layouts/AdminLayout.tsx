@@ -17,7 +17,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { AppLogo } from '../components/common/AppLogo';
 import { RoleTag } from '../components/common/StatusTag';
-import { canAccessRoute } from '../utils/permissions';
+import { canAccessRoute, defaultRouteFor } from '../utils/permissions';
 import { APP_NAME, APP_TAGLINE, ROLE_LABELS } from '../utils/constants';
 import type { UserRole } from '../types';
 
@@ -74,7 +74,7 @@ export function AdminLayout() {
   const selectedKey =
     [...visibleMain, ...visibleMonitor].find((item) =>
       location.pathname.startsWith(item.key),
-    )?.key ?? '/dashboard';
+    )?.key ?? defaultRouteFor(user.role);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

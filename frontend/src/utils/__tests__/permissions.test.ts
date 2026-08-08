@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, canAccessRoute } from '../permissions';
+import { can, canAccessRoute, defaultRouteFor } from '../permissions';
 
 describe('can', () => {
   it('ADMIN có mọi quyền quản trị', () => {
@@ -8,11 +8,15 @@ describe('can', () => {
     expect(can('ADMIN', 'pages:manage')).toBe(true);
   });
 
-  it('EDITOR không quản lý user/page/settings', () => {
+  it('EDITOR chỉ có quyền trên màn Quản lý Ảnh/Video', () => {
+    expect(can('EDITOR', 'content:review')).toBe(true);
+    expect(can('EDITOR', 'content:edit')).toBe(true);
     expect(can('EDITOR', 'users:manage')).toBe(false);
     expect(can('EDITOR', 'pages:manage')).toBe(false);
     expect(can('EDITOR', 'settings:manage')).toBe(false);
-    expect(can('EDITOR', 'content:review')).toBe(true);
+    expect(can('EDITOR', 'autopost:manage')).toBe(false);
+    expect(can('EDITOR', 'timeline:view')).toBe(false);
+    expect(can('EDITOR', 'dashboard:view')).toBe(false);
   });
 
   it('CONTENT chỉ thao tác content của mình, không duyệt', () => {
@@ -23,9 +27,11 @@ describe('can', () => {
 });
 
 describe('canAccessRoute', () => {
-  it('route công khai (không khai báo) ai cũng vào', () => {
-    expect(canAccessRoute('CONTENT', '/dashboard')).toBe(true);
+  it('/guide ai cũng vào; /dashboard chặn EDITOR', () => {
     expect(canAccessRoute('CONTENT', '/guide')).toBe(true);
+    expect(canAccessRoute('EDITOR', '/guide')).toBe(true);
+    expect(canAccessRoute('CONTENT', '/dashboard')).toBe(true);
+    expect(canAccessRoute('EDITOR', '/dashboard')).toBe(false);
   });
 
   it('/users, /settings, /pages chỉ ADMIN', () => {
@@ -36,10 +42,10 @@ describe('canAccessRoute', () => {
     }
   });
 
-  it('/timeline và /auto-post cho ADMIN + EDITOR, chặn CONTENT', () => {
+  it('/timeline và /auto-post chỉ ADMIN', () => {
     for (const path of ['/timeline', '/auto-post']) {
       expect(canAccessRoute('ADMIN', path)).toBe(true);
-      expect(canAccessRoute('EDITOR', path)).toBe(true);
+      expect(canAccessRoute('EDITOR', path)).toBe(false);
       expect(canAccessRoute('CONTENT', path)).toBe(false);
     }
   });
@@ -48,5 +54,31 @@ describe('canAccessRoute', () => {
     expect(canAccessRoute('ADMIN', '/content')).toBe(true);
     expect(canAccessRoute('EDITOR', '/content')).toBe(true);
     expect(canAccessRoute('CONTENT', '/content')).toBe(true);
+  });
+
+  it('EDITOR chỉ còn đúng 2 màn: /content và /guide', () => {
+    const allowed = [
+      '/dashboard',
+      '/content',
+      '/guide',
+      '/timeline',
+      '/auto-post',
+      '/pages',
+      '/users',
+      '/settings',
+      '/queue',
+      '/failed',
+      '/audit',
+    ].filter((path) => canAccessRoute('EDITOR', path));
+
+    expect(allowed).toEqual(['/content', '/guide']);
+  });
+});
+
+describe('defaultRouteFor', () => {
+  it('EDITOR về /content vì không vào được /dashboard', () => {
+    expect(defaultRouteFor('EDITOR')).toBe('/content');
+    expect(defaultRouteFor('ADMIN')).toBe('/dashboard');
+    expect(defaultRouteFor('CONTENT')).toBe('/dashboard');
   });
 });

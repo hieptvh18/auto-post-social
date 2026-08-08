@@ -40,7 +40,8 @@ const HEALTH_WINDOW_LABEL = '7 ngày qua';
 /**
  * Màn "Tổng quan" — **chỉ đọc**, không thao tác gì.
  *
- * Điểm khác mọi service khác: `dashboard:view` cấp cho **cả 3 role**, nên scope
+ * Điểm khác mọi service khác: `dashboard:view` cấp cho ADMIN + CONTENT (EDITOR
+ * không vào màn này từ 2026-08-07), nên scope
  * dữ liệu phải làm ở đây chứ không phải ở guard. CONTENT ở `/content` vốn chỉ
  * thấy bài của mình; nếu Dashboard trả tổng toàn hệ thống thì đó là rò rỉ ngược
  * (plan 14 §3.4).

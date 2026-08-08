@@ -4,7 +4,7 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-07 (Plan 24 — nhập bài từ link Google Drive)
+**Cập nhật lần cuối:** 2026-08-08 (Fix: ẩn page tạm dừng ở màn auto-post · thu hẹp quyền EDITOR còn 2 màn · Lịch đăng bài: block "Khung giờ chạy tiếp theo")
 **Session gần nhất (mới nhất):** **Plan 24 — thêm bài vào kho bằng cách DÁN LINK Google Drive.**
 Modal "Thêm Ảnh/Video" giờ có **2 tab**: *Tải từ máy* (plan 23, giữ nguyên) và *Nhập từ link
 Google Drive* (mới). **Kỹ thuật cốt lõi — user chốt: `drive.files.copy`**, tức Google tự nhân
@@ -1143,6 +1143,39 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
   + publish-schedule xanh; lint/build BE & FE xanh.
 - **Còn nợ:** không.
 
+### RBAC — thu hẹp quyền role EDITOR còn 2 màn — ✅ 2026-08-08
+
+- **Phạm vi:** EDITOR chỉ còn vào **Quản lý Ảnh/Video Edit** và **Hướng dẫn sử
+  dụng**. Mất Tổng quan, Lịch đăng bài, Cài đặt đăng tự động (và mọi API tương
+  ứng: `dashboard:view`, `timeline:view`, `autopost:manage`, kể cả Đăng ngay).
+  Giữ nguyên quyền trong màn content, gồm cả duyệt bài (`content:review`).
+- **File chính:** `backend/src/common/permissions.ts`,
+  `frontend/src/utils/permissions.ts` (thêm `defaultRouteFor` — EDITOR về
+  `/content`), `frontend/src/App.tsx` (`HomeRedirect`, `/dashboard` bọc
+  `RoleRoute`), `routes/ProtectedRoute.tsx`, `layouts/AdminLayout.tsx`,
+  `pages/LoginPage.tsx`, `pages/GuidePage.tsx` (tách `ADMIN_STEPS`).
+- **Quyết định:** chặn cả 2 tầng (menu ẩn + guard route + permission BE), không
+  chỉ ẩn menu. `/dashboard` phải vào bảng `restricted` nên cần route mặc định
+  theo role, nếu không EDITOR lặp redirect vô hạn.
+- **Test:** BE 834 test xanh (cập nhật ma trận trong `common/__tests__/permissions.spec.ts`);
+  FE 59 test xanh (+ case "EDITOR chỉ còn /content và /guide", `defaultRouteFor`).
+  Lint/build BE & FE xanh.
+- **Còn nợ:** `docs/05-rbac.md` §2 vẫn ghi ma trận cũ — xem §6.
+
+### Lịch đăng bài — khối "Khung giờ chạy tiếp theo" — ✅ 2026-08-08
+
+- **Phạm vi:** thêm block nổi bật (border xanh, có đếm ngược) ngay đầu card "Lịch
+  ngày …", show mốc giờ gần nhất còn ở tương lai so với giờ hiện tại. Danh sách
+  timeline bên dưới giữ nguyên thứ tự muộn → sớm.
+- **File chính:** `frontend/src/pages/TimelinePage.tsx` (`findNextSlot`,
+  `formatCountdown`, `isSlotLive`).
+- **Quyết định:** ưu tiên mốc gần nhất **thực sự chạy** (page active + auto bật +
+  slot bật); nếu cả ngày chỉ còn mốc đang tắt thì vẫn show mốc gần nhất nhưng đổi
+  border/tag sang cam kèm cảnh báo. Ngày quá khứ hoặc hết mốc ⇒ ẩn block. Đồng hồ
+  tick 30s để block tự nhảy mốc, không cần F5.
+- **Test:** chưa viết test (UI thuần, rule 02 không bắt buộc). Lint + build FE xanh.
+- **Còn nợ:** không.
+
 ---
 
 ## 6. Việc đang dở / nợ kỹ thuật
@@ -1180,6 +1213,8 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 24 | **Cột "Editor" chưa smoke UI thật** | Code BE+FE xong (plan 18, BE 653 test xanh), đã smoke API qua curl đủ case 400/gán/lọc/gỡ. **Chưa bấm tay UI**: `/content` — mở Modal upload chọn Editor (bỏ trống vẫn upload được), Drawer sửa đổi/gỡ Editor, cột "Editor" hiện đúng tên (bài chưa gán hiện "—"), ô filter "Editor" lọc đúng và gõ tìm được theo tên. Kiểm bằng account **CONTENT** (phải thấy danh sách Editor dù không có quyền `/users`). Lưu ý: DB dev hiện **không có EDITOR nào đang active** ⇒ dropdown rỗng là đúng, phải tạo 1 account role Editor ở `/users` trước. Xong thì `git mv plans/18-content-editor-field.md plans/DONE/`. |
 | 29 | **Plan 23 (upload qua hàng đợi) chưa test tay trên UI thật** | Code BE+FE xong (BE **767** test xanh, FE 45; migration `20260806171728_media_upload_jobs` đã apply DB dev). **Chưa bấm tay** — chạy đủ §5 của plan: (1) `/content` → Upload 1 file ⇒ **modal đóng ngay**, bảng hiện dòng "mờ"; (2) mở modal lần nữa upload file B ⇒ A và B cùng mờ, tối đa `MEDIA_UPLOAD_CONCURRENCY` job thật sự lên Drive cùng lúc; (3) A xong ⇒ dòng mờ tự thành bài thật (PENDING_REVIEW/APPROVED); (4) làm hỏng credential Drive giữa chừng ⇒ job FAILED, bấm **"Thử lại"** chạy lại **không** phải chọn lại file; (5) file vượt `maxUploadMb` ⇒ 400 ngay, không sinh dòng mờ nào; (6) **restart backend** khi có job đang chạy ⇒ job tự về FAILED kèm message, không kẹt mãi; (7) account CONTENT chỉ thấy job của chính mình; (8) tạo đủ `MEDIA_UPLOAD_MAX_PENDING_JOBS` job rồi upload thêm ⇒ **503** và modal **không** đóng, file đã chọn còn nguyên. Kiểm hồi quy: upload **nhiều ảnh** vẫn ra **1** bài (plan 22), `POST /media/upload` cũ vẫn chạy. Kiểm đĩa: `MEDIA_UPLOAD_TMP_DIR` sạch sau khi job xong. Xong thì `git mv plans/23-queue-media-upload.md plans/DONE/`. |
 | 30 | **`docs/08-bullmq.md` mới chỉ mô tả queue `publish-facebook`** | Từ plan 23 dự án có **queue thứ hai** `media-upload` (3 attempts, backoff mũ 30s, `removeOnComplete: 100`, concurrency theo env, payload chỉ chứa `mediaUploadJobId`) nhưng `docs/` chưa có mục nào cho nó. Theo rule 00 §1 không tự sửa `docs/` khi đang code — cần user xác nhận rồi bổ sung một mục cho `media-upload` vào `docs/08-bullmq.md`. |
+| 31 | **`docs/05-rbac.md` §2 lệch code sau khi thu hẹp quyền EDITOR (2026-08-08)** | User chốt EDITOR chỉ dùng màn Quản lý Ảnh/Video + Hướng dẫn sử dụng, nên code đã bỏ `autopost:manage`, `timeline:view`, `dashboard:view` khỏi EDITOR (`backend/src/common/permissions.ts`, `frontend/src/utils/permissions.ts`). `docs/05-rbac.md` §2 vẫn ghi ma trận cũ. Theo rule 00 §1 không tự sửa `docs/` khi đang code — cần user xác nhận rồi cập nhật ma trận + phần mô tả route của EDITOR. |
+| 32 | **RBAC EDITOR mới chưa test tay trên UI thật** | Đã xanh test tự động (BE 834, FE 59) nhưng **chưa đăng nhập thử**. Cần `VITE_USE_MOCK=false`, login account role EDITOR: sidebar chỉ còn **Quản lý Ảnh/Video Edit** + **Hướng dẫn sử dụng**; sau đăng nhập rơi thẳng vào `/content` (không phải `/dashboard`); gõ tay `/dashboard`, `/timeline`, `/auto-post`, `/pages`, `/users`, `/settings`, `/queue`, `/failed`, `/audit` ⇒ đều bị đá về `/content` (không lặp redirect); vẫn upload/sửa/duyệt bài bình thường ở `/content`; trang Hướng dẫn không còn khối "Chỉ Admin". Kiểm hồi quy ADMIN và CONTENT vào đúng `/dashboard` như cũ. |
 | 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
 
 ---

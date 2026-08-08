@@ -25,14 +25,15 @@ export type Permission = (typeof PERMISSIONS)[number];
 
 export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   [UserRole.ADMIN]: PERMISSIONS,
+  // EDITOR (người dựng ảnh/video) chỉ làm việc trên màn Quản lý Ảnh/Video +
+  // Hướng dẫn sử dụng (chốt với user 2026-08-07). Không Tổng quan, không Lịch
+  // đăng bài, không Cài đặt đăng tự động — lệch docs/05-rbac.md §2, xem
+  // contexts.md §6.
   [UserRole.EDITOR]: [
     'content:create',
     'content:edit',
     'content:delete',
     'content:review',
-    'autopost:manage',
-    'timeline:view',
-    'dashboard:view',
   ],
   // CONTENT chỉ thao tác bài của mình — ràng buộc "của mình" kiểm ở service,
   // permission ở đây chỉ chặn tầng route.

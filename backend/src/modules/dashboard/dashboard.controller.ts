@@ -78,7 +78,7 @@ export class DashboardController {
   @Get('health')
   @ApiOperation({
     summary:
-      'Khối "Cần chú ý": job hỏng/kẹt, mốc giờ bỏ lỡ, hết bài, token sắp hết hạn (ADMIN/EDITOR)',
+      'Khối "Cần chú ý": job hỏng/kẹt, mốc giờ bỏ lỡ, hết bài, token sắp hết hạn (chỉ ADMIN)',
   })
   async getHealth(
     @CurrentUser() actor: AuthenticatedUser,

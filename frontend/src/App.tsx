@@ -17,11 +17,18 @@ import SettingsPage from './pages/SettingsPage';
 import TimelinePage from './pages/TimelinePage';
 import UserManagementPage from './pages/UserManagementPage';
 import { ProtectedRoute, RoleRoute } from './routes/ProtectedRoute';
+import { defaultRouteFor } from './utils/permissions';
+
+/** Đưa user về màn mặc định của role — EDITOR không vào được `/dashboard`. */
+function HomeRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={user ? defaultRouteFor(user.role) : '/dashboard'} replace />;
+}
 
 function LoginRedirect() {
   const { isAuthenticated, isPreviewMode, loading } = useAuth();
   if (loading) return null;
-  if (isPreviewMode || isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isPreviewMode || isAuthenticated) return <HomeRedirect />;
   return <LoginPage />;
 }
 
@@ -41,8 +48,10 @@ export function AppRoutes() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AdminLayout />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          <Route index element={<HomeRedirect />} />
+          <Route element={<RoleRoute path="/dashboard" />}>
+            <Route path="dashboard" element={<DashboardPage />} />
+          </Route>
           <Route path="guide" element={<GuidePage />} />
           <Route element={<RoleRoute path="/content" />}>
             <Route path="content" element={<ContentManagementPage />} />
@@ -75,7 +84,7 @@ export function AppRoutes() {
         </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<HomeRedirect />} />
     </Routes>
   );
 }

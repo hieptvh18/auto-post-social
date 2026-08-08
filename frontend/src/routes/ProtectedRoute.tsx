@@ -2,7 +2,7 @@ import { Spin } from 'antd';
 import { Navigate, Outlet } from 'react-router-dom';
 import { UI_PREVIEW_SKIP_AUTH } from '../config/preview';
 import { useAuth } from '../contexts/AuthContext';
-import { canAccessRoute } from '../utils/permissions';
+import { canAccessRoute, defaultRouteFor } from '../utils/permissions';
 
 export function ProtectedRoute() {
   const { isAuthenticated, loading } = useAuth();
@@ -27,8 +27,9 @@ export function RoleRoute({ path }: { path: string }) {
   const { user } = useAuth();
 
   // ProtectedRoute đã chặn user null; guard này chỉ chạy khi đã đăng nhập.
-  if (!user || !canAccessRoute(user.role, path)) {
-    return <Navigate to="/dashboard" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!canAccessRoute(user.role, path)) {
+    return <Navigate to={defaultRouteFor(user.role)} replace />;
   }
 
   return <Outlet />;

@@ -6,7 +6,11 @@ import {
   type Permission,
 } from '../permissions';
 
-/** Ma trận kỳ vọng chép nguyên từ docs/05-rbac.md §2 — nguồn sự thật của test. */
+/**
+ * Ma trận kỳ vọng theo docs/05-rbac.md §2, **trừ** EDITOR: chốt lại với user
+ * 2026-08-07 là EDITOR chỉ dùng màn Quản lý Ảnh/Video + Hướng dẫn sử dụng, nên
+ * mất `autopost:manage`, `timeline:view`, `dashboard:view` (nợ docs — contexts §6).
+ */
 const MATRIX: Record<Permission, UserRole[]> = {
   'users:manage': [UserRole.ADMIN],
   'pages:manage': [UserRole.ADMIN],
@@ -14,12 +18,12 @@ const MATRIX: Record<Permission, UserRole[]> = {
   'content:edit': [UserRole.ADMIN, UserRole.EDITOR, UserRole.CONTENT],
   'content:delete': [UserRole.ADMIN, UserRole.EDITOR, UserRole.CONTENT],
   'content:review': [UserRole.ADMIN, UserRole.EDITOR],
-  'autopost:manage': [UserRole.ADMIN, UserRole.EDITOR],
-  'timeline:view': [UserRole.ADMIN, UserRole.EDITOR],
+  'autopost:manage': [UserRole.ADMIN],
+  'timeline:view': [UserRole.ADMIN],
   'queue:view': [UserRole.ADMIN],
   'jobs:retry': [UserRole.ADMIN],
   'audit:view': [UserRole.ADMIN],
-  'dashboard:view': [UserRole.ADMIN, UserRole.EDITOR, UserRole.CONTENT],
+  'dashboard:view': [UserRole.ADMIN, UserRole.CONTENT],
   // Cấu hình động chứa service account Drive => chỉ ADMIN (chốt với user).
   'settings:manage': [UserRole.ADMIN],
 };
@@ -53,8 +57,13 @@ describe('permissions', () => {
       );
     });
 
-    it('EDITOR không có users:manage', () => {
-      expect(ROLE_PERMISSIONS[UserRole.EDITOR]).not.toContain('users:manage');
+    it('EDITOR chỉ còn quyền của màn Quản lý Ảnh/Video', () => {
+      expect([...ROLE_PERMISSIONS[UserRole.EDITOR]]).toEqual([
+        'content:create',
+        'content:edit',
+        'content:delete',
+        'content:review',
+      ]);
     });
   });
 });

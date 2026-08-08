@@ -82,6 +82,13 @@ const EDITOR_STEPS = [
     description:
       'Trong cùng drawer edit, tick checkbox "Đạt ADS" cho video/bài đủ chuẩn chạy quảng cáo — số liệu này sẽ lên Dashboard.',
   },
+];
+
+/**
+ * Hai việc dưới đây chỉ ADMIN làm được — từ 2026-08-07 Editor chỉ vào màn Quản
+ * lý Ảnh/Video và trang Hướng dẫn này.
+ */
+const ADMIN_STEPS = [
   {
     title: 'Cấu hình lịch đăng tự động',
     description:
@@ -167,6 +174,19 @@ export default function GuidePage() {
             <Steps direction="vertical" size="small" items={EDITOR_STEPS} />
           </Card>
         </Col>
+        {user.role === 'ADMIN' && (
+          <Col xs={24} lg={12}>
+            <Card
+              title={
+                <Space>
+                  <FieldTimeOutlined /> Chỉ Admin
+                </Space>
+              }
+            >
+              <Steps direction="vertical" size="small" items={ADMIN_STEPS} />
+            </Card>
+          </Col>
+        )}
       </Row>
 
       <Title level={4}>

@@ -20,7 +20,8 @@ export default function LoginPage() {
     try {
       await login(values.email, values.password);
       void message.success('Đăng nhập thành công');
-      navigate('/dashboard');
+      // '/' tự điều hướng theo role (EDITOR không vào được /dashboard).
+      navigate('/');
     } catch (err) {
       const text =
         err instanceof ApiError

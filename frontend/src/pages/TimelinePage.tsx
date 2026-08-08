@@ -1,5 +1,6 @@
 import {
   CalendarOutlined,
+  ClockCircleOutlined,
   EditOutlined,
   HistoryOutlined,
   LinkOutlined,
@@ -28,7 +29,7 @@ import {
   message,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { mockPages } from '../api/mock/data';
@@ -147,6 +148,19 @@ function RealTimelinePage() {
     // Mốc giờ mới nhất lên đầu — người dùng quan tâm việc vừa/sắp xảy ra trước.
     return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a));
   }, [items]);
+
+  // Đồng hồ tick mỗi 30s để khối "mốc giờ kế tiếp" tự nhảy sang mốc sau khi tới giờ,
+  // không cần người dùng F5.
+  const [now, setNow] = useState(() => dayjs());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const nextSlot = useMemo(
+    () => findNextSlot(groupedByTime, date, now),
+    [groupedByTime, date, now],
+  );
 
   return (
     <div>
@@ -282,6 +296,50 @@ function RealTimelinePage() {
 
         <Col xs={24} lg={17}>
           <Card title={`Lịch ngày ${selectedDate.format('DD/MM/YYYY')}`}>
+            {!isLoading && nextSlot !== null && (
+              <div
+                style={{
+                  border: `1px solid ${nextSlot.willRun ? '#1677ff' : '#faad14'}`,
+                  background: nextSlot.willRun ? '#f0f7ff' : '#fffbe6',
+                  borderRadius: 8,
+                  padding: '12px 16px',
+                  marginBottom: 20,
+                }}
+              >
+                <Space wrap style={{ marginBottom: 8 }}>
+                  <ClockCircleOutlined
+                    style={{ color: nextSlot.willRun ? '#1677ff' : '#faad14' }}
+                  />
+                  <Text strong style={{ fontSize: 16 }}>
+                    Khung giờ chạy tiếp theo: {nextSlot.time}
+                  </Text>
+                  <Tag color={nextSlot.willRun ? 'blue' : 'orange'}>
+                    {formatCountdown(
+                      dayjs(`${date}T${nextSlot.time}`),
+                      now,
+                    )}
+                  </Tag>
+                  {!nextSlot.willRun && (
+                    <Tag color="orange" icon={<WarningOutlined />}>
+                      Mốc gần nhất còn lại đang tắt — Bot sẽ không đăng
+                    </Tag>
+                  )}
+                </Space>
+                {nextSlot.items.map((item) => (
+                  <ScheduleItemCard
+                    key={item.key}
+                    item={item}
+                    date={date}
+                    onShowEvents={setEventsJob}
+                    onRetry={canRetry ? handleRetry : undefined}
+                    retryingJobId={retryingJobId}
+                    onRunSlot={canRunSlot ? handleRunSlot : undefined}
+                    runningSlot={runningSlotId === item.slotId}
+                  />
+                ))}
+              </div>
+            )}
+
             {isLoading ? (
               <div style={{ textAlign: 'center', padding: 32 }}>
                 <Spin />
@@ -333,6 +391,55 @@ function RealTimelinePage() {
       />
     </div>
   );
+}
+
+/** Mốc giờ sẽ chạy sắp tới + các item của nó. */
+type NextSlot = { time: string; items: ScheduleItem[]; willRun: boolean };
+
+/** Mốc giờ này Bot có thực sự chạy không (page bật, auto bật, mốc bật). */
+function isSlotLive(item: ScheduleItem): boolean {
+  return (
+    item.kind === 'slot' &&
+    item.slotId !== null &&
+    item.slotEnabled &&
+    item.autopostEnabled &&
+    item.pageIsActive
+  );
+}
+
+/**
+ * Mốc giờ kế tiếp so với `now`: ưu tiên mốc gần nhất còn **thực sự chạy**; nếu cả
+ * ngày chỉ còn mốc đang tắt thì vẫn trả về mốc gần nhất để người dùng biết. Ngày đã
+ * qua / mọi mốc đã trôi qua ⇒ `null`.
+ *
+ * `groups` đã sort giảm dần nên duyệt từ cuối lên để lấy mốc sớm nhất trong tương lai.
+ */
+function findNextSlot(
+  groups: [string, ScheduleItem[]][],
+  date: string,
+  now: dayjs.Dayjs,
+): NextSlot | null {
+  let fallback: NextSlot | null = null;
+  for (let i = groups.length - 1; i >= 0; i -= 1) {
+    const [time, timeItems] = groups[i];
+    // `YYYY-MM-DDTHH:mm` = ISO không timezone ⇒ dayjs hiểu là giờ địa phương,
+    // khớp giả định toàn hệ thống chạy ở Asia/Ho_Chi_Minh.
+    if (!dayjs(`${date}T${time}`).isAfter(now)) continue;
+    if (timeItems.some(isSlotLive)) return { time, items: timeItems, willRun: true };
+    fallback ??= { time, items: timeItems, willRun: false };
+  }
+  return fallback;
+}
+
+/** "còn 1 giờ 20 phút nữa" — đọc nhanh hơn là bắt người dùng tự trừ giờ. */
+function formatCountdown(target: dayjs.Dayjs, now: dayjs.Dayjs): string {
+  const totalMinutes = Math.max(0, Math.ceil(target.diff(now, 'minute', true)));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `còn ${minutes} phút nữa`;
+  return minutes === 0
+    ? `còn ${hours} giờ nữa`
+    : `còn ${hours} giờ ${minutes} phút nữa`;
 }
 
 /** Màu chấm timeline lấy theo mốc "nặng" nhất trong giờ đó. */
