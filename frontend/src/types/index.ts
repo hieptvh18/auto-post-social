@@ -90,6 +90,13 @@ export interface FacebookPageResponse {
   connectMode: FacebookConnectMode;
   /** null với page dán tay — chỉ page FB_LOGIN mới "lấy lại token" được. */
   connectionId: string | null;
+  /**
+   * Token có quyền `read_insights` để đọc số liệu bài đăng hay không (plan 25).
+   * `null` = **không biết** (page dán token tay) — chỉ cảnh báo khi là `false`.
+   */
+  canReadInsights: boolean | null;
+  /** Số bài do tool đăng lên page này. */
+  publishedPostCount?: number;
   createdById: string;
   createdAt: string;
   updatedAt: string;
@@ -1070,4 +1077,78 @@ export interface QueryAuditLogsParams {
   to?: string;
   page?: number;
   pageSize?: number;
+}
+
+// ─── Thống kê bài đăng (plan 25) ──────────────────────────────────────────────
+
+/**
+ * Một bài **do tool đăng** lên page, kèm số liệu Facebook.
+ *
+ * Mọi field số đều có thể `null` với nghĩa **chưa đo được** — khác hẳn `0`
+ * (đã đo, thật sự bằng 0). UI phải hiện `—` cho `null`.
+ *
+ * **Không có "lượt hiển thị"**: Meta đã gỡ `post_impressions*` khỏi Graph API
+ * (đo thật 2026-08-08). Xem plan 25 §8 trước khi định thêm lại.
+ */
+export interface PostInsight {
+  assignmentId: string;
+  contentAssetId: string;
+  facebookPostId: string;
+  title: string;
+  mediaType: MediaType;
+  thumbnailUrl: string | null;
+  publishedAt: string | null;
+  /** `null` = bài không phải video, hoặc chưa đo. */
+  videoViews: number | null;
+  /** `post_fan_reach` — người **theo dõi page** đã thấy bài, không phải reach tổng. */
+  fanReach: number | null;
+  /** `post_clicks` — lượt nhấp vào bài. */
+  clicks: number | null;
+  likeCount: number | null;
+  commentCount: number | null;
+  shareCount: number | null;
+  fetchedAt: string | null;
+  /** true = bài đã bị xoá trên Facebook, số liệu đóng băng ở lần đo cuối. */
+  missingOnFb: boolean;
+  syncErrorMessage: string | null;
+  /** Backend dựng sẵn — FE không tự nối chuỗi từ `facebookPostId`. */
+  facebookPostUrl: string;
+}
+
+export interface PostInsightsListResponse {
+  data: PostInsight[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
+export interface PageInsightsSummary {
+  postCount: number;
+  syncedCount: number;
+  totalVideoViews: number;
+  totalFanReach: number;
+  totalClicks: number;
+  /** Trung bình trên **bài đã đo**, không phải trên tổng số bài. */
+  averageClicks: number;
+  lastFetchedAt: string | null;
+}
+
+export type PostInsightSortField =
+  | 'publishedAt'
+  | 'videoViews'
+  | 'fanReach'
+  | 'clicks';
+
+export interface QueryPostInsightsParams {
+  mediaType?: MediaType;
+  sortBy?: PostInsightSortField;
+  sortDir?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+}
+
+export interface SyncInsightsResult {
+  dueCount: number;
+  updatedCount: number;
+  missingCount: number;
+  failedCount: number;
+  skipReason?: string;
 }

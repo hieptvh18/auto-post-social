@@ -27,6 +27,15 @@ export interface UpdateFacebookPageData {
   connectionId?: string | null;
 }
 
+/**
+ * Page + hai thông tin phục vụ màn thống kê (plan 25):
+ * scope của kết nối (biết token có `read_insights` không) và số bài đã đăng.
+ */
+export interface PageWithInsightsMeta extends FacebookPage {
+  connection: { scopes: string[]; revokedAt: Date | null } | null;
+  _count: { assignments: number };
+}
+
 /** Nơi duy nhất viết Prisma query cho bảng facebook_pages (rule 01). */
 @Injectable()
 export class FacebookPagesRepository {
@@ -37,6 +46,31 @@ export class FacebookPagesRepository {
     return this.prisma.facebookPage.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Như `findMany()` nhưng kèm scope của kết nối và số bài đã đăng — hai thứ màn
+   * Quản lý Page cần cho cột "Bài đã đăng" và cảnh báo thiếu `read_insights`
+   * (plan 25). Tách khỏi `findMany()` để các nơi khác không phải trả giá join.
+   */
+  findManyWithInsightsMeta(): Promise<PageWithInsightsMeta[]> {
+    return this.prisma.facebookPage.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        connection: { select: { scopes: true, revokedAt: true } },
+        _count: {
+          select: {
+            assignments: {
+              where: {
+                publishedAt: { not: null },
+                facebookPostId: { not: null },
+              },
+            },
+          },
+        },
+      },
     });
   }
 

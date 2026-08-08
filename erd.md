@@ -3,8 +3,8 @@
 > **Bản đồ dữ liệu chính thức.** Mọi thay đổi schema PHẢI cập nhật file này —
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
-**Cập nhật:** 2026-08-07
-**Migration tương ứng:** `20260807130353_drive_link_import` (plan 24)
+**Cập nhật:** 2026-08-08
+**Migration tương ứng:** `20260808064846_post_insights_real_metrics` (plan 25)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -32,6 +32,8 @@ erDiagram
     content_assets ||--o{ content_asset_files : "has extra images"
     users ||--o{ media_upload_jobs : "uploads via queue"
     content_assets |o--o{ media_upload_jobs : "created by"
+    content_page_assignments ||--o| post_insights : "current metrics"
+    content_page_assignments ||--o{ post_insight_snapshots : "daily history"
 
     users {
         uuid id PK
@@ -105,6 +107,33 @@ erDiagram
         uuid facebook_page_id FK
         timestamp published_at
         string facebook_post_id
+        timestamp created_at
+    }
+
+    post_insights {
+        uuid id PK
+        uuid assignment_id FK,UK
+        string facebook_post_id
+        int video_views
+        int fan_reach
+        int clicks
+        int like_count
+        int comment_count
+        int share_count
+        timestamp fetched_at
+        timestamp missing_on_fb_at
+        text sync_error_message
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    post_insight_snapshots {
+        uuid id PK
+        uuid assignment_id FK
+        string snapshot_date
+        int video_views
+        int fan_reach
+        int clicks
         timestamp created_at
     }
 
@@ -262,6 +291,10 @@ erDiagram
 | `media_upload_jobs` | `(source, status)` | Guard đếm job **`LOCAL_FILE`** đang `QUEUED`/`UPLOADING_TO_DRIVE` trước mỗi request upload (chạy rất thường xuyên). Job `DRIVE_LINK` không chiếm đĩa nên không bị đếm — xem plan 24 §3.5 |
 | `content_assets` | `source_drive_file_id` | Cảnh báo "link Drive này đã nhập vào bài nào rồi" ở bước xem trước của nhập-từ-link |
 | `media_upload_jobs` | `(created_by, status)` | FE poll "job upload của tôi" mỗi 3s trong lúc còn dòng "mờ" trên bảng |
+| `post_insights` | **UNIQUE `assignment_id`** | **1 bài đã đăng = đúng 1 dòng số liệu hiện tại** — job đồng bộ dùng `upsert` theo khoá này nên chạy lại bao nhiêu lần cũng không đẻ dòng |
+| `post_insights` | mọi cột số **NULLABLE, không default** | Phân biệt "chưa đo" (`NULL`) với "đo được 0" (`0`) — xem §4 |
+| `post_insights` | `facebook_post_id` | Tra ngược từ ID bài Facebook về assignment khi debug số liệu lệch |
+| `post_insight_snapshots` | **UNIQUE `(assignment_id, snapshot_date)`** | **Job chạy 4 lần/ngày vẫn chỉ để lại 1 dòng/ngày** — upsert theo khoá này, không cần dọn trùng |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
 | `app_settings` | PK `key` | Số dòng rất nhỏ (1 dòng/nhóm config), tra bằng khoá chính là đủ — không cần index phụ |
 
@@ -289,6 +322,12 @@ erDiagram
 | `facebook_pages.connect_mode = FB_LOGIN` ⇒ `connection_id` **phải** khác null; `MANUAL_TOKEN` ⇒ luôn null | `FacebookConnectService.importPages()` / `FacebookPagesService.create()` |
 | Import trúng page đang `MANUAL_TOKEN` ⇒ **không tự ghi đè token**, trả `needsConfirm` để user xác nhận | `FacebookConnectService.importPages()` — ghi đè token System User đang chạy tốt bằng token cá nhân là hạ độ bền |
 | Chỉ import page mà tài khoản có task `CREATE_CONTENT` | `FacebookConnectService.importPages()` (400 kèm lý do) |
+| `post_insights` **chỉ** tồn tại cho bài **do tool đăng** — neo vào `content_page_assignments` có `published_at != null` AND `facebook_post_id != null`. Bài đăng thẳng trên Facebook (không qua tool) **cố ý không** được theo dõi | `PostInsightsRepository.findSyncTargets()` + plan 25 §0.1 |
+| **Mọi cột số của `post_insights` là NULLABLE, không default.** `NULL` = chưa đo được chỉ số đó · `0` = đã đo và thật sự bằng 0. Cấm `?? 0` ở mọi tầng (adapter → repository → mapper → UI) | `PostInsightsRepository.saveInsight()` bỏ hẳn field khỏi `create`/`update` khi giá trị là `null`; UI hiện `—` |
+| **Không lưu impressions/reach tổng** — Meta đã gỡ `post_impressions*`, `post_reach`, `page_impressions*` khỏi Graph API (đo thật 2026-08-08 trên v19→v23 đều `(#100) not a valid insights metric`). Chỉ số còn đọc được: `post_video_views`, `post_fan_reach`, `post_clicks` | `FacebookInsightsClient` — 3 hằng metric ở đầu file |
+| `missing_on_fb_at` **chỉ** được set khi Graph trả `error_subcode = 33`. **Cấm** suy ra từ `code = 100` trần — Graph dùng 100 cho cả "tên metric sai", đánh dấu nhầm sẽ giết việc theo dõi một bài đang sống mà không ai biết | `FacebookInsightsClient.parseEntry()` |
+| `missing_on_fb_at != null` ⇒ job đồng bộ **ngừng** chọn bài này (không retry vô hạn) | `PostInsightsRepository.findSyncCandidates()` lọc `missing_on_fb_at IS NULL` |
+| Page thiếu scope `read_insights` ⇒ **skip cả page**, không gọi Graph lần nào | `InsightsSyncService.syncPage()` — 50 call chỉ để nhận 50 lỗi giống nhau là đốt rate limit vô ích |
 | `facebook_connections.user_token_enc` là **long-lived user token** (~60 ngày), khác hẳn `facebook_pages.access_token_enc` (Page token, không hết hạn) | `FacebookConnectService.handleCallback()` |
 | Ngắt kết nối = `revoked_at = now()` + `user_token_enc = null`; **không** đụng token của page đang chạy | `FacebookConnectService.revoke()` |
 | `app_settings['facebook_app'].value` = `{ appId, appSecretEnc }`; không có bản ghi ⇒ fallback `META_APP_ID`/`META_APP_SECRET` trong `.env` | `SettingsService.getFacebookAppSettings()` (ADR-014) |
@@ -326,6 +365,8 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-08-08 | `20260808064846_post_insights_real_metrics` | **Plan 25 §8 — sửa sau khi đo Graph API thật.** Migration trước đặt sai giả định. (1) **Bỏ** `impressions`, `impressions_unique` ở cả 2 bảng: Meta đã **gỡ hẳn** họ `post_impressions*` / `post_reach` / `page_impressions*` khỏi Graph API — kiểm chứng trên v19·v20·v21·v22·v23 đều trả `(#100) The value must be a valid insights metric`, không phải lỗi quyền (token có `read_insights`, loại PAGE, `expires_at=0`). (2) **Thêm** `fan_reach` (`post_fan_reach`) và `clicks` (`post_clicks`) — 2 chỉ số còn đọc được cho mọi loại bài; `video_views` (`post_video_views`) giữ nguyên, chỉ có ở bài video. (3) **Mọi cột số chuyển sang NULLABLE, bỏ `DEFAULT 0`**, kể cả `like_count`/`comment_count`/`share_count`; `fetched_at` cũng thành nullable. Lý do: nhánh `create` cũ ghi `?? 0` nên lần đồng bộ đầu tiên mà không lấy được số sẽ **ghi 0 vào DB** ⇒ UI hiện "0 lượt xem" cho bài chưa hề đo được — đúng triệu chứng user gặp. Nay `NULL` = chưa đo, `0` = đo được 0. Bảng đang rỗng dữ liệu thật (4 dòng đều là lỗi) nên không cần backfill. |
+| 2026-08-08 | `20260808054704_post_insights` | **Plan 25 (tracking lượt xem bài đã đăng).** Hai bảng mới, **không đụng bảng nào có sẵn** ngoài 2 quan hệ ngược trên `content_page_assignments`. (1) `post_insights` — số liệu **hiện tại** của 1 bài: `impressions`, `impressions_unique`, `video_views` (nullable = không phải video), `like_count`/`comment_count`/`share_count`, `fetched_at`, `missing_on_fb_at`, `sync_error_message`; UNIQUE `assignment_id` + index `facebook_post_id`. (2) `post_insight_snapshots` — ảnh chụp **theo ngày** (`snapshot_date` dạng `'YYYY-MM-DD'` theo `Asia/Ho_Chi_Minh`, cùng quy ước `slot_runs.run_date`), UNIQUE `(assignment_id, snapshot_date)`. **Lý do tách 2 bảng:** màn danh sách chỉ cần 1 join vào bảng "hiện tại", không phải `DISTINCT ON` trên bảng lịch sử mỗi lần render. **Lý do neo vào `content_page_assignments` chứ không `publish_jobs`:** assignment có UNIQUE `(content, page)` nên 1 bài = 1 dòng, còn 1 content retry nhiều lần đẻ nhiều `publish_jobs` ⇒ cộng view sẽ nhân đôi; và cả 2 đường đăng (Bot + đăng tay) đều đã ghi `facebook_post_id` vào assignment. Không thêm enum. Không cần backfill (bảng rỗng, job đồng bộ tự điền). |
 | 2026-08-07 | `20260807130353_drive_link_import` | **Plan 24 (nhập bài từ link Google Drive).** Enum mới `MediaUploadSource` (`LOCAL_FILE`/`DRIVE_LINK`) + giá trị mới `COPYING_FROM_DRIVE` cho `MediaUploadStatus`; `media_upload_jobs.source` (NOT NULL, default `LOCAL_FILE` ⇒ **không cần backfill**) + index `(source, status)`; `content_assets.source_drive_file_id` (nullable) + index. Lý do: thêm đường thứ hai để đưa bài vào kho — dán link Drive, tool gọi `files.copy` (copy phía server Google, **0 byte qua backend**) về folder cấu hình. Dùng lại nguyên bảng `media_upload_jobs` của plan 23 nên dòng "mờ"/"Thử lại"/cron dọn không phải viết lại; cột `source` là thứ duy nhất phân biệt 2 luồng. `source_drive_file_id` chỉ để cảnh báo nhập trùng, **không** unique (user được phép cố ý nhập lại). |
 | 2026-08-07 | `20260806171728_media_upload_jobs` | **Plan 23 (upload media qua hàng đợi).** Enum mới `MediaUploadStatus` (`QUEUED`/`UPLOADING_TO_DRIVE`/`SUCCESS`/`FAILED`) + bảng mới `media_upload_jobs` (`original_filename`, `file_count`, `total_size`, `files` jsonb, `metadata` jsonb, `error_message`, `attempt_count`, `bull_job_id`, `files_removed_at`, `content_asset_id` FK `SET NULL`, `created_by` FK), index `status` và `(created_by, status)`. Lý do: bấm "Upload" không được đứng chờ Drive nữa — request chỉ nhận file xuống đĩa rồi trả 202, worker BullMQ `media-upload` (queue thứ 2 của dự án) đẩy lên Drive và tạo `content_assets` sau. **Hệ quả kiến trúc:** đảo ngược "chỉ stream, không ghi file xuống disk" (`PLAN-MVP.md` §4) — file phải sống ngoài vòng đời request; đổi lại có `MEDIA_UPLOAD_MAX_PENDING_JOBS` chặn trần đĩa + TTL dọn định kỳ. **Không đụng bảng nào có sẵn** ngoài 2 quan hệ ngược trên `users`/`content_assets`. |
 | 2026-08-06 | `20260806*_content_asset_files` | **Plan 22 (nhiều ảnh trong 1 content record) — migration ĐẢO NGƯỢC MỘT PHẦN `20260805170928_album_post`.** (1) **Xoá** `auto_post_slots.assets_per_post` và **xoá nguyên bảng** `publish_job_assets`. (2) Bảng mới `content_asset_files` (`content_asset_id`, `position >= 1`, `drive_file_id`, `drive_url`, `thumbnail_url`, `mime_type`, `file_size`), UNIQUE `(content_asset_id, position)`, cascade theo `content_assets`. **Lý do đảo ngược (quyết định user 2026-08-06):** hướng cũ để Bot tự ghép N record rời rạc thành 1 album — phức tạp (picker phải loại 2 đường), chỉ chạy được với auto-post, và không giúp gì cho đăng tay. Hướng mới gom nhiều ảnh ngay ở **1 record lúc upload** ⇒ picker quay lại đơn giản (1 job/1 content), đăng tay **tự động** có album mà không phải code thêm. Kiểm tra trước khi migrate: `publish_job_assets` = 0 dòng, mọi slot `assets_per_post = 1` ⇒ không mất dữ liệu. |

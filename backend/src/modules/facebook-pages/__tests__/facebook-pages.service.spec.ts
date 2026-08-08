@@ -19,6 +19,7 @@ import type { CreateAuditLogData } from '../../audit/audit.repository';
 import type { AuditService } from '../../audit/audit.service';
 import type {
   CreateFacebookPageData,
+  PageWithInsightsMeta,
   UpdateFacebookPageData,
 } from '../facebook-pages.repository';
 import type { FacebookPagesRepository } from '../facebook-pages.repository';
@@ -44,6 +45,16 @@ const makePage = (overrides: Partial<FacebookPage> = {}): FacebookPage => ({
   ...overrides,
 });
 
+/** Page kèm phần join của `findManyWithInsightsMeta()` (plan 25). */
+const makePageWithMeta = (
+  overrides: Partial<PageWithInsightsMeta> = {},
+): PageWithInsightsMeta => ({
+  ...makePage(),
+  connection: null,
+  _count: { assignments: 0 },
+  ...overrides,
+});
+
 const admin: AuthenticatedUser = {
   id: 'admin-1',
   email: 'admin@company.local',
@@ -53,7 +64,7 @@ const admin: AuthenticatedUser = {
 
 describe('FacebookPagesService', () => {
   let repository: {
-    findMany: jest.Mock<Promise<FacebookPage[]>, []>;
+    findManyWithInsightsMeta: jest.Mock<Promise<PageWithInsightsMeta[]>, []>;
     findById: jest.Mock<Promise<FacebookPage | null>, [string]>;
     findByPageId: jest.Mock<Promise<FacebookPage | null>, [string]>;
     create: jest.Mock<Promise<FacebookPage>, [CreateFacebookPageData]>;
@@ -70,7 +81,7 @@ describe('FacebookPagesService', () => {
 
   beforeEach(() => {
     repository = {
-      findMany: jest.fn<Promise<FacebookPage[]>, []>(),
+      findManyWithInsightsMeta: jest.fn<Promise<PageWithInsightsMeta[]>, []>(),
       findById: jest.fn<Promise<FacebookPage | null>, [string]>(),
       findByPageId: jest.fn<Promise<FacebookPage | null>, [string]>(),
       create: jest.fn<Promise<FacebookPage>, [CreateFacebookPageData]>(),
@@ -180,8 +191,8 @@ describe('FacebookPagesService', () => {
   describe('findAll', () => {
     it('mask đúng token cho từng page trong danh sách', async () => {
       const enc = crypto.encrypt('token-abcd');
-      repository.findMany.mockResolvedValue([
-        makePage({ accessTokenEnc: enc }),
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({ accessTokenEnc: enc }),
       ]);
 
       const result = await service.findAll();
@@ -190,13 +201,76 @@ describe('FacebookPagesService', () => {
       expect(result[0]).not.toHaveProperty('accessTokenEnc');
     });
 
+    /**
+     * Plan 25: token đã cấp giữ nguyên scope cũ vĩnh viễn. Không có cờ này thì
+     * page kết nối trước plan 25 sẽ fail đồng bộ mà UI không nói được vì sao.
+     */
+    it('kết nối có scope read_insights ⇒ canReadInsights = true', async () => {
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({
+          connection: {
+            scopes: ['pages_manage_posts', 'read_insights'],
+            revokedAt: null,
+          },
+        }),
+      ]);
+
+      const result = await service.findAll();
+
+      expect(result[0].canReadInsights).toBe(true);
+    });
+
+    it('kết nối thiếu scope read_insights ⇒ canReadInsights = false', async () => {
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({
+          connection: { scopes: ['pages_manage_posts'], revokedAt: null },
+        }),
+      ]);
+
+      const result = await service.findAll();
+
+      expect(result[0].canReadInsights).toBe(false);
+    });
+
+    it('page dán token tay ⇒ canReadInsights = null (không biết, không báo động giả)', async () => {
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({ connection: null }),
+      ]);
+
+      const result = await service.findAll();
+
+      expect(result[0].canReadInsights).toBeNull();
+    });
+
+    it('kết nối đã thu hồi ⇒ canReadInsights = null (vấn đề là token chết, không phải thiếu scope)', async () => {
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({
+          connection: { scopes: ['read_insights'], revokedAt: new Date() },
+        }),
+      ]);
+
+      const result = await service.findAll();
+
+      expect(result[0].canReadInsights).toBeNull();
+    });
+
+    it('trả về số bài đã đăng của page', async () => {
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({ _count: { assignments: 42 } }),
+      ]);
+
+      const result = await service.findAll();
+
+      expect(result[0].publishedPostCount).toBe(42);
+    });
+
     it('trả mask "chưa xác định" thay vì crash khi token cũ không giải mã được (đổi khoá)', async () => {
       const otherCrypto = new CryptoService({
         tokenEncryptionKey: OTHER_KEY,
       } as AppConfigService);
       const encWithOldKey = otherCrypto.encrypt('token-abcd');
-      repository.findMany.mockResolvedValue([
-        makePage({ accessTokenEnc: encWithOldKey }),
+      repository.findManyWithInsightsMeta.mockResolvedValue([
+        makePageWithMeta({ accessTokenEnc: encWithOldKey }),
       ]);
 
       const result = await service.findAll();

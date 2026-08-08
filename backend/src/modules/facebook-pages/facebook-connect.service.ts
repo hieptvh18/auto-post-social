@@ -37,6 +37,13 @@ const OAUTH_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_posts',
+  // Đọc `/insights` của bài đã đăng (plan 25). `pages_read_engagement` chỉ cho
+  // đọc NỘI DUNG bài, không mở được edge insights.
+  //
+  // CẢNH BÁO: token đã cấp giữ nguyên scope cũ VĨNH VIỄN. Mọi kết nối tạo trước
+  // plan 25 sẽ không có quyền này và không tự nâng cấp — user phải bấm "Kết nối
+  // lại". Cờ `canReadInsights` trên response page tồn tại để UI nói ra điều đó.
+  'read_insights',
 ];
 
 /** Task Meta trả trong `/me/accounts` — có nó mới thực sự đăng bài được. */

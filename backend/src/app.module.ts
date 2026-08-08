@@ -23,6 +23,7 @@ import { MediaModule } from './modules/media/media.module';
 import { MediaUploadJobsModule } from './modules/media-upload-jobs/media-upload-jobs.module';
 import { MonitorModule } from './modules/monitor/monitor.module';
 import { PublishJobsModule } from './modules/publish-jobs/publish-jobs.module';
+import { PostInsightsModule } from './modules/post-insights/post-insights.module';
 import { PublishScheduleModule } from './modules/publish-schedule/publish-schedule.module';
 import { SettingsHttpModule } from './modules/settings/settings-http.module';
 import { UsersModule } from './modules/users/users.module';
@@ -60,6 +61,7 @@ import { UsersModule } from './modules/users/users.module';
     AutoPostModule,
     ManualPostModule,
     PublishScheduleModule,
+    PostInsightsModule,
     MonitorModule,
     DashboardModule,
     HealthModule,

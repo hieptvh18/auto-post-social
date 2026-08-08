@@ -11,6 +11,7 @@ import DataDeletionPage from './pages/legal/DataDeletionPage';
 import PrivacyPolicyPage from './pages/legal/PrivacyPolicyPage';
 import TermsPage from './pages/legal/TermsPage';
 import LoginPage from './pages/LoginPage';
+import PageInsightsPage from './pages/PageInsightsPage';
 import PageManagementPage from './pages/PageManagementPage';
 import QueueMonitorPage from './pages/QueueMonitorPage';
 import SettingsPage from './pages/SettingsPage';
@@ -64,6 +65,12 @@ export function AppRoutes() {
           </Route>
           <Route element={<RoleRoute path="/pages" />}>
             <Route path="pages" element={<PageManagementPage />} />
+            {/* Thống kê nằm trong cùng RoleRoute `/pages` — ai quản lý được page
+                thì xem được số liệu page đó, không đẻ thêm luật quyền mới. */}
+            <Route
+              path="pages/:pageId/insights"
+              element={<PageInsightsPage />}
+            />
           </Route>
           <Route element={<RoleRoute path="/users" />}>
             <Route path="users" element={<UserManagementPage />} />

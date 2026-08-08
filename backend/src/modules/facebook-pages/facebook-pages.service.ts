@@ -25,6 +25,11 @@ import type { UpdateFacebookPageDto } from './dto/update-facebook-page.dto';
 
 /** Scope tối thiểu để bot đăng bài lên page. */
 const SCOPE_MANAGE_POSTS = 'pages_manage_posts';
+/**
+ * Scope để đọc `/insights` (plan 25). `pages_read_engagement` **không** thay thế
+ * được — thiếu cái này Graph trả `(#200) Requires read_insights permission`.
+ */
+export const SCOPE_READ_INSIGHTS = 'read_insights';
 /** Dưới ngưỡng này thì cảnh báo token sắp hết hạn (bot sẽ chết giữa chừng). */
 const EXPIRY_WARNING_DAYS = 7;
 const MS_PER_DAY = 86_400_000;
@@ -53,8 +58,13 @@ export class FacebookPagesService {
   ) {}
 
   async findAll(): Promise<FacebookPageResponse[]> {
-    const pages = await this.repository.findMany();
-    return pages.map((page) => this.toResponse(page));
+    const pages = await this.repository.findManyWithInsightsMeta();
+    return pages.map((page) =>
+      this.toResponse(page, undefined, {
+        canReadInsights: readInsightsFlag(page.connection),
+        publishedPostCount: page._count.assignments,
+      }),
+    );
   }
 
   async create(
@@ -413,18 +423,42 @@ export class FacebookPagesService {
   private toResponse(
     page: FacebookPage,
     knownPlainToken?: string,
+    insightsMeta?: {
+      canReadInsights: boolean | null;
+      publishedPostCount: number;
+    },
   ): FacebookPageResponse {
     if (knownPlainToken !== undefined) {
-      return toFacebookPageResponse(page, maskToken(knownPlainToken));
+      return toFacebookPageResponse(
+        page,
+        maskToken(knownPlainToken),
+        insightsMeta,
+      );
     }
 
     try {
       return toFacebookPageResponse(
         page,
         maskToken(this.crypto.decrypt(page.accessTokenEnc)),
+        insightsMeta,
       );
     } catch {
-      return toFacebookPageResponse(page, UNKNOWN_TOKEN_MASK);
+      return toFacebookPageResponse(page, UNKNOWN_TOKEN_MASK, insightsMeta);
     }
   }
+}
+
+/**
+ * Page dán token tay không có `connection` ⇒ hệ thống **không biết** scope của
+ * token đó (muốn biết phải gọi `/debug_token` cho từng page — không làm ở đường
+ * list). Trả `null` để UI im lặng, thay vì `false` gây báo động giả.
+ *
+ * Kết nối đã thu hồi cũng trả `null`: vấn đề của nó là token chết, không phải
+ * thiếu scope — báo sai nguyên nhân còn tệ hơn không báo.
+ */
+function readInsightsFlag(
+  connection: { scopes: string[]; revokedAt: Date | null } | null,
+): boolean | null {
+  if (connection === null || connection.revokedAt !== null) return null;
+  return connection.scopes.includes(SCOPE_READ_INSIGHTS);
 }

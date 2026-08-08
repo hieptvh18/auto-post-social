@@ -4,8 +4,58 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-08 (Fix: ẩn page tạm dừng ở màn auto-post · thu hẹp quyền EDITOR còn 2 màn · Lịch đăng bài: block "Khung giờ chạy tiếp theo")
-**Session gần nhất (mới nhất):** **Plan 24 — thêm bài vào kho bằng cách DÁN LINK Google Drive.**
+**Cập nhật lần cuối:** 2026-08-08 (M11 — tracking lượt xem bài đã đăng; đã sửa 3 lỗi sau khi chạy thật với Graph)
+**Session gần nhất (mới nhất):** **Plan 25 — M11 tracking lượt xem bài đã đăng (Facebook Post
+Insights).** `/pages` giờ mỗi dòng có nút **"Chi tiết"** mở màn thống kê riêng của page
+(`/pages/:pageId/insights`), **tên page bấm được** mở thẳng Page trên Facebook, thêm cột "Bài
+đã đăng". Màn mới: 4 thẻ tổng + bảng bài đăng **mặc định mới nhất trước**, tiêu đề bài link ra
+đúng bài gốc, kèm lượt hiển thị / người tiếp cận / lượt xem video / tương tác + nút "Đồng bộ
+ngay" (throttle 5 phút ⇒ 429). **Ràng buộc cứng user chốt: CHỈ theo dõi bài DO TOOL ĐĂNG** —
+nguồn là `content_page_assignments` có `published_at` + `facebook_post_id`, **không** crawl
+`/{page-id}/posts`; chọn bảng assignment chứ không `publish_jobs` vì nó có UNIQUE
+`(content, page)`, còn 1 content retry nhiều lần đẻ nhiều job ⇒ cộng view sẽ **nhân đôi**.
+**Về quyền Facebook: thêm đúng 1 scope `read_insights`** — `pages_read_engagement` chỉ cho đọc
+*nội dung* bài, **không** mở được edge `/insights` (Graph trả `(#200)`). **Cạm bẫy lớn nhất:
+scope đã cấp cho một token là bất biến** ⇒ mọi kết nối tạo trước 08/08 **phải bấm "Kết nối
+lại"**, không tự nâng cấp — nên có cờ `canReadInsights` (true/false/**null** = page dán token
+tay, không biết scope ⇒ **im lặng**, không báo động giả) hiện thành Tag vàng + Alert + khoá nút
+đồng bộ. **Ba chỗ dễ sai đã xử lý:** (1) **`null` ≠ `0`** xuyên suốt adapter→repository→UI —
+metric bị Meta deprecate **biến mất khỏi response chứ không ném lỗi**, coi là 0 thì một hôm
+Meta đổi tên metric là **xoá sạch số liệu cũ**; nay vắng mặt ⇒ `null` ⇒ UI hiện `—` + log cảnh
+báo, repository **bỏ hẳn field khỏi `update`**; (2) **Batch API parse từng phần tử riêng** — 1
+bài bị xoá trả 400 trong khi 49 bài kia trả 200, gộp cả lô thành lỗi là mất sạch dữ liệu vì
+đúng một bài; (3) **tần suất theo tuổi bài** (<48h: 6h/lần · 2–7 ngày: 24h · 8–30 ngày: 48h ·
+>30 ngày **ngừng hẳn**) đặt ở **service** để test bằng clock giả, không nhét vào SQL. Bài không
+còn trên FB ⇒ `missing_on_fb_at` và **ngừng** quét (phanh duy nhất chặn retry vô hạn). Thiếu
+scope ⇒ **bỏ cả page, 0 call Graph**. Hai bảng mới `post_insights` (số hiện tại) +
+`post_insight_snapshots` (ảnh chụp theo ngày, UNIQUE `(assignment, date)`); tách 2 bảng để màn
+danh sách chỉ cần 1 join thay vì `DISTINCT ON`. Dùng lại permission `pages:manage` + route
+trong `RoleRoute path="/pages"` sẵn có — không đẻ luật quyền mới. Chi tiết:
+[plans/25-page-post-insights.md](./plans/25-page-post-insights.md). `erd.md` đã cập nhật
+(migration `20260808054704_post_insights`). BE **880 test xanh (+45)**, FE **63 test (+4)**,
+lint/build 2 phía xanh.
+
+**ĐÃ CHẠY THẬT với Graph cùng ngày và phải sửa 3 lỗi (plan 25 §8)** — user báo "mọi chỉ số
+= 0". (1) **`post_impressions` KHÔNG CÒN TỒN TẠI**: đo thật với Page token hợp lệ (có
+`read_insights`, `expires_at=0`), cả họ `post_impressions*`/`post_reach`/`post_views`/
+`page_impressions*` trả `(#100) The value must be a valid insights metric` trên **v19→v23**
+⇒ Meta gỡ hẳn, không phải lỗi quyền/sai version/thiếu App Review. Đổi sang 3 chỉ số đã đo
+là còn sống: **`post_video_views` · `post_fan_reach` · `post_clicks`**. Hệ quả nghiệp vụ:
+**bài ảnh không còn cách lấy lượt xem tổng qua API** (số Business Suite hiện đi qua API nội
+bộ Meta). UI đổi sang 3 cột *Lượt xem video · Tiếp cận người theo dõi · Lượt nhấp* và nói rõ
+giới hạn ngay dưới header. (2) **Lỗi làm hỏng dữ liệu:** `code = 100` bị map thành "bài đã
+bị xoá" ⇒ **3 bài đang sống** bị ghi `missing_on_fb_at` và **vĩnh viễn** không đồng bộ lại,
+âm thầm — Graph dùng cùng code đó cho "tên metric sai"; nay chỉ set khi `error_subcode = 33`,
+thêm cờ `isInvalidMetric` để dừng cả page và log đúng chỗ cần sửa. (3) **Nguồn gốc con số
+0:** `saveInsight()` viết `?? 0` ở nhánh `create`, mà lần đồng bộ đầu **luôn** đi vào
+`create` ⇒ ghi 0 thật vào DB kèm `fetched_at`; nay **mọi cột số NULLABLE, bỏ `DEFAULT 0`**
+và bỏ hẳn field khỏi payload khi `null` ⇒ bất biến "`NULL` = chưa đo, `0` = đo được 0" do
+**DB** bảo đảm chứ không chỉ là quy ước. Đã dọn 4 dòng hỏng; chạy lại thật: **4/5 bài có
+số**, bài "KK Coach" trả `👍1` (bằng chứng đường dữ liệu chạy thật). Migration
+`20260808064846_post_insights_real_metrics`. **Còn nợ:** smoke UI (§6 mục 34), thumbnail
+Drive hết hạn ⇒ 404 (§6 mục 35).
+
+**Session trước đó:** **Plan 24 — thêm bài vào kho bằng cách DÁN LINK Google Drive.**
 Modal "Thêm Ảnh/Video" giờ có **2 tab**: *Tải từ máy* (plan 23, giữ nguyên) và *Nhập từ link
 Google Drive* (mới). **Kỹ thuật cốt lõi — user chốt: `drive.files.copy`**, tức Google tự nhân
 bản file ở phía họ và **không byte nào của file đi qua backend** — link 2GB cũng chỉ là 1
@@ -471,6 +521,8 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M9 — Tổng quan (Dashboard) số liệu thật | 🟡 | 2026-07-26 — code + test + smoke API xong ([plans/14-dashboard.md](./plans/14-dashboard.md) §7); **chưa smoke UI thật** ⇒ chưa chuyển plan sang DONE (§6 mục 18) |
 | M10 — Kết nối Page bằng đăng nhập Facebook | 🟡 | 2026-07-27 — code + 41 test mới xanh, lint/build 2 phía xanh ([plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md)); **chưa smoke với Meta app thật** (cần App ID/Secret + tài khoản có role Tester) ⇒ chưa chuyển plan sang DONE (§6 mục 19) |
 
+| M11 — Tracking lượt xem bài đã đăng (Facebook Insights) | 🟡 | 2026-08-08 — code + 45 test mới xanh, lint/build 2 phía xanh ([plans/25-page-post-insights.md](./plans/25-page-post-insights.md)); **chưa gọi Graph Insights thật** ⇒ chưa chuyển plan sang DONE (§6 mục 33, 34) |
+
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
 > **Cách đọc bảng này sau 2026-07-25:** ✅ ở M3–M7 nghĩa là *code + test xanh + smoke API*,
@@ -482,6 +534,54 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 ## 5. Nhật ký module đã hoàn thành
 
 > Mỗi module xong ghi 1 mục ở đây theo mẫu trong `.claude/rules/03-context-protocol.md`.
+
+### M11 Tracking lượt xem bài đã đăng (Plan 25) — 🟡 2026-08-08 (chưa chạy với Graph thật)
+
+- **Phạm vi:** màn **thống kê riêng cho từng Page** — `/pages` mỗi dòng có nút "Chi tiết"
+  (→ `/pages/:pageId/insights`), tên page bấm được mở thẳng Page trên Facebook, thêm cột
+  "Bài đã đăng". Màn chi tiết: 4 thẻ tổng + bảng bài đăng **mặc định mới nhất trước**, kèm
+  lượt hiển thị / người tiếp cận / lượt xem video / tương tác, tiêu đề bài link ra đúng bài
+  gốc, nút "Đồng bộ ngay". 3 endpoint mới `GET|POST /pages/:pageId/insights/{posts,summary,sync}`.
+- **File chính:** `backend/src/infra/facebook/facebook-insights.{client,interface}.ts`,
+  `backend/src/modules/post-insights/*`, `frontend/src/pages/PageInsightsPage.tsx`,
+  `frontend/src/{api/postInsights.api,hooks/usePostInsights}.ts`
+- **Quyết định:**
+  1. **Chỉ theo dõi bài DO TOOL ĐĂNG** (user chốt) — nguồn là `content_page_assignments`
+     có `published_at` + `facebook_post_id`, **không** crawl `/{page-id}/posts`. Chọn bảng
+     assignment chứ không `publish_jobs` vì nó có UNIQUE `(content, page)`, còn 1 content
+     retry nhiều lần đẻ nhiều job ⇒ cộng view sẽ nhân đôi.
+  2. **Thêm đúng 1 scope `read_insights`** vào `OAUTH_SCOPES`. `pages_read_engagement`
+     **không** mở được edge `/insights` (Graph trả `(#200)`).
+  3. **`null` ≠ `0`** xuyên suốt 3 tầng (adapter → repository → UI): `null` = chưa đo,
+     `0` = đã đo và thật sự không ai xem. Metric bị Meta deprecate biến mất khỏi response
+     chứ không ném lỗi — coi là 0 thì một hôm Meta đổi tên metric là **xoá sạch số liệu cũ**.
+  4. **Batch API parse từng phần tử riêng** — 1 bài bị xoá trả 400 trong khi 49 bài kia
+     trả 200; gộp cả lô thành lỗi là mất sạch dữ liệu vì đúng một bài.
+  5. **Tần suất theo tuổi bài** (<48h: 6h/lần · 2–7 ngày: 24h · 8–30 ngày: 48h · >30 ngày:
+     ngừng hẳn) — logic nằm ở **service** (test bằng clock giả), không nhét vào SQL.
+  6. Dùng lại permission `pages:manage` và đặt route trong `RoleRoute path="/pages"` sẵn có
+     — không đẻ luật quyền mới cho một màn chỉ-đọc.
+- **Sửa lớn cùng ngày sau khi chạy thật (plan 25 §8) — user báo "mọi chỉ số = 0":**
+  1. **`post_impressions` KHÔNG CÒN TỒN TẠI.** Đo thật với Page token hợp lệ (có
+     `read_insights`, `expires_at=0`): cả họ `post_impressions*`, `post_reach`,
+     `post_views`, `page_impressions*` đều trả `(#100) The value must be a valid
+     insights metric` trên **v19→v23** ⇒ Meta gỡ hẳn, không phải lỗi quyền hay sai
+     version. Đổi sang 3 chỉ số **đã đo là còn sống**: `post_video_views` ·
+     `post_fan_reach` · `post_clicks`. **Bài ảnh không còn cách lấy lượt xem tổng
+     qua API** — con số Business Suite hiện đi qua API nội bộ của Meta.
+  2. **Lỗi làm hỏng dữ liệu:** code 100 bị map thành "bài đã bị xoá" ⇒ **3 bài đang
+     sống** bị ghi `missing_on_fb_at` và **vĩnh viễn** không đồng bộ lại. Graph dùng
+     cùng code 100 cho "tên metric sai". Nay chỉ set khi `error_subcode = 33`.
+  3. **Nguồn gốc của "= 0":** `saveInsight()` viết `?? 0` ở nhánh `create`, mà lần
+     đồng bộ đầu luôn đi vào `create` ⇒ ghi 0 thật vào DB. Nay **mọi cột số
+     NULLABLE, bỏ `DEFAULT 0`** và bỏ hẳn field khỏi payload khi `null` — bất biến
+     "`NULL` = chưa đo, `0` = đo được 0" do **DB** bảo đảm.
+  Đã dọn 4 dòng hỏng. Chạy lại thật: **4/5 bài có số**, bài "KK Coach" trả `👍1`
+  (bằng chứng đường dữ liệu chạy thật, không phải 0 giả).
+- **Test:** BE **883** test xanh (+48), FE **63** (+4). Lint/build 2 phía xanh.
+  Migration `20260808064846_post_insights_real_metrics`, `erd.md` đã cập nhật.
+- **Còn nợ:** chưa smoke UI thật (§6 mục 34); mọi kết nối tạo **trước 08/08 phải bấm
+  "Kết nối lại"** mới có `read_insights`; ảnh thumbnail Drive hết hạn ⇒ 404 (§6 mục 35).
 
 ### Upload media qua hàng đợi (Plan 23) — 🟡 2026-08-07 (chưa smoke UI)
 
@@ -1216,6 +1316,9 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 31 | **`docs/05-rbac.md` §2 lệch code sau khi thu hẹp quyền EDITOR (2026-08-08)** | User chốt EDITOR chỉ dùng màn Quản lý Ảnh/Video + Hướng dẫn sử dụng, nên code đã bỏ `autopost:manage`, `timeline:view`, `dashboard:view` khỏi EDITOR (`backend/src/common/permissions.ts`, `frontend/src/utils/permissions.ts`). `docs/05-rbac.md` §2 vẫn ghi ma trận cũ. Theo rule 00 §1 không tự sửa `docs/` khi đang code — cần user xác nhận rồi cập nhật ma trận + phần mô tả route của EDITOR. |
 | 32 | **RBAC EDITOR mới chưa test tay trên UI thật** | Đã xanh test tự động (BE 834, FE 59) nhưng **chưa đăng nhập thử**. Cần `VITE_USE_MOCK=false`, login account role EDITOR: sidebar chỉ còn **Quản lý Ảnh/Video Edit** + **Hướng dẫn sử dụng**; sau đăng nhập rơi thẳng vào `/content` (không phải `/dashboard`); gõ tay `/dashboard`, `/timeline`, `/auto-post`, `/pages`, `/users`, `/settings`, `/queue`, `/failed`, `/audit` ⇒ đều bị đá về `/content` (không lặp redirect); vẫn upload/sửa/duyệt bài bình thường ở `/content`; trang Hướng dẫn không còn khối "Chỉ Admin". Kiểm hồi quy ADMIN và CONTENT vào đúng `/dashboard` như cũ. |
 | 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
+| 33 | ~~Tên metric Insights chưa xác minh~~ ✅ ĐÃ LÀM 2026-08-08 — **và giả định ban đầu SAI** | Đo thật: `post_impressions*`, `post_reach`, `post_views`, `page_impressions*` đã bị Meta **gỡ hẳn** (v19→v23 đều `(#100) not a valid insights metric`, token có đủ `read_insights`). Đang dùng `post_video_views` · `post_fan_reach` · `post_clicks`. **Hệ quả còn lại:** bài **ảnh** không có lượt xem/hiển thị tổng qua API — nếu sau này cần con số như Business Suite thì phải chờ Meta mở metric mới, không sửa được bằng code. Chi tiết plan 25 §8. |
+| 35 | **Thumbnail Google Drive hết hạn ⇒ ảnh 404 trên mọi màn có ảnh** | `content_assets.thumbnail_url` lưu nguyên `thumbnailLink` mà Drive trả lúc upload (`lh3.googleusercontent.com/...`). Link này **hết hạn** sau một thời gian ⇒ ảnh vỡ ở `/content` (Drawer preview) lẫn `/pages/:id/insights`. Đã vá tạm ở màn thống kê: `onError` ẩn hẳn thẻ `<img>` thay vì để icon ảnh hỏng. **Cách sửa gốc** (chưa làm, cần user chốt vì đụng nhiều màn): thêm endpoint proxy `GET /media/:driveFileId/thumbnail` ở backend, stream ảnh xuống bằng credential Drive của hệ thống và cache — khi đó FE chỉ cần trỏ vào URL của chính mình, không phụ thuộc link tạm của Google. Cách rẻ hơn nhưng kém bền: mỗi lần đọc bài thì gọi Drive lấy `thumbnailLink` mới (tốn 1 call/bài). |
+| 34 | **M11 (plan 25) chưa smoke UI + chưa nộp App Review `read_insights`** | Code BE+FE xong (BE 880 test, FE 63). **Chưa bấm tay** — chạy §5 của plan 25: (1) `/pages` bấm "Kết nối bằng Facebook" ⇒ màn consent phải **hiện mục "Read Insights"** (nếu không hiện thì scope chưa vào, xem lại `OAUTH_SCOPES`); (2) tên page bấm được, mở đúng Page ở tab mới; (3) nút "Chi tiết" mở `/pages/:id/insights`, **bài mới nhất nằm trên cùng khi vừa mở**; (4) bấm tiêu đề bài ⇒ mở **đúng bài đó**; (5) "Đồng bộ ngay" ⇒ số điền vào, "Cập nhật lần cuối" nhảy; bấm lại ngay ⇒ **429** kèm câu giải thích; (6) đối chiếu số với **Meta Business Suite** cùng bài (lệch nhỏ do trễ là bình thường); (7) xoá 1 bài trên Facebook ⇒ lần đồng bộ sau bài đó có Tag đỏ "Đã bị xoá", **các bài khác vẫn cập nhật**; (8) page kết nối **trước 08/08** phải hiện Tag vàng "Thiếu quyền thống kê" + Alert + nút "Đồng bộ ngay" bị khoá. **Quan trọng:** scope đã cấp là bất biến ⇒ mọi kết nối cũ phải bấm "Kết nối lại", đây là ca dễ tưởng là bug nhất. Còn lại: nộp **App Review** cho `read_insights` (cần Business Verification + screencast quay từ consent tới màn hiện số) nếu mở cho user ngoài team — với page mà tài khoản có role trong Meta app thì Standard Access đã chạy được, **không chặn** việc nghiệm thu. Xong thì `git mv plans/25-page-post-insights.md plans/DONE/`. |
 
 ---
 
@@ -1225,6 +1328,9 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 
 | Vấn đề | Nguyên nhân & cách xử lý |
 |--------|--------------------------|
+| **Graph API dùng chung `code = 100` cho "object không tồn tại" VÀ "tên metric sai"** ⇒ suy ra "bài đã bị xoá" là sai và **mất dữ liệu âm thầm** | Ngày 2026-08-08, adapter insights map `code ∈ {100, 803}` thành `isMissing` ⇒ 3 bài **đang sống** bị ghi `missing_on_fb_at`, mà repository lọc `missing_on_fb_at IS NULL` nên chúng **vĩnh viễn** không được đồng bộ lại — không log, không cảnh báo, chỉ là số liệu đứng im. **Cách xử lý:** chỉ kết luận "đã xoá" khi có `error_subcode = 33`; đọc `message` để nhận diện lỗi cấu hình (`"valid insights metric"`) và dừng cả page thay vì đổ lỗi lên từng bài. **Bài học chung: cờ nào khiến hệ thống NGỪNG VĨNH VIỄN làm một việc thì phải dựa trên tín hiệu hẹp nhất có thể, không dựa vào error code dùng chung.** |
+| **Metric Facebook Insights `post_impressions` đã bị gỡ hẳn — đừng tin tài liệu/trí nhớ** | Cả họ `post_impressions*`, `post_reach`, `post_views`, `post_engaged_users`, `page_impressions*` đều trả `(#100) The value must be a valid insights metric` trên **mọi** version v19→v23, kể cả với Page token hợp lệ có đủ `read_insights`. **Không phải** lỗi quyền, **không phải** pin sai version, **không** sửa được bằng App Review. Chỉ số còn sống (đã đo): `post_video_views` · `post_fan_reach` · `post_clicks` · `post_reactions_by_type_total`. **Cách xử lý: luôn dò tên metric bằng call thật trước khi code**, đừng chép từ tài liệu cũ. Bài **ảnh** hiện không có lượt xem/hiển thị tổng qua API. |
+| **`?? 0` ở nhánh `create` của upsert biến "chưa đo" thành "đo được 0"** | Nhánh `update` xử lý `null` đúng nhưng **lần ghi đầu tiên luôn đi vào `create`**, nên cột `NOT NULL DEFAULT 0` nhận `0` thật kèm `fetched_at` ⇒ UI hiện "đã đồng bộ, 0 lượt xem" cho bài chưa hề lấy được số. **Cách xử lý:** cột nào phân biệt "chưa có dữ liệu" với "dữ liệu bằng 0" thì để **NULLABLE, không default**, và bỏ hẳn field khỏi payload khi giá trị `null` — ở **cả** `create` lẫn `update`. Đừng để bất biến quan trọng chỉ nằm ở quy ước code. |
 | **Bộ lọc boolean trên query string luôn ra `true`** (`?isAds=false`, `?isActive=false` không lọc được) | `ValidationPipe` bật `transformOptions.enableImplicitConversion` ⇒ class-transformer chạy `Boolean('false') === true` **trước** khi `@Transform` được gọi, nên `@Transform(({ value }) => ...)` nhận sẵn `true` chứ không phải chuỗi gốc. Lỗi âm thầm, unit test cũ không thấy vì test gọi service chứ không qua pipe. **Cách xử lý:** trong `@Transform` đọc giá trị gốc từ `obj[key]` (`@Transform(({ obj }) => toBoolean(obj.isAds))`), và có test dựng DTO **kèm `enableImplicitConversion: true`** để khoá lại — xem `content-assets/__tests__/bulk-content-assets.dto.spec.ts`. Áp dụng cho mọi DTO query có field boolean. |
 | **Server smoke cũ không chết ⇒ test nhầm build cũ** | `pkill -f "PORT=3002"` chỉ giết tiến trình npm, `node dist/main` vẫn giữ cổng; instance mới bật lên chết vì `EADDRINUSE` nhưng lệnh chạy nền không báo gì, curl vẫn xanh nên rất dễ tưởng code mới đã chạy. **Cách xử lý:** luôn `lsof -ti:<port> | xargs kill` rồi kiểm lại cổng trống trước khi smoke. |
 | FE `vite.config.ts` không nhận key `test` của vitest (TS2769) và xung đột type `Plugin` | Vite 8 dùng rolldown, còn vitest kéo theo bản vite riêng ⇒ hai kiểu `Plugin` khác nhau. Xử lý: **tách cấu hình test ra `vitest.config.ts` riêng** (`defineConfig` từ `vitest/config`), giữ `vite.config.ts` dùng `defineConfig` của `vite`; script test trỏ `--config vitest.config.ts`. |

@@ -1,11 +1,14 @@
 import {
   ApiOutlined,
+  BarChartOutlined,
   DeleteOutlined,
   EditOutlined,
+  ExportOutlined,
   FacebookOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -25,7 +28,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { mockPages } from '../api/mock/data';
 import { PageHeader } from '../components/common/PageHeader';
@@ -267,6 +270,7 @@ function MockPageManagementPage() {
 
 function RealPageManagementPage() {
   const user = useAuthUser();
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FacebookPageResponse | null>(null);
   const [keyword, setKeyword] = useState('');
@@ -425,11 +429,38 @@ function RealPageManagementPage() {
     {
       title: 'Tên Page',
       dataIndex: 'pageName',
+      render: (name: string, record) => (
+        <Space size={4}>
+          <Typography.Link
+            href={`https://www.facebook.com/${record.pageId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {name} <ExportOutlined />
+          </Typography.Link>
+          {/* Chỉ cảnh báo khi chắc chắn THIẾU. `null` = page dán token tay,
+              hệ thống không giữ scope của nó ⇒ im lặng, không báo động giả. */}
+          {record.canReadInsights === false && (
+            <Tooltip title="Token chưa có quyền đọc thống kê (read_insights). Bấm 'Kết nối bằng Facebook' và cấp lại quyền để xem lượt hiển thị.">
+              <Tag color="warning" icon={<WarningOutlined />}>
+                Thiếu quyền thống kê
+              </Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Page ID',
       dataIndex: 'pageId',
       render: (v) => <Text code>{v}</Text>,
+    },
+    {
+      title: 'Bài đã đăng',
+      dataIndex: 'publishedPostCount',
+      width: 120,
+      align: 'right',
+      render: (count: number | undefined) => count ?? 0,
     },
     {
       title: 'Token',
@@ -474,9 +505,16 @@ function RealPageManagementPage() {
       ? [
           {
             title: 'Actions',
-            width: 160,
+            width: 190,
             render: (_: unknown, record: FacebookPageResponse) => (
               <Space>
+                <Tooltip title="Xem thống kê lượt xem các bài đã đăng lên page này">
+                  <Button
+                    type="text"
+                    icon={<BarChartOutlined />}
+                    onClick={() => navigate(`/pages/${record.id}/insights`)}
+                  />
+                </Tooltip>
                 {/* Page dán tay không có gì để tạo lại token ⇒ không hiện nút. */}
                 {record.connectMode === 'FB_LOGIN' && (
                   <Tooltip title="Lấy lại Page token từ tài khoản Facebook đã kết nối">

@@ -276,9 +276,75 @@ model ContentPageAssignment {
   contentAsset ContentAsset @relation(fields: [contentAssetId], references: [id], onDelete: Cascade)
   facebookPage FacebookPage @relation(fields: [facebookPageId], references: [id])
 
+  insight          PostInsight?
+  insightSnapshots PostInsightSnapshot[]
+
   @@unique([contentAssetId, facebookPageId])
   @@index([facebookPageId, publishedAt])
   @@map("content_page_assignments")
+}
+
+/// Số liệu Facebook Insights MỚI NHẤT của một bài đã đăng (plan 25).
+///
+/// Neo vào assignment chứ không vào `publish_jobs`: assignment có
+/// UNIQUE(content, page) nên không bao giờ trùng, còn 1 content retry nhiều lần
+/// sinh nhiều publish_job ⇒ đếm view sẽ nhân đôi.
+///
+/// **Mọi cột số đều NULLABLE và không có default** (sửa 2026-08-08 sau khi đo
+/// Graph thật): `NULL` = chưa đo được chỉ số đó, `0` = đã đo và thật sự bằng 0.
+/// Cột NOT NULL DEFAULT 0 làm hai chuyện đó thành một, và đó chính là lý do màn
+/// hình từng hiện "0 lượt xem" cho bài chưa hề lấy được số.
+///
+/// **Không có cột impressions/reach tổng:** Meta đã gỡ toàn bộ họ
+/// `post_impressions*` / `post_reach` khỏi Graph API (kiểm chứng 2026-08-08 trên
+/// v19→v23: đều trả `(#100) The value must be a valid insights metric`).
+model PostInsight {
+  id               String    @id @default(uuid()) @db.Uuid
+  assignmentId     String    @unique @map("assignment_id") @db.Uuid
+  facebookPostId   String    @map("facebook_post_id")
+  /// `post_video_views` — chỉ bài video mới có.
+  videoViews       Int?      @map("video_views")
+  /// `post_fan_reach` — số người theo dõi page đã thấy bài. KHÔNG phải reach tổng.
+  fanReach         Int?      @map("fan_reach")
+  /// `post_clicks` — lượt nhấp vào bài (ảnh, link, xem thêm...).
+  clicks           Int?
+  likeCount        Int?      @map("like_count")
+  commentCount     Int?      @map("comment_count")
+  shareCount       Int?      @map("share_count")
+  /// Lần đồng bộ THÀNH CÔNG gần nhất. `null` = chưa lần nào lấy được số (dòng có
+  /// thể đã tồn tại chỉ để ghi `sync_error_message`).
+  fetchedAt        DateTime? @map("fetched_at")
+  /// != null = Graph khẳng định bài không còn tồn tại ⇒ NGỪNG đồng bộ.
+  /// Chỉ được set khi Graph trả `error_subcode = 33`; **cấm** suy ra từ code 100
+  /// trần — Graph dùng code 100 cho cả "tên metric sai", và đánh dấu nhầm sẽ giết
+  /// việc theo dõi một bài đang sống mà không ai biết.
+  missingOnFbAt    DateTime? @map("missing_on_fb_at")
+  syncErrorMessage String?   @map("sync_error_message") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  assignment ContentPageAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([facebookPostId])
+  @@map("post_insights")
+}
+
+/// Ảnh chụp số liệu mỗi ngày — để xem xu hướng và biết bài đã "nguội" chưa.
+/// UNIQUE(assignment, date) làm job chạy 4 lần/ngày vẫn chỉ để lại 1 dòng.
+model PostInsightSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  assignmentId String   @map("assignment_id") @db.Uuid
+  /// 'YYYY-MM-DD' theo Asia/Ho_Chi_Minh — cùng quy ước với `slot_runs.run_date`.
+  snapshotDate String   @map("snapshot_date")
+  videoViews   Int?     @map("video_views")
+  fanReach     Int?     @map("fan_reach")
+  clicks       Int?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  assignment ContentPageAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, snapshotDate])
+  @@map("post_insight_snapshots")
 }
 
 /// Mốc giờ đăng tự động của từng page — config 1 lần, lặp lại mỗi ngày.

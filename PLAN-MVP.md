@@ -52,6 +52,7 @@ phải chỉ qua curl/Swagger.
 | **M8** | **Monitor: Queue · Failed Jobs · Audit Logs** | [plans/13-monitor.md](./plans/13-monitor.md) | 🟡 code+test+smoke API xong, chưa smoke UI | QueueMonitorPage, FailedJobsPage, AuditLogsPage |
 | **M9** | **Tổng quan (Dashboard) chạy số liệu thật** | [plans/14-dashboard.md](./plans/14-dashboard.md) | 🟡 code+test+smoke API xong, chưa smoke UI | DashboardPage (màn cuối còn mock) |
 | **M10** | **Kết nối Page bằng đăng nhập Facebook** (thay dán token tay) | [plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md) | 🟡 code+test xong 27/07, chưa chạy với Meta app thật | PageManagementPage, SettingsPage |
+| **M11** | **Tracking lượt xem bài đã đăng** (Facebook Post Insights) | [plans/25-page-post-insights.md](./plans/25-page-post-insights.md) | 🟡 code+test xong 08/08, chưa chạy với Graph thật | PageManagementPage, PageInsightsPage (mới) |
 
 Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8** → **M9**.
 M8 phụ thuộc M6 (dữ liệu `publish_jobs` + `publish_job_events`) và M1 (`audit_logs`).
@@ -61,6 +62,9 @@ M10 phụ thuộc M4 (module page + crypto token) và mượn khuôn OAuth của
 đường trả nợ nghiệm thu "đăng thật lên Page" (`contexts.md` §6 mục 10): user chỉ được
 share quyền trên Page doanh nghiệp, không cầm System User, nên phải lấy Page token
 vĩnh viễn qua đăng nhập cá nhân thay vì dán token ngắn hạn.
+M11 phụ thuộc M4 (`facebook_pages` + token mã hoá) và M6 (`content_page_assignments`
+đã có `facebook_post_id`). Nó **thêm scope `read_insights`** vào luồng OAuth của
+M10 ⇒ mọi kết nối tạo trước 08/08 phải bấm "Kết nối lại" mới đọc được số liệu.
 
 Quy tắc cho mỗi milestone từ M3 trở đi: **không tick "Done" cho tới khi đã test được
 bằng tay trên UI thật** (không phải mock, không chỉ Swagger) theo điều kiện nghiệm
@@ -71,7 +75,10 @@ thu trong file plan tương ứng.
 ## 3. Ngoài phạm vi MVP
 
 Reconciliation cron · Nginx/production compose · Instagram/TikTok · AI caption ·
-chỉ số Facebook Insights (reach/like/comment) · bảng rollup thống kê / cache.
+bảng rollup thống kê / cache.
+
+**Đã chuyển vào Phase 2:** chỉ số Facebook Insights (lượt hiển thị / tiếp cận /
+tương tác) — M11, plan 25. Chỉ theo dõi bài **do tool đăng**, không crawl page.
 
 Backend **vẫn ghi** audit log (rẻ, và cron cần dấu vết), chỉ chưa làm màn hình.
 
