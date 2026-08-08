@@ -47,7 +47,7 @@ function RealQueueMonitorPage() {
         title="Queue Monitor"
         description="Hàng đợi đăng bài đang chạy gì — số liệu tự làm mới mỗi 10 giây"
         extra={
-          <Space>
+          <Space wrap>
             {data !== undefined && (
               <Text type="secondary">
                 Cập nhật lúc {dayjs(data.checkedAt).format('HH:mm:ss')}
@@ -124,7 +124,7 @@ function QueueSummaryView({ summary }: { summary: QueueSummary }) {
           </Space>
         }
       >
-        <Row gutter={16}>
+        <Row gutter={[16, 16]}>
           <Col xs={12} sm={8} md={4}>
             <Statistic title="Đang chờ" value={summary.queue?.waiting ?? '—'} />
           </Col>
@@ -164,7 +164,7 @@ function QueueSummaryView({ summary }: { summary: QueueSummary }) {
           </Text>
         }
       >
-        <Row gutter={16}>
+        <Row gutter={[16, 16]}>
           {DB_STATUS_LABELS.map(([status, label]) => (
             <Col xs={12} sm={8} md={4} key={status}>
               <Statistic title={label} value={summary.db[status]} />
@@ -303,7 +303,7 @@ function MockQueueMonitorPage() {
         title="Queue Monitor"
         description="Theo dõi các job đang chờ và đang xử lý trong BullMQ (dữ liệu mock)"
         extra={
-          <Space>
+          <Space wrap>
             <Text type="secondary">Cập nhật lúc {tick.format('HH:mm:ss')}</Text>
             <Button icon={<ReloadOutlined />} onClick={() => setTick(dayjs())}>
               Làm mới

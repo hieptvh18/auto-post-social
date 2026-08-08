@@ -53,6 +53,7 @@ import {
   usePostsByPage,
   useTopCategories,
 } from '../hooks/useDashboard';
+import { useIsPhone } from '../hooks/useResponsive';
 import type { DashboardAlert, MediaType } from '../types';
 
 const { Text } = Typography;
@@ -67,6 +68,7 @@ export default function DashboardPage() {
 
 function RealDashboardPage() {
   const user = useAuthUser();
+  const isPhone = useIsPhone();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Kỳ nằm trong URL để copy link gửi người khác vẫn ra đúng số liệu.
@@ -466,10 +468,12 @@ function RealDashboardPage() {
                   >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" allowDecimals={false} />
+                    {/* Trục tên danh mục cố định 140px chiếm gần một nửa bề
+                        ngang màn 360px, cột dữ liệu còn lại không đọc được. */}
                     <YAxis
                       type="category"
                       dataKey="category"
-                      width={140}
+                      width={isPhone ? 92 : 140}
                       tick={{ fontSize: 12 }}
                     />
                     <ChartTooltip
@@ -861,7 +865,7 @@ function MockDashboardPage() {
         </Col>
       </Row>
 
-      <Row gutter={16} style={{ marginTop: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={12}>
           <Card title="Tỷ lệ thành công">
             <Space align="baseline">

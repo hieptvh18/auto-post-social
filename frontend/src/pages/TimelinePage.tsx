@@ -39,6 +39,7 @@ import { env } from '../config/env';
 import { useAuthUser } from '../contexts/AuthContext';
 import { useMockData } from '../contexts/MockDataContext';
 import { usePages } from '../hooks/usePages';
+import { useIsMobile } from '../hooks/useResponsive';
 import { useRetryPublishJob } from '../hooks/usePublishJobs';
 import { usePublishSchedule, useRunSlotNow } from '../hooks/usePublishSchedule';
 import { JobEventsModal } from '../components/common/JobEventsModal';
@@ -69,6 +70,7 @@ export default function TimelinePage() {
 /* -------------------------------------------------------------------------- */
 
 function RealTimelinePage() {
+  const isMobile = useIsMobile();
   const [selectedDate, setSelectedDate] = useState(dayjs());
   const [pageFilter, setPageFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<PublishStatus | undefined>();
@@ -221,17 +223,23 @@ function RealTimelinePage() {
         </Col>
       </Row>
 
-      <Row gutter={24}>
+      <Row gutter={[24, 16]}>
         <Col xs={24} lg={7}>
           {/* Bộ lọc dính theo màn hình khi cuộn — chỉ danh sách bên phải cuộn.
-              top = 64 (Header sticky của AdminLayout) + 16 khoảng thở. */}
+              top = 64 (Header sticky của AdminLayout) + 16 khoảng thở.
+              Trên màn hẹp hai cột xếp DỌC: dính lại thì thẻ lọc chiếm gần hết
+              màn hình và che mất chính cái danh sách đang cuộn ⇒ tắt sticky. */}
           <div
-            style={{
-              position: 'sticky',
-              top: 80,
-              maxHeight: 'calc(100vh - 96px)',
-              overflowY: 'auto',
-            }}
+            style={
+              isMobile
+                ? undefined
+                : {
+                    position: 'sticky',
+                    top: 80,
+                    maxHeight: 'calc(100vh - 96px)',
+                    overflowY: 'auto',
+                  }
+            }
           >
             <Card title="Chọn ngày & bộ lọc">
               <DatePicker
@@ -802,7 +810,7 @@ function MockTimelinePage() {
         description="Timeline các bài bot đã/sẽ đăng theo Cài đặt đăng bài tự động"
       />
 
-      <Row gutter={24}>
+      <Row gutter={[24, 16]}>
         <Col xs={24} lg={8}>
           <Card title="Chọn ngày & bộ lọc">
             <DatePicker

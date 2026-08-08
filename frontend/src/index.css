@@ -17,6 +17,14 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * KHÔNG đặt `overflow-x: hidden` lên html/body/#root để chống tràn ngang:
+ * nó biến phần tử đó thành scroll container và làm CHẾT `position: sticky` của
+ * mọi con bên trong — tức header dính của AdminLayout và thẻ lọc dính ở
+ * /timeline. Chống tràn bằng cách xử lý đúng nguồn gây tràn: bảng cuộn trong
+ * khung (scroll.x), ảnh/chuỗi dài bị chặn bề rộng (bên dưới).
+ */
+
 .ant-table-tbody > tr:hover > td {
   cursor: default;
 }
@@ -83,3 +91,185 @@ body {
     width: 100%;
   }
 }
+
+/* ==========================================================================
+   RESPONSIVE — mobile & tablet
+   Ưu tiên sửa bằng CSS ở đây thay vì đi sửa inline style từng trang: các bề
+   rộng cứng (Select 240px, Drawer 640px...) nằm rải rác ở ~15 file, đổi hết
+   sang biến thì rủi ro chạm vào logic; ghi đè theo breakpoint thì desktop
+   giữ nguyên 100% và mobile vẫn vừa màn hình.
+   ========================================================================== */
+
+/* Ảnh/video/iframe không bao giờ được rộng hơn khung chứa nó. */
+img,
+video,
+iframe {
+  max-width: 100%;
+}
+
+/* Chuỗi không có khoảng trắng (Page ID, URL Drive, message lỗi từ Graph) là
+   nguồn gây tràn ngang phổ biến nhất — cho phép ngắt giữa chừng. */
+pre,
+code,
+.ant-typography code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- Bảng: cuộn ngang trong khung, không đẩy trang --- */
+.ant-table-wrapper {
+  max-width: 100%;
+}
+
+/* Ant Design đặt cuộn ngang trên .ant-table-content (bảng không cố định cột)
+   hoặc .ant-table-body (bảng có scroll.y). Bật cuộn chạm mượt trên iOS. */
+.ant-table-content,
+.ant-table-body {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 991px) {
+  /* Bảng không khai báo scroll.x vẫn phải cuộn được thay vì bị bóp nát chữ. */
+  .ant-table-content {
+    overflow-x: auto !important;
+  }
+
+  /* Drawer bề rộng cứng (520/640px) rộng hơn cả màn hình điện thoại. */
+  .ant-drawer-content-wrapper {
+    max-width: 100vw;
+  }
+
+  /* Modal bề rộng cứng (tới 820px ở "Kết nối Page"). Chỉ chặn bề rộng — không
+     đụng `margin`/`top` để không phá modal đặt `centered`. */
+  .ant-modal {
+    max-width: calc(100vw - 16px);
+  }
+
+  /* Ô lọc/nhập đặt width cứng bằng inline style — trên màn hẹp phải co lại.
+     Dùng !important vì inline style luôn thắng CSS thường. */
+  .ant-select,
+  .ant-picker,
+  .ant-input-number,
+  .ant-input-affix-wrapper,
+  .ant-input {
+    max-width: 100% !important;
+  }
+
+  /* Card lồng nhau + padding mặc định 24px ăn hết bề ngang ở màn 360px. */
+  .ant-card-body {
+    padding: 16px;
+  }
+
+  /* Tiêu đề Card + `extra` (RangePicker, Radio.Group lọc ảnh/video...) nằm cùng
+     một dòng flex; không cho xuống dòng thì `extra` bị bóp hoặc tràn ra ngoài. */
+  .ant-card-head {
+    padding-inline: 16px;
+  }
+
+  .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .ant-card-head-title {
+    white-space: normal;
+  }
+
+  .ant-card-extra {
+    margin-inline-start: 0;
+  }
+
+  /* Tiêu đề Card thường là <Space> gồm tên page + vài Tag; Space mặc định không
+     xuống dòng nên tên page dài đẩy Tag ra khỏi màn hình. */
+  .ant-card-head-title .ant-space,
+  .ant-card-extra .ant-space {
+    flex-wrap: wrap;
+  }
+
+  /* Phân trang có nhiều mảnh (tổng số · nhảy trang · đổi page size) — xuống
+     dòng thay vì đẩy bảng rộng thêm. */
+  .ant-table-pagination.ant-pagination {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  /* Tiêu đề trang xuống dòng thay vì tràn. */
+  .ant-page-header-heading {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 767px) {
+  /* RangePicker 2 ô + mũi tên không đủ chỗ ở 360px ⇒ cho phép nó chiếm cả dòng. */
+  .ant-picker-range {
+    width: 100% !important;
+  }
+
+  /* Ant Design v6 xuống dòng panel của RangePicker trên màn hẹp; ghim panel
+     trong viewport để không phải cuộn ngang mới chọn được ngày. */
+  .ant-picker-dropdown {
+    max-width: 100vw;
+  }
+
+  .ant-card-body {
+    padding: 12px;
+  }
+
+  /* Tab của Modal "Thêm Ảnh/Video" (2 tab) và các Tabs khác: cuộn thay vì vỡ. */
+  .ant-tabs-nav-wrap {
+    overflow-x: auto;
+  }
+
+  /* Statistic trong Card thống kê: số quá to làm vỡ ô ở 2 cột/hàng. */
+  .ant-statistic-content {
+    font-size: 20px;
+  }
+
+  /* Descriptions dạng bảng đứng dọc cho dễ đọc. */
+  .ant-descriptions-item-label,
+  .ant-descriptions-item-content {
+    word-break: break-word;
+  }
+}
+
+/* Thanh lọc đầu trang: trên desktop giữ nguyên các bề rộng cứng đã canh sẵn,
+   trên điện thoại mỗi ô chiếm trọn dòng cho đủ chỗ gõ/đọc nhãn. */
+@media (max-width: 767px) {
+  .filter-bar {
+    display: flex !important;
+    width: 100%;
+  }
+
+  .filter-bar > .ant-space-item {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .filter-bar .ant-select,
+  .filter-bar .ant-picker,
+  .filter-bar .ant-input-search,
+  .filter-bar .ant-input-affix-wrapper,
+  .filter-bar .ant-input-number,
+  .filter-bar .ant-btn {
+    width: 100% !important;
+  }
+}
+
+/* Thẻ đăng nhập: rộng thoáng trên desktop, bó lại vừa màn hình điện thoại. */
+.login-card .ant-card-body {
+  padding: 32px;
+}
+
+@media (max-width: 767px) {
+  .login-card .ant-card-body {
+    padding: 20px;
+  }
+}
+
+/* Drawer điều hướng của layout admin: nền tối liền mạch với Menu bên trong,
+   và ruột sidebar dùng position:absolute nên body cần là mốc định vị. */
+.app-nav-drawer .ant-drawer-body {
+  position: relative;
+  overflow-y: auto;
+}
+

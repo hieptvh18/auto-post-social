@@ -4,8 +4,41 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-08 (M11 — tracking lượt xem bài đã đăng; đã sửa 3 lỗi sau khi chạy thật với Graph)
-**Session gần nhất (mới nhất):** **Plan 25 — M11 tracking lượt xem bài đã đăng (Facebook Post
+**Cập nhật lần cuối:** 2026-08-08 (Responsive mobile/tablet cho toàn bộ FE)
+**Session gần nhất (mới nhất):** **Responsive cơ bản cho mobile/tablet (yêu cầu user, không có
+file plan — user chốt "code luôn").** Trước đây web chỉ chạy được trên desktop: sidebar
+`position: fixed` rộng 240px + `marginLeft: 240` cứng nên trên điện thoại menu chiếm 2/3 màn
+hình và nội dung bị đẩy khuất. **Cách làm:** thêm hook `frontend/src/hooks/useResponsive.ts`
+(`useIsMobile` ≤991px = breakpoint `lg` của antd, `useIsPhone` ≤767px). Hook dùng
+**`useSyncExternalStore`** chứ không `useState + useEffect` để giá trị đúng ngay lần render
+ĐẦU — nếu sửa trong effect thì mở trên điện thoại sẽ nháy bố cục desktop một nhịp; môi trường
+không có `matchMedia` (jsdom) ⇒ trả false = desktop, nhờ vậy 63 test cũ không đỏ. `AdminLayout`
+tách ruột sidebar ra biến `sidebarBody` dùng chung: desktop giữ nguyên `Sider`, màn hẹp đổi
+sang `Drawer` trái mở bằng nút hamburger ở header (bấm menu là tự đóng Drawer), header ẩn
+email + RoleTag và đưa chúng vào Dropdown của avatar, `Content` padding 24→12.
+**Cạm bẫy lớn nhất đã tránh:** cách chống tràn ngang quen thuộc `overflow-x: hidden` trên
+`body`/`#root`/`Content` sẽ **giết `position: sticky`** của mọi phần tử con — tức header dính
+của AdminLayout và thẻ lọc dính ở `/timeline` (đặt overflow biến phần tử thành scroll container
+nhưng nó không bao giờ cuộn). Đã bỏ hẳn hướng đó, chống tràn đúng nguồn: mọi `<Table>` còn
+thiếu nay đều có `scroll={{ x }}` (PageManagement 1200/900, UserManagement 860/800, AutoPost
+slots 1100/780, ConnectPagesModal 700, ConnectionsCard 720), `img/video/iframe` chặn
+`max-width: 100%`, `pre/code` `word-break`, cột nội dung của Layout thêm `minWidth: 0`.
+Phần còn lại xử lý bằng **CSS theo breakpoint trong `index.css`** thay vì sửa inline style ở
+~15 file (rủi ro chạm logic): Drawer/Modal bề rộng cứng bị chặn `max-width: 100vw`, Select/
+DatePicker/Input `max-width: 100%`, `.ant-card-head-wrapper` cho xuống dòng, pagination wrap,
+`.ant-card-body` padding 24→16→12. Thêm class `.filter-bar` cho 6 thanh lọc đầu trang
+(Content ×2, Audit ×2, User, AutoPost ×2) ⇒ trên điện thoại mỗi ô chiếm trọn dòng. Sửa thêm:
+`/timeline` **tắt sticky thẻ lọc trên màn hẹp** (2 cột xếp dọc, dính lại thì nó che chính
+danh sách đang cuộn), mọi `<Row gutter={N}>` đổi sang `[N, N]` để có khoảng cách dọc khi
+Col xếp chồng, `PageHeader` cho khối chữ `flex: 1 1 260px; minWidth: 0` để mô tả dài không
+đẩy nút hành động ra ngoài, LoginPage `width: 420` → `maxWidth: 420`, YAxis chart "Top danh
+mục" 140→92px trên điện thoại. **Không đụng backend, không đụng schema ⇒ `erd.md` giữ
+nguyên; không thêm biến env.** FE **67 test (+4 cho `useResponsive`)**, lint/build xanh.
+**Chưa bấm tay trên thiết bị thật** ⇒ nợ §6.
+
+---
+
+**Session trước đó:** **Plan 25 — M11 tracking lượt xem bài đã đăng (Facebook Post
 Insights).** `/pages` giờ mỗi dòng có nút **"Chi tiết"** mở màn thống kê riêng của page
 (`/pages/:pageId/insights`), **tên page bấm được** mở thẳng Page trên Facebook, thêm cột "Bài
 đã đăng". Màn mới: 4 thẻ tổng + bảng bài đăng **mặc định mới nhất trước**, tiêu đề bài link ra
@@ -1343,6 +1376,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 32 | **RBAC EDITOR mới chưa test tay trên UI thật** | Đã xanh test tự động (BE 834, FE 59) nhưng **chưa đăng nhập thử**. Cần `VITE_USE_MOCK=false`, login account role EDITOR: sidebar chỉ còn **Quản lý Ảnh/Video Edit** + **Hướng dẫn sử dụng**; sau đăng nhập rơi thẳng vào `/content` (không phải `/dashboard`); gõ tay `/dashboard`, `/timeline`, `/auto-post`, `/pages`, `/users`, `/settings`, `/queue`, `/failed`, `/audit` ⇒ đều bị đá về `/content` (không lặp redirect); vẫn upload/sửa/duyệt bài bình thường ở `/content`; trang Hướng dẫn không còn khối "Chỉ Admin". Kiểm hồi quy ADMIN và CONTENT vào đúng `/dashboard` như cũ. |
 | 18 | **M9 Dashboard chưa smoke UI thật** | Code BE+FE xong (plan 14, BE 542 test xanh), đã smoke API thật đủ case (kỳ mặc định 7 ngày, biên timezone 23:30/00:30, `from>to` và >366 ngày ⇒ 400, EDITOR không có `activeUsers`, CONTENT `scopedToOwnContent: true` + `/health` ⇒ 403). **Chưa bấm tay UI**: `VITE_USE_MOCK=false`, ADMIN vào `/dashboard` — đổi range rồi kiểm thẻ "Chờ duyệt/Đã duyệt" **không đổi** (đúng thiết kế snapshot) trong khi thẻ sản lượng đổi, copy URL sang tab mới giữ nguyên kỳ, khối "Cần chú ý" bấm link nhảy đúng `/failed`·`/timeline`·`/auto-post`·`/pages`·`/queue`, range rỗng job ⇒ tỷ lệ hiện "—" chứ không `NaN%`. Đăng nhập EDITOR/CONTENT kiểm ẩn thẻ "Nhân sự đang hoạt động". Xong thì `git mv plans/14-dashboard.md plans/DONE/`. |
 | 33 | ~~Tên metric Insights chưa xác minh~~ ✅ ĐÃ LÀM 2026-08-08 — **và giả định ban đầu SAI** | Đo thật: `post_impressions*`, `post_reach`, `post_views`, `page_impressions*` đã bị Meta **gỡ hẳn** (v19→v23 đều `(#100) not a valid insights metric`, token có đủ `read_insights`). Đang dùng `post_video_views` · `post_fan_reach` · `post_clicks`. **Hệ quả còn lại:** bài **ảnh** không có lượt xem/hiển thị tổng qua API — nếu sau này cần con số như Business Suite thì phải chờ Meta mở metric mới, không sửa được bằng code. Chi tiết plan 25 §8. |
+| 36 | **Responsive mobile/tablet chưa bấm tay trên thiết bị thật** | Code xong, lint/build/67 test FE xanh, nhưng **chưa mở bằng điện thoại/tablet thật** lần nào — loại thay đổi này chỉ lộ lỗi khi chạm tay (rule 02 không test component). Cần kiểm: (1) ở ≤991px hiện nút hamburger, mở Drawer menu, bấm 1 mục ⇒ **Drawer tự đóng và điều hướng đúng**; (2) xoay ngang / phóng to cửa sổ qua 992px ⇒ Drawer tự đóng, `Sider` thật hiện ra, **không chồng nhau**; (3) **header dính khi cuộn** (đây là thứ dễ hỏng nhất — xem ghi chú `overflow-x` ở §7) và ở `/timeline` desktop thẻ lọc vẫn dính, mobile thì không; (4) mọi bảng cuộn ngang **trong khung của nó**, cả trang không trượt ngang; (5) Modal "Thêm Ảnh/Video" (2 tab), Drawer sửa bài, ConnectPagesModal vừa màn hình; (6) `/dashboard` các chart không vỡ; (7) đăng nhập/upload/đăng bài chạy y như cũ. |
 | 35 | **Thumbnail Google Drive hết hạn ⇒ ảnh 404 trên mọi màn có ảnh** | `content_assets.thumbnail_url` lưu nguyên `thumbnailLink` mà Drive trả lúc upload (`lh3.googleusercontent.com/...`). Link này **hết hạn** sau một thời gian ⇒ ảnh vỡ ở `/content` (Drawer preview) lẫn `/pages/:id/insights`. Đã vá tạm ở màn thống kê: `onError` ẩn hẳn thẻ `<img>` thay vì để icon ảnh hỏng. **Cách sửa gốc** (chưa làm, cần user chốt vì đụng nhiều màn): thêm endpoint proxy `GET /media/:driveFileId/thumbnail` ở backend, stream ảnh xuống bằng credential Drive của hệ thống và cache — khi đó FE chỉ cần trỏ vào URL của chính mình, không phụ thuộc link tạm của Google. Cách rẻ hơn nhưng kém bền: mỗi lần đọc bài thì gọi Drive lấy `thumbnailLink` mới (tốn 1 call/bài). |
 | 34 | **M11 (plan 25) chưa smoke UI + chưa nộp App Review `read_insights`** | Code BE+FE xong (BE 880 test, FE 63). **Chưa bấm tay** — chạy §5 của plan 25: (1) `/pages` bấm "Kết nối bằng Facebook" ⇒ màn consent phải **hiện mục "Read Insights"** (nếu không hiện thì scope chưa vào, xem lại `OAUTH_SCOPES`); (2) tên page bấm được, mở đúng Page ở tab mới; (3) nút "Chi tiết" mở `/pages/:id/insights`, **bài mới nhất nằm trên cùng khi vừa mở**; (4) bấm tiêu đề bài ⇒ mở **đúng bài đó**; (5) "Đồng bộ ngay" ⇒ số điền vào, "Cập nhật lần cuối" nhảy; bấm lại ngay ⇒ **429** kèm câu giải thích; (6) đối chiếu số với **Meta Business Suite** cùng bài (lệch nhỏ do trễ là bình thường); (7) xoá 1 bài trên Facebook ⇒ lần đồng bộ sau bài đó có Tag đỏ "Đã bị xoá", **các bài khác vẫn cập nhật**; (8) page kết nối **trước 08/08** phải hiện Tag vàng "Thiếu quyền thống kê" + Alert + nút "Đồng bộ ngay" bị khoá. **Quan trọng:** scope đã cấp là bất biến ⇒ mọi kết nối cũ phải bấm "Kết nối lại", đây là ca dễ tưởng là bug nhất. Còn lại: nộp **App Review** cho `read_insights` (cần Business Verification + screencast quay từ consent tới màn hiện số) nếu mở cho user ngoài team — với page mà tài khoản có role trong Meta app thì Standard Access đã chạy được, **không chặn** việc nghiệm thu. Xong thì `git mv plans/25-page-post-insights.md plans/DONE/`. |
 
@@ -1354,6 +1388,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 
 | Vấn đề | Nguyên nhân & cách xử lý |
 |--------|--------------------------|
+| **`overflow-x: hidden` để chống tràn ngang sẽ GIẾT `position: sticky` của mọi phần tử con** | Phản xạ đầu tiên khi làm responsive là đặt `overflow-x: hidden` lên `body`/`#root`/khối `Content` cho khỏi trượt ngang. Làm vậy là phần tử đó thành **scroll container**, nên `sticky` bên trong bám vào nó thay vì viewport — mà nó không bao giờ cuộn ⇒ header dính của `AdminLayout` và thẻ lọc dính ở `/timeline` **đứng im, nhìn như tính năng biến mất** và không có lỗi nào báo. Cách đúng: xử lý **nguồn** gây tràn — bảng đặt `scroll={{ x }}` để cuộn trong khung, `img/video/iframe` `max-width: 100%`, `pre/code` `word-break: break-word`, flex item thêm `min-width: 0`. Đã ghi comment cảnh báo ngay tại `frontend/src/index.css` và `AdminLayout.tsx` để không ai vô tình thêm lại. |
 | **Graph API dùng chung `code = 100` cho "object không tồn tại" VÀ "tên metric sai"** ⇒ suy ra "bài đã bị xoá" là sai và **mất dữ liệu âm thầm** | Ngày 2026-08-08, adapter insights map `code ∈ {100, 803}` thành `isMissing` ⇒ 3 bài **đang sống** bị ghi `missing_on_fb_at`, mà repository lọc `missing_on_fb_at IS NULL` nên chúng **vĩnh viễn** không được đồng bộ lại — không log, không cảnh báo, chỉ là số liệu đứng im. **Cách xử lý:** chỉ kết luận "đã xoá" khi có `error_subcode = 33`; đọc `message` để nhận diện lỗi cấu hình (`"valid insights metric"`) và dừng cả page thay vì đổ lỗi lên từng bài. **Bài học chung: cờ nào khiến hệ thống NGỪNG VĨNH VIỄN làm một việc thì phải dựa trên tín hiệu hẹp nhất có thể, không dựa vào error code dùng chung.** |
 | **Meta cấp bộ metric Insights KHÁC NHAU tuỳ page ⇒ prod hỏng trong khi dev xanh** | Sau khi sửa tên metric, máy dev chạy tốt nhưng prod vẫn báo "không chấp nhận chỉ số đang dùng" — cùng code, cùng `META_GRAPH_API_VERSION`. Nguyên nhân: page "New Page Experience" và page cũ có bộ metric khác nhau ⇒ **mọi danh sách metric hard-code đều sẽ hỏng ở page nào đó**. **Cách xử lý:** adapter **tự dò** — khi Graph chê metric (nó không nói metric nào), gửi 1 request hỏi từng metric một trên 1 bài, ghi nhớ metric hỏng **theo từng page**, loại ra rồi thử lại; hết metric thì bỏ hẳn khối `insights` nhưng vẫn lấy like/comment/share. **Bài học: với API bên thứ ba trả "tính năng khác nhau tuỳ đối tượng", đừng cấu hình cứng — hãy dò một lần rồi nhớ.** |
 | **Metric Facebook Insights `post_impressions` đã bị gỡ hẳn — đừng tin tài liệu/trí nhớ** | Cả họ `post_impressions*`, `post_reach`, `post_views`, `post_engaged_users`, `page_impressions*` đều trả `(#100) The value must be a valid insights metric` trên **mọi** version v19→v23, kể cả với Page token hợp lệ có đủ `read_insights`. **Không phải** lỗi quyền, **không phải** pin sai version, **không** sửa được bằng App Review. Chỉ số còn sống (đã đo): `post_video_views` · `post_fan_reach` · `post_clicks` · `post_reactions_by_type_total`. **Cách xử lý: luôn dò tên metric bằng call thật trước khi code**, đừng chép từ tài liệu cũ. Bài **ảnh** hiện không có lượt xem/hiển thị tổng qua API. |

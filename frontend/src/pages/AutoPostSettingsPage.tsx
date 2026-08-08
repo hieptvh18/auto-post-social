@@ -316,7 +316,7 @@ function RealAutoPostSettingsPage() {
         description={BOT_LOGIC_NOTE}
       />
 
-      <Space style={{ marginBottom: 16 }} wrap>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <Select
           allowClear
           style={{ minWidth: 260 }}
@@ -412,6 +412,7 @@ function RealAutoPostSettingsPage() {
                     columns={slotColumns}
                     dataSource={config.slots}
                     pagination={false}
+                    scroll={{ x: 1100 }}
                   />
                 </>
               )}
@@ -890,7 +891,7 @@ function MockAutoPostSettingsPage() {
         description={BOT_LOGIC_NOTE}
       />
 
-      <Space style={{ marginBottom: 16 }} wrap>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <Select
           allowClear
           style={{ minWidth: 260 }}
@@ -967,6 +968,7 @@ function MockAutoPostSettingsPage() {
                   columns={slotColumns(page.id)}
                   dataSource={slots}
                   pagination={false}
+                  scroll={{ x: 780 }}
                 />
               )}
             </Card>

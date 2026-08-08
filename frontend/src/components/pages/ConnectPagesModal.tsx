@@ -178,6 +178,7 @@ export function ConnectPagesModal({ connectionId, onClose }: Props) {
         columns={columns}
         dataSource={candidates ?? []}
         pagination={false}
+        scroll={{ x: 700 }}
         rowSelection={{
           selectedRowKeys: selected,
           onChange: (keys) => setSelected(keys as string[]),

@@ -727,7 +727,7 @@ function MockContentManagementPage() {
         }
       />
 
-      <Space wrap style={{ marginBottom: 16 }}>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <DatePicker.RangePicker
           placeholder={['Ngày cập nhật từ', 'đến']}
           format="DD/MM/YYYY"
@@ -1525,7 +1525,7 @@ function RealContentManagementPage() {
         }
       />
 
-      <Space wrap style={{ marginBottom: 16 }}>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <Select
           placeholder="Dạng (danh mục)"
           allowClear

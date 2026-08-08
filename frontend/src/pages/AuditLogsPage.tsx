@@ -154,7 +154,7 @@ function RealAuditLogsPage() {
         />
       )}
 
-      <Space wrap style={{ marginBottom: 16 }}>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <RangePicker
           format="DD/MM/YYYY"
           value={range}
@@ -377,7 +377,7 @@ function MockAuditLogsPage() {
         description="Lịch sử hoạt động hệ thống (dữ liệu mock)"
       />
 
-      <Space wrap style={{ marginBottom: 16 }}>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <Input.Search
           placeholder="Tìm theo email hoặc resource..."
           allowClear

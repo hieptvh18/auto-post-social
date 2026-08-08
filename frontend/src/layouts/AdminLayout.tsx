@@ -6,23 +6,40 @@ import {
   FileImageOutlined,
   FacebookOutlined,
   LogoutOutlined,
+  MenuOutlined,
   QuestionCircleOutlined,
   SettingOutlined,
   TeamOutlined,
   UnorderedListOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Avatar, Dropdown, Layout, Menu, Select, Space, Tag, Typography, theme } from 'antd';
+import {
+  Avatar,
+  Button,
+  Drawer,
+  Dropdown,
+  Layout,
+  Menu,
+  Select,
+  Space,
+  Tag,
+  Typography,
+  theme,
+} from 'antd';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { AppLogo } from '../components/common/AppLogo';
 import { RoleTag } from '../components/common/StatusTag';
+import { useIsMobile } from '../hooks/useResponsive';
 import { canAccessRoute, defaultRouteFor } from '../utils/permissions';
 import { APP_NAME, APP_TAGLINE, ROLE_LABELS } from '../utils/constants';
 import type { UserRole } from '../types';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
+
+const SIDER_WIDTH = 240;
 
 const mainMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Tổng quan' },
@@ -46,6 +63,14 @@ export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Xoay ngang máy / mở rộng cửa sổ về desktop: Drawer phải tự đóng, nếu không
+  // nó che mất sidebar thật vừa hiện ra.
+  useEffect(() => {
+    if (!isMobile) setDrawerOpen(false);
+  }, [isMobile]);
 
   // AdminLayout luôn render dưới ProtectedRoute nên user đã đăng nhập; guard cho TS.
   if (!user) return null;
@@ -76,74 +101,104 @@ export function AdminLayout() {
       location.pathname.startsWith(item.key),
     )?.key ?? defaultRouteFor(user.role);
 
-  return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        width={240}
+  /** Ruột sidebar — dùng chung cho Sider (desktop) và Drawer (màn hẹp). */
+  const sidebarBody = (
+    <>
+      <div
         style={{
-          background: '#001529',
-          position: 'fixed',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          zIndex: 100,
+          height: 64,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 20px',
+          gap: 10,
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}
       >
-        <div
-          style={{
-            height: 64,
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0 20px',
-            gap: 10,
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
-          }}
-        >
-          <AppLogo size={28} />
-          <div>
-            <Text strong style={{ color: '#fff', display: 'block', lineHeight: 1.2 }}>
-              {APP_NAME}
-            </Text>
-            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
-              {APP_TAGLINE}
-            </Text>
-          </div>
+        <AppLogo size={28} />
+        <div style={{ minWidth: 0 }}>
+          <Text strong style={{ color: '#fff', display: 'block', lineHeight: 1.2 }}>
+            {APP_NAME}
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
+            {APP_TAGLINE}
+          </Text>
         </div>
+      </div>
 
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          items={visibleMenu}
-          onClick={({ key }) => navigate(key)}
-          style={{ borderRight: 0, marginTop: 8 }}
-        />
+      <Menu
+        theme="dark"
+        mode="inline"
+        selectedKeys={[selectedKey]}
+        items={visibleMenu}
+        onClick={({ key }) => {
+          navigate(key);
+          // Trên màn hẹp Drawer phủ kín màn hình: không đóng thì bấm menu xong
+          // vẫn chỉ thấy menu, tưởng như không có gì xảy ra.
+          setDrawerOpen(false);
+        }}
+        style={{ borderRight: 0, marginTop: 8 }}
+      />
 
-        <div
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          padding: 16,
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        {isPreviewMode && (
+          <Tag color="orange" style={{ width: '100%', textAlign: 'center' }}>
+            UI Preview — Mock Data
+          </Tag>
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <Layout style={{ minHeight: '100vh' }}>
+      {!isMobile && (
+        <Sider
+          width={SIDER_WIDTH}
           style={{
-            position: 'absolute',
-            bottom: 0,
+            background: '#001529',
+            position: 'fixed',
             left: 0,
-            right: 0,
-            padding: 16,
-            borderTop: '1px solid rgba(255,255,255,0.08)',
+            top: 0,
+            bottom: 0,
+            zIndex: 100,
           }}
         >
-          {isPreviewMode && (
-            <Tag color="orange" style={{ width: '100%', textAlign: 'center' }}>
-              UI Preview — Mock Data
-            </Tag>
-          )}
-        </div>
-      </Sider>
+          {sidebarBody}
+        </Sider>
+      )}
 
-      <Layout style={{ marginLeft: 240 }}>
+      {isMobile && (
+        <Drawer
+          placement="left"
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          width={SIDER_WIDTH}
+          closable={false}
+          styles={{ body: { padding: 0, background: '#001529' } }}
+          rootClassName="app-nav-drawer"
+        >
+          {sidebarBody}
+        </Drawer>
+      )}
+
+      {/* minWidth:0 — cột nội dung là flex item; không có nó, một bảng rộng sẽ
+          nong cả cột ra và đẩy trang trượt ngang thay vì cuộn trong bảng. */}
+      <Layout style={{ marginLeft: isMobile ? 0 : SIDER_WIDTH, minWidth: 0 }}>
         <Header
           style={{
             background: token.colorBgContainer,
             height: 64,
             lineHeight: '64px',
-            padding: '0 24px',
+            padding: isMobile ? '0 12px' : '0 24px',
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
             position: 'sticky',
             top: 0,
@@ -154,11 +209,26 @@ export function AdminLayout() {
             style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: 16,
+              justifyContent: 'space-between',
+              gap: 8,
               height: 64,
             }}
           >
+            {isMobile ? (
+              <Space size={8} style={{ minWidth: 0 }}>
+                <Button
+                  type="text"
+                  icon={<MenuOutlined />}
+                  aria-label="Mở menu"
+                  onClick={() => setDrawerOpen(true)}
+                />
+                <AppLogo size={24} />
+              </Space>
+            ) : (
+              <span />
+            )}
+
+            <Space size={isMobile ? 8 : 16} style={{ minWidth: 0 }}>
             {isPreviewMode && (
               <Select
                 size="small"
@@ -175,6 +245,23 @@ export function AdminLayout() {
               trigger={['click']}
               menu={{
                 items: [
+                  // Header ẩn email trên màn hẹp ⇒ đưa vào đây để vẫn biết đang
+                  // đăng nhập bằng tài khoản nào.
+                  ...(isMobile
+                    ? [
+                        {
+                          key: 'identity',
+                          disabled: true,
+                          label: (
+                            <Space direction="vertical" size={2}>
+                              <Text style={{ fontSize: 12 }}>{user.email}</Text>
+                              <RoleTag role={user.role} />
+                            </Space>
+                          ),
+                        },
+                        { key: 'identity-divider', type: 'divider' as const },
+                      ]
+                    : []),
                   {
                     key: 'logout',
                     icon: <LogoutOutlined />,
@@ -196,20 +283,37 @@ export function AdminLayout() {
                 <Avatar size={32} style={{ backgroundColor: '#13a8a8', flexShrink: 0 }}>
                   {user.email.charAt(0).toUpperCase()}
                 </Avatar>
-                <Text
-                  strong
-                  ellipsis
-                  style={{ maxWidth: 160, fontSize: 13, lineHeight: '20px' }}
-                >
-                  {user.email}
-                </Text>
-                <RoleTag role={user.role} />
+                {/* Email + role chiếm gần hết header trên điện thoại; vẫn xem
+                    được khi bấm vào avatar (Dropdown) nên ẩn đi là an toàn. */}
+                {!isMobile && (
+                  <>
+                    <Text
+                      strong
+                      ellipsis
+                      style={{ maxWidth: 160, fontSize: 13, lineHeight: '20px' }}
+                    >
+                      {user.email}
+                    </Text>
+                    <RoleTag role={user.role} />
+                  </>
+                )}
               </Space>
             </Dropdown>
+            </Space>
           </div>
         </Header>
 
-        <Content style={{ padding: 24, background: '#f5f7fa', minHeight: 'calc(100vh - 64px)' }}>
+        <Content
+          style={{
+            padding: isMobile ? 12 : 24,
+            background: '#f5f7fa',
+            minHeight: 'calc(100vh - 64px)',
+            // Chỉ khoá bề rộng. KHÔNG dùng `overflowX: hidden` ở đây — Content
+            // là tổ tiên của thẻ lọc `position: sticky` ở /timeline, đặt overflow
+            // sẽ biến nó thành scroll container và sticky ngừng hoạt động.
+            maxWidth: '100%',
+          }}
+        >
           <Outlet />
         </Content>
       </Layout>

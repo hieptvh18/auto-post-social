@@ -21,7 +21,9 @@ export function PageHeader({ title, description, extra }: PageHeaderProps) {
         gap: 16,
       }}
     >
-      <div>
+      {/* minWidth:0 để khối chữ co được — không có nó, mô tả dài đẩy `extra`
+          (các nút hành động) tràn ra ngoài viewport trên điện thoại. */}
+      <div style={{ minWidth: 0, flex: '1 1 260px' }}>
         <Title level={3} style={{ margin: 0 }}>
           {title}
         </Title>
@@ -31,7 +33,7 @@ export function PageHeader({ title, description, extra }: PageHeaderProps) {
           </Text>
         )}
       </div>
-      {extra && <div>{extra}</div>}
+      {extra && <div style={{ maxWidth: '100%' }}>{extra}</div>}
     </div>
   );
 }

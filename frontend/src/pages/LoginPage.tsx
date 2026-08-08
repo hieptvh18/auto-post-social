@@ -45,8 +45,8 @@ export default function LoginPage() {
       }}
     >
       <Card
-        style={{ width: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
-        styles={{ body: { padding: 32 } }}
+        className="login-card"
+        style={{ width: '100%', maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
       >
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>

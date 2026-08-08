@@ -247,7 +247,7 @@ export default function PageInsightsPage() {
         title={fbPage?.pageName ?? 'Thống kê bài đăng'}
         description="Chỉ hiển thị các bài do tool này đăng lên page. Bài đăng thẳng trên Facebook không được theo dõi."
         extra={
-          <Space>
+          <Space wrap>
             <Button
               icon={<ArrowLeftOutlined />}
               onClick={() => navigate('/pages')}
@@ -293,7 +293,7 @@ export default function PageInsightsPage() {
       )}
 
       {!missingScope && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
           <Col xs={12} md={6}>
             <Card>
               <Statistic title="Tổng bài đã đăng" value={summary?.postCount ?? 0} />

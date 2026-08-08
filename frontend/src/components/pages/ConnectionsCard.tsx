@@ -150,6 +150,7 @@ export function ConnectionsCard({
         columns={columns}
         dataSource={connections ?? []}
         pagination={false}
+        scroll={{ x: 720 }}
       />
     </Card>
   );

@@ -222,6 +222,7 @@ function MockPageManagementPage() {
         columns={columns}
         dataSource={pages.filter((page) => matchesKeyword(page, keyword))}
         pagination={false}
+        scroll={{ x: 900 }}
       />
 
       <Modal
@@ -592,6 +593,7 @@ function RealPageManagementPage() {
         dataSource={filteredPages}
         loading={isLoading}
         pagination={false}
+        scroll={{ x: 1200 }}
       />
 
       <ConnectPagesModal

@@ -205,7 +205,7 @@ function RealUserManagementPage() {
         }
       />
 
-      <Space wrap style={{ marginBottom: 16 }}>
+      <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
         <Select
           placeholder="Quyền"
           allowClear
@@ -232,6 +232,7 @@ function RealUserManagementPage() {
         columns={columns}
         dataSource={data?.data ?? []}
         loading={isLoading}
+        scroll={{ x: 860 }}
         pagination={{
           current: page,
           pageSize,
@@ -437,7 +438,13 @@ function MockUserManagementPage() {
         }
       />
 
-      <Table rowKey="id" columns={columns} dataSource={users} pagination={false} />
+      <Table
+        rowKey="id"
+        columns={columns}
+        dataSource={users}
+        pagination={false}
+        scroll={{ x: 800 }}
+      />
 
       <Modal
         title={editing ? 'Cập nhật User' : 'Thêm User mới'}
