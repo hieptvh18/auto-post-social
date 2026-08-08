@@ -429,11 +429,16 @@ export class ContentAssetsService {
       );
     }
 
-    const storage = await this.driveFactory.get();
-    // Bài nhiều ảnh: xoá **mọi** file, không chỉ ảnh đại diện — `content_asset_files`
-    // cascade theo bản ghi nên không còn ai nhớ những fileId kia nữa.
-    for (const file of [current, ...(current.extraFiles ?? [])]) {
-      await storage.delete(file.driveFileId);
+    // Bài nhập từ Drive mà KHÔNG tick "Copy data": `drive_file_id` là file **của
+    // người khác** (nên nó trùng `source_drive_file_id`). Xoá nó là xoá dữ liệu
+    // ngoài phạm vi của tool — chỉ xoá bản ghi, để nguyên file gốc.
+    if (current.sourceDriveFileId !== current.driveFileId) {
+      const storage = await this.driveFactory.get();
+      // Bài nhiều ảnh: xoá **mọi** file, không chỉ ảnh đại diện — `content_asset_files`
+      // cascade theo bản ghi nên không còn ai nhớ những fileId kia nữa.
+      for (const file of [current, ...(current.extraFiles ?? [])]) {
+        await storage.delete(file.driveFileId);
+      }
     }
     await this.repository.delete(current.id);
   }

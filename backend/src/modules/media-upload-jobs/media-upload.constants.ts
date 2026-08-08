@@ -60,6 +60,13 @@ export interface MediaUploadFileInfo {
    * worker gọi `files.copy` trên id này, không tải nội dung về.
    */
   sourceFileId?: string;
+  /**
+   * Link xem file **gốc**. Chỉ dùng ở chế độ nhập link không copy — bài trỏ
+   * thẳng vào file của người ta nên `drive_url` phải là link gốc.
+   */
+  sourceWebViewLink?: string;
+  /** Thumbnail của file gốc, cũng chỉ dùng ở chế độ không copy. */
+  sourceThumbnailLink?: string;
 }
 
 /** Form lúc submit — worker dựng lại `content_assets` từ đúng bộ field này. */
@@ -77,6 +84,15 @@ export interface MediaUploadMetadata {
    * đăng được — để nó tự APPROVED thì Bot có thể đăng bài "-" lên Page thật.
    */
   forceReview?: boolean;
+  /**
+   * Chỉ có với `source = DRIVE_LINK` (yêu cầu user 2026-08-08).
+   *
+   * `true` = copy file về folder Drive của tool như cũ (tool sở hữu bản sao).
+   * `false`/bỏ trống = **chỉ lưu link**: bài trỏ thẳng vào file gốc, không tốn
+   * dung lượng Drive cá nhân đang cấu hình. Đánh đổi: người ta bỏ chia sẻ hoặc
+   * xoá file gốc thì bài không đăng được nữa.
+   */
+  copyToDrive?: boolean;
 }
 
 /** Caption placeholder khi user không nhập — cột DB là NOT NULL. */

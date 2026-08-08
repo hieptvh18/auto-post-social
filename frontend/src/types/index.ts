@@ -702,6 +702,11 @@ export interface DriveImportResult {
 export interface CreateDriveImportBody {
   links: string[];
   mergeImagesIntoOnePost?: boolean;
+  /**
+   * `true` = copy file về Drive của tool (tốn dung lượng, tool sở hữu bản sao).
+   * Bỏ trống = **chỉ lưu link** gốc — mặc định, để không phình Drive cá nhân.
+   */
+  copyData?: boolean;
 }
 
 export type DriveAuthMode = 'service_account' | 'oauth2';

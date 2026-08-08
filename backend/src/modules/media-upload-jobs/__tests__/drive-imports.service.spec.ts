@@ -46,6 +46,8 @@ const makeMeta = (overrides: Partial<DriveFileMeta> = {}): DriveFileMeta => ({
   size: 50 * MB,
   canCopy: true,
   shortcutTargetId: null,
+  webViewLink: 'https://drive.google.com/file/d/goc-1/view',
+  thumbnailLink: 'https://drive/goc-1/thumb',
   ...overrides,
 });
 
@@ -71,6 +73,8 @@ const makeJob = (
     category: 'Review',
     caption: 'Caption đăng bài',
     assignedPageIds: [],
+    // Job mẫu = chế độ copy; luồng "chỉ lưu link" có describe riêng bên dưới.
+    copyToDrive: true,
   },
   errorMessage: null,
   attemptCount: 0,
@@ -202,6 +206,35 @@ describe('DriveImportsService', () => {
       // Không đường dẫn tạm ⇒ không byte nào chạm đĩa server (plan 24 §0.1).
       expect(created.files[0].tempPath).toBeUndefined();
       expect(queue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('không truyền copyData ⇒ job ghi copyToDrive = false (chỉ lưu link)', async () => {
+      const { service, repository } = build();
+
+      await service.createJobs({ links: [linkOf(FILE_ID)] }, ACTOR);
+
+      const created = repository.create.mock.calls[0][0];
+      expect(created.metadata.copyToDrive).toBe(false);
+      // Link/thumbnail gốc được giữ lại để worker không phải gọi Drive lần nữa.
+      expect(created.files[0].sourceWebViewLink).toBe(
+        'https://drive.google.com/file/d/goc-1/view',
+      );
+      expect(created.files[0].sourceThumbnailLink).toBe(
+        'https://drive/goc-1/thumb',
+      );
+    });
+
+    it('copyData = true ⇒ job ghi copyToDrive = true', async () => {
+      const { service, repository } = build();
+
+      await service.createJobs(
+        { links: [linkOf(FILE_ID)], copyData: true },
+        ACTOR,
+      );
+
+      expect(repository.create.mock.calls[0][0].metadata.copyToDrive).toBe(
+        true,
+      );
     });
 
     it('mặc định N dòng ⇒ N bài riêng', async () => {
@@ -793,6 +826,81 @@ describe('DriveImportsService', () => {
 
       expect(mocks.contentAssets.create).toHaveBeenCalledWith(
         expect.objectContaining({ forceReview: true }),
+        expect.anything(),
+      );
+    });
+
+    it('copyToDrive = false ⇒ KHÔNG copy, bài trỏ thẳng vào fileId gốc', async () => {
+      const mocks = build();
+
+      const contentId = await runWork(
+        mocks,
+        makeJob({
+          files: [
+            {
+              originalFilename: 'clip-khai-truong.mp4',
+              mimeType: 'video/mp4',
+              size: 50 * MB,
+              sourceFileId: FILE_ID,
+              sourceWebViewLink: 'https://drive.google.com/file/d/goc-1/view',
+              sourceThumbnailLink: 'https://drive/goc-1/thumb',
+            },
+          ],
+          metadata: {
+            title: 'clip-khai-truong',
+            category: 'Review',
+            caption: 'Caption đăng bài',
+            assignedPageIds: [],
+            copyToDrive: false,
+          },
+        }),
+      );
+
+      expect(contentId).toBe('content-1');
+      expect(mocks.storage.copy).not.toHaveBeenCalled();
+      expect(mocks.contentAssets.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // driveFileId == sourceDriveFileId chính là dấu hiệu "file của người
+          // khác" — chỗ xoá bài dựa vào đó để không xoá file gốc.
+          driveFileId: FILE_ID,
+          sourceDriveFileId: FILE_ID,
+          driveUrl: 'https://drive.google.com/file/d/goc-1/view',
+          thumbnailUrl: 'https://drive/goc-1/thumb',
+          fileSize: 50 * MB,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('chỉ lưu link mà thiếu webViewLink ⇒ tự dựng link từ fileId', async () => {
+      const mocks = build();
+
+      await runWork(
+        mocks,
+        makeJob({
+          files: [
+            {
+              originalFilename: 'a.jpg',
+              mimeType: 'image/jpeg',
+              size: 10,
+              sourceFileId: FILE_ID,
+            },
+          ],
+          metadata: {
+            title: 'a',
+            category: 'Review',
+            caption: '-',
+            assignedPageIds: [],
+            copyToDrive: false,
+          },
+        }),
+      );
+
+      expect(mocks.contentAssets.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          driveUrl: `https://drive.google.com/file/d/${FILE_ID}/view`,
+          thumbnailUrl: undefined,
+        }),
         expect.anything(),
       );
     });

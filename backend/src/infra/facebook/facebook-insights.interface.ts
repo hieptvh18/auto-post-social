@@ -52,8 +52,11 @@ export interface FacebookPostInsightError {
    */
   isMissing: boolean;
   /**
-   * true = Graph từ chối vì **tên metric sai**, không phải lỗi của bài. Caller
-   * phải dừng cả page và báo động, vì mọi bài sẽ hỏng y hệt.
+   * true = Graph từ chối vì **tên metric**, không phải lỗi của bài.
+   *
+   * Adapter tự dò xem metric nào bị chê rồi loại ra và thử lại, nên cờ này chỉ
+   * còn sót lại khi **cả bước dò cũng hỏng**. Caller coi đó là lỗi cấu hình và
+   * dừng page, đừng ghi lỗi lên từng bài.
    */
   isInvalidMetric: boolean;
   message: string;

@@ -464,7 +464,30 @@ chưa hề lấy được số. Đúng triệu chứng user báo.
 field khỏi payload khi giá trị là `null` — cả `create` lẫn `update`. Bất biến
 "`NULL` = chưa đo, `0` = đo được 0" giờ được **DB** bảo đảm, không chỉ bằng quy ước.
 
-### 8.4 Xác minh sau khi sửa
+### 8.4 Prod vẫn lỗi metric trong khi dev xanh ⇒ **bỏ danh sách metric cứng**
+
+Sau khi sửa §8.1, máy dev chạy tốt nhưng **prod vẫn báo "Facebook không chấp nhận
+chỉ số đang dùng"**. Cùng code, cùng `META_GRAPH_API_VERSION=v21.0` ⇒ khác biệt nằm
+ở **page**: Meta cấp bộ metric khác nhau giữa page "New Page Experience" và page
+cũ. Nói cách khác **mọi danh sách metric hard-code đều sẽ hỏng ở page nào đó**.
+
+**Sửa gốc — adapter tự dò và thích nghi** (`FacebookInsightsClient`):
+
+1. Lượt 1 hỏi đủ metric như bình thường.
+2. Nếu Graph chê metric (Graph **không** nói metric nào), gửi thêm **1** request
+   batch hỏi **từng metric một** trên đúng 1 bài để biết cái nào bị từ chối.
+3. Ghi nhớ metric hỏng theo **từng page** (`Map<pageId, Set<metric>>` — hỏng ở page
+   A không suy ra hỏng ở page B), rồi **thử lại** những bài đã lỗi.
+4. Lần gọi sau không hỏi lại metric đã biết hỏng.
+5. Page không hỗ trợ metric nào ⇒ **bỏ hẳn khối `insights`** khỏi request (gửi
+   `insights.metric()` rỗng là cú pháp sai, trượt cả bài) nhưng **vẫn lấy
+   like/comment/share** — chúng là field thường, không cần `read_insights`.
+
+Chi phí: đúng 1 request dò cho mỗi page, chỉ khi đã có lỗi. Đổi lại màn thống kê
+không bao giờ trống trơn chờ người sửa code. 6 test phủ: loại-rồi-thử-lại · không
+hỏi lại metric đã loại · cache tách theo page · hết metric vẫn lấy được tương tác.
+
+### 8.5 Xác minh sau khi sửa
 
 Chạy lại với Graph thật: **4/5 bài lấy được số**, 0 lỗi `invalidMetric`. Bài
 "KK Coach" trả `👍1` — bằng chứng đường dữ liệu thật sự chạy chứ không phải 0 giả.

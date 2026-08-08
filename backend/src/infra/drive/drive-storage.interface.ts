@@ -29,6 +29,10 @@ export interface DriveFileMeta {
   canCopy: boolean;
   /** != null ⇒ đây là shortcut, id thật nằm ở đây. */
   shortcutTargetId: string | null;
+  /** Link xem file gốc — dùng khi nhập link mà KHÔNG copy về folder tool. */
+  webViewLink: string | null;
+  /** Ảnh xem trước của file gốc; null khi Drive không sinh thumbnail. */
+  thumbnailLink: string | null;
 }
 
 /** Cổng ra Google Drive thật (service account hoặc OAuth2). */

@@ -1160,6 +1160,22 @@ describe('ContentAssetsService', () => {
       expect(driveStorage.delete).toHaveBeenNthCalledWith(3, 'drive-3');
       expect(repository.delete).toHaveBeenCalledWith('asset-1');
     });
+
+    it('bài nhập link KHÔNG copy (driveFileId == sourceDriveFileId) ⇒ không xoá file gốc của người khác', async () => {
+      repository.findById.mockResolvedValue(
+        makeAsset({
+          createdById: 'content-1',
+          driveFileId: 'goc-1',
+          sourceDriveFileId: 'goc-1',
+          extraFiles: [makeExtraFile(1, 'goc-2')],
+        }),
+      );
+
+      await service.remove('asset-1', contentUser);
+
+      expect(driveStorage.delete).not.toHaveBeenCalled();
+      expect(repository.delete).toHaveBeenCalledWith('asset-1');
+    });
   });
 
   describe('create — bài nhiều ảnh (plan 22)', () => {

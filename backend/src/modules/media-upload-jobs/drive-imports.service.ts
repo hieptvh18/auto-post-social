@@ -114,9 +114,11 @@ interface InspectedLine {
 /**
  * Nhập bài từ link Google Drive (plan 24).
  *
- * **Ràng buộc cốt lõi:** file nguồn đi vào folder của tool bằng `files.copy` —
- * copy phía server của Google, **0 byte đi qua backend**. Không được thay bằng
- * download rồi upload lại (plan 24 §0.1), kể cả khi thấy tiện hơn.
+ * **Ràng buộc cốt lõi:** khi user tick "Copy data", file nguồn đi vào folder của
+ * tool bằng `files.copy` — copy phía server của Google, **0 byte đi qua
+ * backend**. Không được thay bằng download rồi upload lại (plan 24 §0.1), kể cả
+ * khi thấy tiện hơn. Mặc định checkbox **không** tick: bài chỉ giữ link gốc,
+ * Drive đang cấu hình không tốn thêm dung lượng (yêu cầu user 2026-08-08).
  *
  * **Ngữ nghĩa gọi (yêu cầu user 2026-08-07):** một lần submit = danh sách link;
  * dòng hỏng **không** làm hỏng cả lô — chúng bị bỏ qua và trả về trong `skipped`
@@ -204,6 +206,7 @@ export class DriveImportsService {
           caption: EMPTY_CAPTION_PLACEHOLDER,
           forceReview: true,
           assignedPageIds: [],
+          copyToDrive: dto.copyData === true,
         },
         createdById: actor.id,
       });
@@ -368,6 +371,10 @@ export class DriveImportsService {
       mimeType: meta.mimeType,
       size: meta.size ?? 0,
       sourceFileId: meta.fileId,
+      // Giữ lại luôn link/thumbnail gốc: chế độ "chỉ lưu link" cần chúng mà lúc
+      // chạy worker thì không muốn gọi lại `files.get` lần nữa.
+      sourceWebViewLink: meta.webViewLink ?? undefined,
+      sourceThumbnailLink: meta.thumbnailLink ?? undefined,
       // Tiêu đề suy ra từ tên file — modal không hỏi tiêu đề nữa.
       title: titleFromFilename(meta.name),
     };
@@ -440,12 +447,18 @@ export class DriveImportsService {
   }
 
   /**
-   * Copy từng file rồi tạo bài qua **đúng** `ContentAssetsService.create()` mà
-   * `POST /content-assets` dùng — không có bản logic tạo bài thứ hai.
+   * Tạo bài qua **đúng** `ContentAssetsService.create()` mà `POST /content-assets`
+   * dùng — không có bản logic tạo bài thứ hai.
+   *
+   * Hai chế độ (yêu cầu user 2026-08-08):
+   * - `copyToDrive = true`: `files.copy` về folder tool, bài dùng bản sao.
+   * - mặc định: **không copy** — bài trỏ thẳng vào fileId gốc, Drive của tool
+   *   không phình thêm byte nào.
    */
   private async copyAndCreateAsset(job: MediaUploadJobRecord): Promise<string> {
-    const storage = await this.driveFactory.get();
-    const copied: {
+    const copyToDrive = job.metadata.copyToDrive === true;
+    const storage = copyToDrive ? await this.driveFactory.get() : null;
+    const resolved: {
       fileId: string;
       driveUrl: string | null;
       thumbnailUrl: string | null;
@@ -459,11 +472,25 @@ export class DriveImportsService {
           `File "${file.originalFilename}" thiếu fileId nguồn — job hỏng dữ liệu`,
         );
       }
+      if (storage === null) {
+        // Chỉ lưu link: `drive_file_id` = fileId GỐC. Bài phụ thuộc việc file
+        // vẫn được chia sẻ cho tài khoản Drive của tool lúc đăng.
+        resolved.push({
+          fileId: file.sourceFileId,
+          driveUrl:
+            file.sourceWebViewLink ??
+            `https://drive.google.com/file/d/${file.sourceFileId}/view`,
+          thumbnailUrl: file.sourceThumbnailLink ?? null,
+          mimeType: file.mimeType,
+          size: file.size,
+        });
+        continue;
+      }
       const result = await storage.copy(
         file.sourceFileId,
         file.originalFilename,
       );
-      copied.push({
+      resolved.push({
         fileId: result.fileId,
         driveUrl: result.webViewLink,
         thumbnailUrl: result.thumbnailLink,
@@ -472,7 +499,7 @@ export class DriveImportsService {
       });
     }
 
-    const [primary, ...extras] = copied;
+    const [primary, ...extras] = resolved;
     const extraFiles: CreateContentAssetFileInput[] = extras.map((file) => ({
       driveFileId: file.fileId,
       driveUrl: file.driveUrl ?? undefined,

@@ -284,6 +284,149 @@ describe('FacebookInsightsClient', () => {
       expect(result.failed[0].isMissing).toBe(false);
     });
 
+    /**
+     * Prod hỏng 2026-08-08 trong khi dev xanh: Meta cấp metric khác nhau tuỳ
+     * page. Danh sách metric cứng là sai hướng — adapter phải tự dò và loại.
+     */
+    describe('tự dò metric khi Facebook từ chối (page này khác page kia)', () => {
+      const invalidMetric = (metric: string) =>
+        errorEntry(
+          400,
+          100,
+          `(#100) metric ${metric}: The value must be a valid insights metric`,
+        );
+
+      it('loại metric bị từ chối rồi thử lại, lấy được các chỉ số còn lại', async () => {
+        fetchMock
+          // Lượt 1: hỏi cả 2 metric ⇒ Graph chê.
+          .mockResolvedValueOnce(
+            jsonResponse(200, [invalidMetric('post_fan_reach')]),
+          )
+          // Lượt 2: dò từng metric — fan_reach hỏng, clicks + video_views ổn.
+          .mockResolvedValueOnce(
+            jsonResponse(200, [
+              invalidMetric('post_fan_reach'),
+              okEntry({ data: [] }),
+              okEntry({ data: [] }),
+            ]),
+          )
+          // Lượt 3: hỏi lại, chỉ còn clicks.
+          .mockResolvedValueOnce(
+            jsonResponse(200, [okEntry(insightsBody({ post_clicks: 42 }))]),
+          );
+
+        const result = await client.getPostInsights(
+          [{ postId: '111_222', isVideo: false }],
+          'page-token',
+        );
+
+        expect(result.failed).toEqual([]);
+        expect(result.ok[0].clicks).toBe(42);
+        expect(result.ok[0].fanReach).toBeNull();
+      });
+
+      it('lần gọi sau không hỏi lại metric đã biết là hỏng', async () => {
+        fetchMock
+          .mockResolvedValueOnce(
+            jsonResponse(200, [invalidMetric('post_fan_reach')]),
+          )
+          .mockResolvedValueOnce(
+            jsonResponse(200, [
+              invalidMetric('post_fan_reach'),
+              okEntry({ data: [] }),
+              okEntry({ data: [] }),
+            ]),
+          )
+          .mockResolvedValue(
+            jsonResponse(200, [okEntry(insightsBody({ post_clicks: 1 }))]),
+          );
+
+        await client.getPostInsights(
+          [{ postId: '111_222', isVideo: false }],
+          'page-token',
+        );
+        fetchMock.mockClear();
+
+        await client.getPostInsights(
+          [{ postId: '111_333', isVideo: false }],
+          'page-token',
+        );
+
+        // Đúng 1 request, và không còn nhắc tới metric đã bị loại.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const sent = decodeURIComponent(bodyOf(fetchMock.mock.calls[0][1]));
+        expect(sent).not.toContain('post_fan_reach');
+        expect(sent).toContain('post_clicks');
+      });
+
+      it('metric hỏng ở page này KHÔNG bị coi là hỏng ở page khác', async () => {
+        fetchMock
+          .mockResolvedValueOnce(
+            jsonResponse(200, [invalidMetric('post_fan_reach')]),
+          )
+          .mockResolvedValueOnce(
+            jsonResponse(200, [
+              invalidMetric('post_fan_reach'),
+              okEntry({ data: [] }),
+              okEntry({ data: [] }),
+            ]),
+          )
+          .mockResolvedValue(
+            jsonResponse(200, [okEntry(insightsBody({ post_clicks: 1 }))]),
+          );
+
+        await client.getPostInsights(
+          [{ postId: '111_222', isVideo: false }],
+          'token-a',
+        );
+        fetchMock.mockClear();
+
+        await client.getPostInsights(
+          [{ postId: '999_888', isVideo: false }],
+          'token-b',
+        );
+
+        const sent = decodeURIComponent(bodyOf(fetchMock.mock.calls[0][1]));
+        expect(sent).toContain('post_fan_reach');
+      });
+
+      it('page không hỗ trợ metric nào ⇒ bỏ hẳn khối insights, vẫn lấy tương tác', async () => {
+        fetchMock
+          .mockResolvedValueOnce(
+            jsonResponse(200, [invalidMetric('post_fan_reach')]),
+          )
+          // Dò: cả 3 metric đều bị từ chối.
+          .mockResolvedValueOnce(
+            jsonResponse(200, [
+              invalidMetric('post_fan_reach'),
+              invalidMetric('post_clicks'),
+              invalidMetric('post_video_views'),
+            ]),
+          )
+          .mockResolvedValue(
+            jsonResponse(200, [
+              okEntry({
+                likes: { summary: { total_count: 5 } },
+                comments: { summary: { total_count: 2 } },
+                shares: { count: 1 },
+              }),
+            ]),
+          );
+
+        const result = await client.getPostInsights(
+          [{ postId: '111_222', isVideo: false }],
+          'page-token',
+        );
+
+        const sent = decodeURIComponent(bodyOf(fetchMock.mock.calls[2][1]));
+        expect(sent).not.toContain('insights.metric');
+        expect(result.failed).toEqual([]);
+        expect(result.ok[0].likeCount).toBe(5);
+        expect(result.ok[0].fanReach).toBeNull();
+        expect(result.ok[0].clicks).toBeNull();
+      });
+    });
+
     it('ném FacebookGraphError khi cả request bị từ chối', async () => {
       fetchMock.mockResolvedValue(
         jsonResponse(400, { error: { code: 190, message: 'Invalid token' } }),

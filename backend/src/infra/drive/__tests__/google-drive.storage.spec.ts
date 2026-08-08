@@ -235,6 +235,8 @@ describe('GoogleDriveStorage', () => {
           mimeType: 'video/mp4',
           size: '2048',
           capabilities: { canCopy: true },
+          webViewLink: 'https://drive/src-1/view',
+          thumbnailLink: 'https://drive/src-1/thumb',
         },
       });
 
@@ -243,7 +245,7 @@ describe('GoogleDriveStorage', () => {
       expect(files.get).toHaveBeenCalledWith({
         fileId: 'src-1',
         fields:
-          'id, name, mimeType, size, capabilities/canCopy, shortcutDetails/targetId',
+          'id, name, mimeType, size, capabilities/canCopy, shortcutDetails/targetId, thumbnailLink, webViewLink',
         supportsAllDrives: true,
       });
       expect(meta).toEqual({
@@ -253,6 +255,8 @@ describe('GoogleDriveStorage', () => {
         size: 2048,
         canCopy: true,
         shortcutTargetId: null,
+        webViewLink: 'https://drive/src-1/view',
+        thumbnailLink: 'https://drive/src-1/thumb',
       });
     });
 

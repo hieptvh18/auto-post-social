@@ -17,7 +17,7 @@ const DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive'];
 const FILE_FIELDS = 'id, name, mimeType, size, thumbnailLink, webViewLink';
 /** Đủ để quyết định "nhập được hay không" mà không đụng nội dung file (plan 24). */
 const META_FIELDS =
-  'id, name, mimeType, size, capabilities/canCopy, shortcutDetails/targetId';
+  'id, name, mimeType, size, capabilities/canCopy, shortcutDetails/targetId, thumbnailLink, webViewLink';
 
 /** Xác thực bằng service account JSON (chỉ ghi được vào Shared Drive). */
 export interface ServiceAccountAuth {
@@ -147,6 +147,8 @@ export class GoogleDriveStorage implements DriveStorage {
         // chặn nhầm một file hợp lệ.
         canCopy: data.capabilities?.canCopy !== false,
         shortcutTargetId: data.shortcutDetails?.targetId ?? null,
+        webViewLink: data.webViewLink ?? null,
+        thumbnailLink: data.thumbnailLink ?? null,
       };
     } catch (error) {
       if (error instanceof DriveFileError) throw error;

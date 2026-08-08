@@ -158,9 +158,9 @@ export class InsightsSyncService {
       return { ...empty, dueCount: due.length, failedCount: due.length };
     }
 
-    // Graph chê TÊN METRIC ⇒ mọi bài của page sẽ hỏng y hệt, và đó là lỗi cấu
-    // hình của ta chứ không phải của bài. Dừng cả page, KHÔNG ghi lỗi lên từng
-    // dòng — 50 dòng cùng một message chỉ làm nhiễu, che mất nguyên nhân thật.
+    // Tới đây mà vẫn còn lỗi metric nghĩa là **cả bước tự dò trong adapter cũng
+    // hỏng** — không phải lỗi của bài. Dừng cả page, KHÔNG ghi lỗi lên từng dòng:
+    // 50 dòng cùng một message chỉ làm nhiễu và che mất nguyên nhân thật.
     if (ok.failed.some((f) => f.isInvalidMetric)) {
       this.logger.error(
         `Ngừng đồng bộ page "${page.pageName}": Facebook không chấp nhận tên metric đang dùng. ` +

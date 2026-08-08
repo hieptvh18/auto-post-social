@@ -453,3 +453,32 @@ toolbar): cùng một đích đến "thêm bài vào kho", tách modal riêng kh
   4. Bài nhập từ link mang danh mục `'Chưa phân loại'` ⇒ **Bot không tự đăng** cho tới khi
      người duyệt đổi danh mục. Đúng ý đồ, nhưng nếu sau này thấy vướng thì cân nhắc cho
      chọn danh mục ngay ở modal (user đã chốt bỏ, không tự ý thêm lại).
+
+---
+
+## Bổ sung 2026-08-08 — checkbox "Copy data" (mặc định TẮT)
+
+**Lý do (user):** copy mọi file về folder Drive đang cấu hình làm phình dung lượng Drive
+cá nhân. Nay copy là **tuỳ chọn**, mặc định **không** copy.
+
+- [x] `POST /media/drive-imports` nhận `copyData?: boolean` (mặc định `false`), lưu vào
+      `metadata.copyToDrive` của job.
+- [x] `copyToDrive = false` ⇒ worker **không** gọi `files.copy`: `content_assets.drive_file_id`
+      = fileId **gốc**, `drive_url`/`thumbnail_url` lấy từ metadata file gốc (đã đọc sẵn lúc
+      soi link, không gọi Drive thêm lần nào).
+- [x] `DriveFileMeta` thêm `webViewLink`/`thumbnailLink`; `MediaUploadFileInfo` thêm
+      `sourceWebViewLink`/`sourceThumbnailLink`.
+- [x] **Chặn xoá file của người khác:** `removeExisting()` chỉ gọi `storage.delete()` khi
+      `drive_file_id !== source_drive_file_id`. Bài nhập-không-copy có hai cột **trùng nhau**
+      ⇒ đó là dấu hiệu "file thuộc người khác", chỉ xoá bản ghi DB.
+- [x] FE: checkbox "Copy data về Drive của tool" trong tab nhập link, mặc định không tick,
+      kèm dòng giải thích đánh đổi.
+- [x] Test: BE +6 (drive-imports 2 chiều cờ, no-copy path, không xoá file gốc), lint + build
+      xanh 2 phía.
+
+**Vẫn giữ check `canCopy`** kể cả chế độ không copy: lúc đăng bài, publisher phải **tải bytes**
+từ Drive, mà file bị tắt quyền tải/sao chép thì `alt=media` cũng 403 — bỏ check ở đây chỉ đẩy
+lỗi sang lúc đăng.
+
+**Còn nợ thêm:** chưa bấm tay — cần thử (1) không tick ⇒ folder tool **không** sinh file mới mà
+bài vẫn đăng được lên page thật; (2) xoá bài nhập-không-copy ⇒ file gốc **còn nguyên**.

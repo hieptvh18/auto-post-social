@@ -32,8 +32,9 @@ interface Props {
 /**
  * Tab "Nhập từ link Google Drive" (plan 24).
  *
- * Cố ý chỉ có **hai thứ để nhập** (yêu cầu user 2026-08-07): danh sách link và
- * checkbox gộp ảnh. Mọi thứ còn lại backend tự đặt — tiêu đề = tên file, bài vào
+ * Cố ý chỉ có **ba thứ để nhập**: danh sách link, checkbox gộp ảnh (yêu cầu user
+ * 2026-08-07) và checkbox "Copy data" (yêu cầu user 2026-08-08 — mặc định tắt để
+ * chỉ lưu link, không tốn dung lượng Drive). Mọi thứ còn lại backend tự đặt — tiêu đề = tên file, bài vào
  * **Chờ duyệt** với caption tạm `-`; người dùng điền caption/danh mục lúc duyệt.
  *
  * Sau khi ngừng gõ, panel **dò ngầm** loại file của từng link để biết có cho tick
@@ -43,6 +44,9 @@ interface Props {
 export function DriveImportPanel({ onCreated, onCancel }: Props) {
   const [rawLinks, setRawLinks] = useState('');
   const [mergeImages, setMergeImages] = useState(false);
+  // Mặc định KHÔNG copy (yêu cầu user 2026-08-08): chỉ lưu link để Drive đang
+  // cấu hình không phình dung lượng.
+  const [copyData, setCopyData] = useState(false);
   const [skipped, setSkipped] = useState<DriveImportSkipped[]>([]);
   const [inspected, setInspected] = useState<DriveImportInspectItem[] | null>(
     null,
@@ -120,6 +124,7 @@ export function DriveImportPanel({ onCreated, onCancel }: Props) {
       const result = await createMutation.mutateAsync({
         links,
         mergeImagesIntoOnePost: mergeImages,
+        copyData,
       });
 
       if (result.duplicates.length > 0) {
@@ -199,6 +204,22 @@ export function DriveImportPanel({ onCreated, onCancel }: Props) {
           <Text type="secondary" style={{ fontSize: 12 }}>
             {mergeBlockedReason ??
               `Bật ⇒ gom ${imageCount} ảnh thành 1 bài. Bỏ trống ⇒ mỗi dòng một bài riêng.`}
+          </Text>
+        </div>
+      </div>
+
+      <div>
+        <Checkbox
+          checked={copyData}
+          onChange={(e) => setCopyData(e.target.checked)}
+        >
+          Copy data về Drive của tool
+        </Checkbox>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {copyData
+              ? 'Bật ⇒ tool sao chép file về folder Drive đang cấu hình (tốn dung lượng), bài không phụ thuộc file gốc nữa.'
+              : 'Đang tắt ⇒ chỉ lưu link gốc, không tốn dung lượng Drive. Lưu ý: file gốc bị xoá hoặc bỏ chia sẻ thì bài sẽ không đăng được.'}
           </Text>
         </div>
       </div>

@@ -32,7 +32,7 @@ scope ⇒ **bỏ cả page, 0 call Graph**. Hai bảng mới `post_insights` (s�
 danh sách chỉ cần 1 join thay vì `DISTINCT ON`. Dùng lại permission `pages:manage` + route
 trong `RoleRoute path="/pages"` sẵn có — không đẻ luật quyền mới. Chi tiết:
 [plans/25-page-post-insights.md](./plans/25-page-post-insights.md). `erd.md` đã cập nhật
-(migration `20260808054704_post_insights`). BE **880 test xanh (+45)**, FE **63 test (+4)**,
+(migration `20260808064846_post_insights_real_metrics`). BE **887 test xanh (+52)**, FE **63 test (+4)**,
 lint/build 2 phía xanh.
 
 **ĐÃ CHẠY THẬT với Graph cùng ngày và phải sửa 3 lỗi (plan 25 §8)** — user báo "mọi chỉ số
@@ -50,9 +50,13 @@ thêm cờ `isInvalidMetric` để dừng cả page và log đúng chỗ cần s
 0:** `saveInsight()` viết `?? 0` ở nhánh `create`, mà lần đồng bộ đầu **luôn** đi vào
 `create` ⇒ ghi 0 thật vào DB kèm `fetched_at`; nay **mọi cột số NULLABLE, bỏ `DEFAULT 0`**
 và bỏ hẳn field khỏi payload khi `null` ⇒ bất biến "`NULL` = chưa đo, `0` = đo được 0" do
-**DB** bảo đảm chứ không chỉ là quy ước. Đã dọn 4 dòng hỏng; chạy lại thật: **4/5 bài có
-số**, bài "KK Coach" trả `👍1` (bằng chứng đường dữ liệu chạy thật). Migration
-`20260808064846_post_insights_real_metrics`. **Còn nợ:** smoke UI (§6 mục 34), thumbnail
+**DB** bảo đảm chứ không chỉ là quy ước. (4) **Prod vẫn báo lỗi metric dù dev xanh** ⇒ bỏ
+hẳn danh sách metric cứng: Meta cấp bộ metric **khác nhau tuỳ page** (New Page Experience
+vs page cũ), nên adapter nay **tự dò** — Graph chê metric (không nói metric nào) thì gửi 1
+request hỏi từng metric một trên 1 bài, ghi nhớ metric hỏng **theo từng page**, loại ra rồi
+thử lại; hết metric thì bỏ hẳn khối `insights` nhưng **vẫn** lấy like/comment/share. Đã dọn
+4 dòng hỏng; chạy lại thật: **4/5 bài có số**, bài "KK Coach" trả `👍1` (bằng chứng đường dữ
+liệu chạy thật). Migration `20260808064846_post_insights_real_metrics`. **Còn nợ:** smoke UI (§6 mục 34), thumbnail
 Drive hết hạn ⇒ 404 (§6 mục 35).
 
 **Session trước đó:** **Plan 24 — thêm bài vào kho bằng cách DÁN LINK Google Drive.**
@@ -535,6 +539,23 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 
 > Mỗi module xong ghi 1 mục ở đây theo mẫu trong `.claude/rules/03-context-protocol.md`.
 
+### Nhập từ link Drive — checkbox "Copy data" (Plan 24 bổ sung) — 🟡 2026-08-08 (chưa bấm tay)
+
+- **Phạm vi:** modal Thêm Ảnh/Video > tab "Nhập từ link Google Drive" thêm checkbox
+  **"Copy data về Drive của tool"**, **mặc định TẮT**. Tắt ⇒ chỉ lưu link: bài trỏ thẳng
+  vào fileId gốc, Drive đang cấu hình **không tốn thêm dung lượng**. Bật ⇒ `files.copy`
+  như cũ. Body API thêm `copyData?: boolean`.
+- **File chính:** `backend/src/modules/media-upload-jobs/drive-imports.service.ts`,
+  `dto/create-drive-import.dto.ts`, `media-upload.constants.ts`,
+  `backend/src/infra/drive/{drive-storage.interface,google-drive.storage}.ts`,
+  `backend/src/modules/content-assets/content-assets.service.ts`,
+  `frontend/src/components/common/DriveImportPanel.tsx`.
+- **Quyết định:** dấu hiệu "file thuộc người khác" = `drive_file_id === source_drive_file_id`
+  ⇒ **không thêm cột DB**, và chỗ xoá bài dựa vào đó để **không xoá file gốc** của người ta.
+  Vẫn giữ check `canCopy` ở chế độ không copy vì publisher phải tải bytes lúc đăng.
+- **Test:** BE +6 test (212 xanh ở 3 suite liên quan), FE 63 xanh, lint + build xanh 2 phía.
+- **Còn nợ:** chưa bấm tay — xem mục cuối `plans/24-drive-link-import.md`.
+
 ### M11 Tracking lượt xem bài đã đăng (Plan 25) — 🟡 2026-08-08 (chưa chạy với Graph thật)
 
 - **Phạm vi:** màn **thống kê riêng cho từng Page** — `/pages` mỗi dòng có nút "Chi tiết"
@@ -576,9 +597,14 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
      đồng bộ đầu luôn đi vào `create` ⇒ ghi 0 thật vào DB. Nay **mọi cột số
      NULLABLE, bỏ `DEFAULT 0`** và bỏ hẳn field khỏi payload khi `null` — bất biến
      "`NULL` = chưa đo, `0` = đo được 0" do **DB** bảo đảm.
+  4. **Prod vẫn lỗi metric dù dev xanh** (báo sau) ⇒ bỏ hẳn danh sách metric cứng:
+     Meta cấp metric khác nhau giữa page "New Page Experience" và page cũ. Adapter
+     nay **tự dò** metric nào bị từ chối (1 request/page, chỉ khi có lỗi), nhớ theo
+     **từng page**, loại ra rồi thử lại; hết metric thì bỏ khối `insights` nhưng vẫn
+     lấy like/comment/share. Xem plan 25 §8.4.
   Đã dọn 4 dòng hỏng. Chạy lại thật: **4/5 bài có số**, bài "KK Coach" trả `👍1`
   (bằng chứng đường dữ liệu chạy thật, không phải 0 giả).
-- **Test:** BE **883** test xanh (+48), FE **63** (+4). Lint/build 2 phía xanh.
+- **Test:** BE **887** test xanh (+52), FE **63** (+4). Lint/build 2 phía xanh.
   Migration `20260808064846_post_insights_real_metrics`, `erd.md` đã cập nhật.
 - **Còn nợ:** chưa smoke UI thật (§6 mục 34); mọi kết nối tạo **trước 08/08 phải bấm
   "Kết nối lại"** mới có `read_insights`; ảnh thumbnail Drive hết hạn ⇒ 404 (§6 mục 35).
@@ -1329,6 +1355,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | Vấn đề | Nguyên nhân & cách xử lý |
 |--------|--------------------------|
 | **Graph API dùng chung `code = 100` cho "object không tồn tại" VÀ "tên metric sai"** ⇒ suy ra "bài đã bị xoá" là sai và **mất dữ liệu âm thầm** | Ngày 2026-08-08, adapter insights map `code ∈ {100, 803}` thành `isMissing` ⇒ 3 bài **đang sống** bị ghi `missing_on_fb_at`, mà repository lọc `missing_on_fb_at IS NULL` nên chúng **vĩnh viễn** không được đồng bộ lại — không log, không cảnh báo, chỉ là số liệu đứng im. **Cách xử lý:** chỉ kết luận "đã xoá" khi có `error_subcode = 33`; đọc `message` để nhận diện lỗi cấu hình (`"valid insights metric"`) và dừng cả page thay vì đổ lỗi lên từng bài. **Bài học chung: cờ nào khiến hệ thống NGỪNG VĨNH VIỄN làm một việc thì phải dựa trên tín hiệu hẹp nhất có thể, không dựa vào error code dùng chung.** |
+| **Meta cấp bộ metric Insights KHÁC NHAU tuỳ page ⇒ prod hỏng trong khi dev xanh** | Sau khi sửa tên metric, máy dev chạy tốt nhưng prod vẫn báo "không chấp nhận chỉ số đang dùng" — cùng code, cùng `META_GRAPH_API_VERSION`. Nguyên nhân: page "New Page Experience" và page cũ có bộ metric khác nhau ⇒ **mọi danh sách metric hard-code đều sẽ hỏng ở page nào đó**. **Cách xử lý:** adapter **tự dò** — khi Graph chê metric (nó không nói metric nào), gửi 1 request hỏi từng metric một trên 1 bài, ghi nhớ metric hỏng **theo từng page**, loại ra rồi thử lại; hết metric thì bỏ hẳn khối `insights` nhưng vẫn lấy like/comment/share. **Bài học: với API bên thứ ba trả "tính năng khác nhau tuỳ đối tượng", đừng cấu hình cứng — hãy dò một lần rồi nhớ.** |
 | **Metric Facebook Insights `post_impressions` đã bị gỡ hẳn — đừng tin tài liệu/trí nhớ** | Cả họ `post_impressions*`, `post_reach`, `post_views`, `post_engaged_users`, `page_impressions*` đều trả `(#100) The value must be a valid insights metric` trên **mọi** version v19→v23, kể cả với Page token hợp lệ có đủ `read_insights`. **Không phải** lỗi quyền, **không phải** pin sai version, **không** sửa được bằng App Review. Chỉ số còn sống (đã đo): `post_video_views` · `post_fan_reach` · `post_clicks` · `post_reactions_by_type_total`. **Cách xử lý: luôn dò tên metric bằng call thật trước khi code**, đừng chép từ tài liệu cũ. Bài **ảnh** hiện không có lượt xem/hiển thị tổng qua API. |
 | **`?? 0` ở nhánh `create` của upsert biến "chưa đo" thành "đo được 0"** | Nhánh `update` xử lý `null` đúng nhưng **lần ghi đầu tiên luôn đi vào `create`**, nên cột `NOT NULL DEFAULT 0` nhận `0` thật kèm `fetched_at` ⇒ UI hiện "đã đồng bộ, 0 lượt xem" cho bài chưa hề lấy được số. **Cách xử lý:** cột nào phân biệt "chưa có dữ liệu" với "dữ liệu bằng 0" thì để **NULLABLE, không default**, và bỏ hẳn field khỏi payload khi giá trị `null` — ở **cả** `create` lẫn `update`. Đừng để bất biến quan trọng chỉ nằm ở quy ước code. |
 | **Bộ lọc boolean trên query string luôn ra `true`** (`?isAds=false`, `?isActive=false` không lọc được) | `ValidationPipe` bật `transformOptions.enableImplicitConversion` ⇒ class-transformer chạy `Boolean('false') === true` **trước** khi `@Transform` được gọi, nên `@Transform(({ value }) => ...)` nhận sẵn `true` chứ không phải chuỗi gốc. Lỗi âm thầm, unit test cũ không thấy vì test gọi service chứ không qua pipe. **Cách xử lý:** trong `@Transform` đọc giá trị gốc từ `obj[key]` (`@Transform(({ obj }) => toBoolean(obj.isAds))`), và có test dựng DTO **kèm `enableImplicitConversion: true`** để khoá lại — xem `content-assets/__tests__/bulk-content-assets.dto.spec.ts`. Áp dụng cho mọi DTO query có field boolean. |

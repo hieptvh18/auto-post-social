@@ -2,8 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
 
 /**
- * Nhập bài từ link Drive — **chỉ hai thứ người dùng phải nhập** (yêu cầu user
- * 2026-08-07): danh sách link và có gộp ảnh hay không.
+ * Nhập bài từ link Drive — người dùng chỉ phải nhập danh sách link, có gộp ảnh
+ * hay không (yêu cầu user 2026-08-07) và có copy dữ liệu về Drive của tool hay
+ * chỉ lưu link (yêu cầu user 2026-08-08).
  *
  * Mọi thứ còn lại suy ra tự động: tiêu đề = tên file, caption = `'-'` (⇒ bài vào
  * Chờ duyệt), danh mục = `DEFAULT_IMPORT_CATEGORY`, không gán page/editor. Người
@@ -27,4 +28,13 @@ export class CreateDriveImportDto {
   @IsOptional()
   @IsBoolean()
   mergeImagesIntoOnePost?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'true = copy file về folder Drive của tool (như cũ); false/bỏ trống = CHỈ lưu link, không tốn dung lượng Drive đang cấu hình',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  copyData?: boolean;
 }
