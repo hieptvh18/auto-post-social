@@ -15,19 +15,34 @@ const GRAPH_BASE_URL = 'https://graph.facebook.com';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Ba chỉ số **đã đo thật** là còn sống trên Graph v21.0 (2026-08-08).
+ * Hai chỉ số **đã đo thật** là còn sống trên Graph v21.0 (2026-08-08) ở edge
+ * `/{postId}/insights`.
  *
  * Đừng thêm `post_impressions`, `post_impressions_unique`, `post_reach`,
  * `post_views` hay `post_engaged_users` vào đây: Meta đã gỡ hẳn, mọi version
  * v19→v23 đều trả `(#100) The value must be a valid insights metric`. Muốn thêm
  * metric mới thì **đo trước bằng Graph API Explorer**, đừng đoán theo tài liệu cũ.
  */
-const METRIC_VIDEO_VIEWS = 'post_video_views';
 const METRIC_FAN_REACH = 'post_fan_reach';
 const METRIC_CLICKS = 'post_clicks';
 
 /** Dùng khi dò xem page hỗ trợ metric nào (xem `learnUnsupportedMetrics`). */
-const ALL_METRICS = [METRIC_FAN_REACH, METRIC_CLICKS, METRIC_VIDEO_VIEWS];
+const ALL_METRICS = [METRIC_FAN_REACH, METRIC_CLICKS];
+
+/**
+ * Lượt xem video **không** nằm ở edge `/{postId}/insights` như các metric trên.
+ *
+ * `postId` mà tool lưu cho bài video là **video_id** thô (xem
+ * `FacebookPublisherClient.publishVideo`), không phải `{pageId}_{postId}` như
+ * ảnh — video_id vẫn mở đúng permalink `facebook.com/{id}` nên không ai để ý,
+ * nhưng nó không phải "post" theo nghĩa Graph insights hiểu. Số xem thật nằm ở
+ * edge riêng của video object: `/{video_id}/video_insights?metric=total_video_views`.
+ * Nhét `post_video_views` vào `insights.metric()` chung với fan_reach/clicks
+ * (cách cũ) không lỗi, chỉ **im lặng trả rỗng** — bug phát hiện 2026-08-13, user
+ * báo "không fetch được lượt view video".
+ */
+const METRIC_TOTAL_VIDEO_VIEWS = 'total_video_views';
+const VIDEO_INSIGHTS_PERIOD = 'lifetime';
 
 /**
  * `error_subcode = 33` là tín hiệu **duy nhất** đủ chắc để kết luận bài không còn
@@ -70,26 +85,142 @@ export class FacebookInsightsClient implements FacebookInsights {
     const result = await this.fetchAll(targets, pageAccessToken);
 
     const rejected = result.failed.filter((f) => f.isInvalidMetric);
-    if (rejected.length === 0) return result;
+    const merged = await (async (): Promise<FacebookInsightsResult> => {
+      if (rejected.length === 0) return result;
 
-    // Graph chỉ nói "metric không hợp lệ", KHÔNG nói metric nào. Dò từng cái để
-    // biết, loại ra, rồi thử lại — thay vì bỏ cả page và trả về màn hình rỗng.
-    const rejectedIds = new Set(rejected.map((f) => f.postId));
-    const retryTargets = targets.filter((t) => rejectedIds.has(t.postId));
-    const learned = await this.learnUnsupportedMetrics(
-      retryTargets,
+      // Graph chỉ nói "metric không hợp lệ", KHÔNG nói metric nào. Dò từng cái để
+      // biết, loại ra, rồi thử lại — thay vì bỏ cả page và trả về màn hình rỗng.
+      const rejectedIds = new Set(rejected.map((f) => f.postId));
+      const retryTargets = targets.filter((t) => rejectedIds.has(t.postId));
+      const learned = await this.learnUnsupportedMetrics(
+        retryTargets,
+        pageAccessToken,
+      );
+      if (!learned) return result;
+
+      const retried = await this.fetchAll(retryTargets, pageAccessToken);
+      return {
+        ok: [...result.ok, ...retried.ok],
+        failed: [
+          ...result.failed.filter((f) => !rejectedIds.has(f.postId)),
+          ...retried.failed,
+        ],
+      };
+    })();
+
+    // Lượt xem video đi qua edge riêng `/{video_id}/video_insights` — không phải
+    // metric trong `insights.metric()` ở trên. Chỉ hỏi cho bài video đã lấy được
+    // fields thành công (bài lỗi/đã xoá thì hỏi thêm cũng vô ích).
+    const okIds = new Set(merged.ok.map((post) => post.postId));
+    const videoTargets = targets.filter(
+      (target) => target.isVideo && okIds.has(target.postId),
+    );
+    if (videoTargets.length === 0) return merged;
+
+    const videoViews = await this.fetchVideoViews(
+      videoTargets,
       pageAccessToken,
     );
-    if (!learned) return result;
-
-    const retried = await this.fetchAll(retryTargets, pageAccessToken);
     return {
-      ok: [...result.ok, ...retried.ok],
-      failed: [
-        ...result.failed.filter((f) => !rejectedIds.has(f.postId)),
-        ...retried.failed,
-      ],
+      ...merged,
+      ok: merged.ok.map((post) =>
+        videoViews.has(post.postId)
+          ? { ...post, videoViews: videoViews.get(post.postId) ?? null }
+          : post,
+      ),
     };
+  }
+
+  /**
+   * Hỏi `total_video_views` cho từng video qua edge `/{video_id}/video_insights`,
+   * tách riêng khỏi batch fields vì đây là edge khác hẳn (không phải
+   * `insights.metric()` trên post). Lỗi ở đây chỉ làm `videoViews` giữ `null` cho
+   * đúng bài đó — không kéo cả kết quả `getPostInsights` xuống, vì fan_reach/
+   * clicks/like/comment/share đã lấy xong ở bước trước.
+   */
+  private async fetchVideoViews(
+    targets: FacebookInsightTarget[],
+    pageAccessToken: string,
+  ): Promise<Map<string, number | null>> {
+    const result = new Map<string, number | null>();
+    const { graphVersion } = this.config.facebook;
+
+    for (let i = 0; i < targets.length; i += INSIGHTS_BATCH_SIZE) {
+      const chunk = targets.slice(i, i + INSIGHTS_BATCH_SIZE);
+      const batch = chunk.map((target) => ({
+        method: 'GET',
+        relative_url:
+          `${encodeURIComponent(target.postId)}/video_insights` +
+          `?metric=${METRIC_TOTAL_VIDEO_VIEWS}&period=${VIDEO_INSIGHTS_PERIOD}`,
+      }));
+
+      let entries: BatchEntry[];
+      try {
+        entries = await this.postBatch(batch, pageAccessToken, graphVersion);
+      } catch (error) {
+        this.logger.warn(
+          `Không lấy được lượt xem video cho ${chunk.length} bài trong lô — ` +
+            `giữ nguyên số cũ: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+        );
+        continue;
+      }
+
+      chunk.forEach((target, index) => {
+        result.set(
+          target.postId,
+          this.readVideoViews(target.postId, entries[index]),
+        );
+      });
+    }
+
+    return result;
+  }
+
+  private readVideoViews(
+    postId: string,
+    entry: BatchEntry | undefined,
+  ): number | null {
+    if (entry === undefined) {
+      this.logger.warn(
+        `Facebook không trả kết quả video_insights cho bài ${postId} trong lô batch.`,
+      );
+      return null;
+    }
+
+    if (entry.code < 200 || entry.code >= 300) {
+      const { message, code } = readGraphError(entry.body);
+      this.logger.warn(
+        `Không lấy được lượt xem video của bài ${postId}: code=${String(code)} message=${String(
+          message ?? 'không rõ nguyên nhân',
+        )}`,
+      );
+      return null;
+    }
+
+    const body =
+      entry.body !== null && typeof entry.body === 'object'
+        ? (entry.body as { data?: unknown })
+        : {};
+    const data = Array.isArray(body.data) ? body.data : [];
+
+    const metricEntry = data.find(
+      (item): item is { name: string; values?: unknown } =>
+        item !== null &&
+        typeof item === 'object' &&
+        (item as { name?: unknown }).name === METRIC_TOTAL_VIDEO_VIEWS,
+    );
+    if (metricEntry === undefined) return null;
+
+    const values = metricEntry.values;
+    const first: unknown = Array.isArray(values) ? values[0] : undefined;
+    const value =
+      first !== null && typeof first === 'object'
+        ? (first as { value?: unknown }).value
+        : undefined;
+
+    return typeof value === 'number' ? value : null;
   }
 
   private async fetchAll(
@@ -259,11 +390,11 @@ export class FacebookInsightsClient implements FacebookInsights {
 
   private buildRelativeUrl(target: FacebookInsightTarget): string {
     const unsupported = this.unsupportedFor(pageIdOf(target.postId));
-    const metrics = [METRIC_FAN_REACH, METRIC_CLICKS]
-      // Chỉ hỏi metric video cho bài video: hỏi thừa trên bài ảnh làm Graph trả
-      // metric rỗng, lẫn với ca "metric không tồn tại" mà ta cần phân biệt.
-      .concat(target.isVideo ? [METRIC_VIDEO_VIEWS] : [])
-      .filter((metric) => !unsupported.has(metric));
+    // Lượt xem video KHÔNG nằm trong danh sách này — nó đi qua edge riêng
+    // `/video_insights`, xem `fetchVideoViews`.
+    const metrics = [METRIC_FAN_REACH, METRIC_CLICKS].filter(
+      (metric) => !unsupported.has(metric),
+    );
 
     // Page không hỗ trợ metric nào ⇒ BỎ HẲN khối `insights` thay vì gửi
     // `insights.metric()` rỗng (Graph coi là cú pháp sai và trượt cả bài). Vẫn
@@ -350,9 +481,8 @@ export class FacebookInsightsClient implements FacebookInsights {
       postId: target.postId,
       fanReach: metrics.get(METRIC_FAN_REACH) ?? null,
       clicks: metrics.get(METRIC_CLICKS) ?? null,
-      videoViews: target.isVideo
-        ? (metrics.get(METRIC_VIDEO_VIEWS) ?? null)
-        : null,
+      // Điền sau ở `getPostInsights` bằng `fetchVideoViews` (edge riêng).
+      videoViews: null,
       likeCount: readSummaryCount(body.likes),
       commentCount: readSummaryCount(body.comments),
       shareCount: readShareCount(body.shares),

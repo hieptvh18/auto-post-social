@@ -8,7 +8,15 @@
 
 /** Một bài cần lấy số liệu. `isVideo` quyết định có hỏi metric video hay không. */
 export interface FacebookInsightTarget {
-  /** Dạng `{pageId}_{postId}` — đúng thứ đã lưu ở `content_page_assignments`. */
+  /**
+   * Đúng thứ đã lưu ở `content_page_assignments.facebook_post_id`.
+   *
+   * Bài **ảnh** có dạng `{pageId}_{postId}`. Bài **video** lại là **video_id**
+   * thô (xem `FacebookPublisherClient.publishVideo`) — không có tiền tố page.
+   * Adapter phải biết sự khác biệt này: `post_fan_reach`/`post_clicks` hỏi qua
+   * `/{postId}/insights`, còn lượt xem video phải hỏi qua edge riêng
+   * `/{video_id}/video_insights` (xem `facebook-insights.client.ts`).
+   */
   postId: string;
   isVideo: boolean;
 }
@@ -28,7 +36,7 @@ export interface FacebookInsightTarget {
  */
 export interface FacebookPostInsight {
   postId: string;
-  /** `post_video_views` — chỉ bài video mới có. */
+  /** `total_video_views` qua edge `/{video_id}/video_insights` — chỉ bài video mới có. */
   videoViews: number | null;
   /** `post_fan_reach` — người **theo dõi page** đã thấy bài. Không phải reach tổng. */
   fanReach: number | null;

@@ -4,8 +4,33 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-08 (Responsive mobile/tablet cho toàn bộ FE)
-**Session gần nhất (mới nhất):** **Responsive cơ bản cho mobile/tablet (yêu cầu user, không có
+**Cập nhật lần cuối:** 2026-08-13 (Fix lượt xem video không fetch được trong Post Insights)
+**Session gần nhất (mới nhất):** **Fix bug: `/pages/:pageId/insights` không lấy được lượt xem
+video (yêu cầu user, không có file plan — bug fix cho plan 25).** User báo lượt xem video của
+bài đã đăng luôn trống. **Nguyên nhân gốc:** `FacebookPublisherClient.publishVideo()`
+(`facebook-publisher.client.ts:251`) trả về **video_id thô** làm `postId` (khác ảnh — ảnh có
+bước riêng lấy đúng `post_id` dạng `{pageId}_{postId}`), và giá trị này được lưu thẳng vào
+`content_page_assignments.facebook_post_id`. `FacebookInsightsClient` lại nhét `post_video_views`
+vào chung `insights.metric()` với `post_fan_reach`/`post_clicks` rồi gọi trên chính video_id đó —
+Graph **không báo lỗi**, chỉ **âm thầm trả rỗng**, vì lượt xem video thật ra nằm ở edge riêng của
+video object: `GET /{video_id}/video_insights?metric=total_video_views&period=lifetime` (đã xác
+nhận qua tài liệu Meta for Developers hiện hành, **chưa đo bằng token thật/Graph API Explorer** —
+xem `contexts.md` §6 để test tay khi có token). Permalink bài video (`facebook.com/{video_id}`)
+vẫn mở đúng nên bug này không lộ ra ở đó. **Sửa:** `facebook-insights.client.ts` bỏ
+`post_video_views` khỏi metric list của `insights.metric()`, thêm method riêng `fetchVideoViews()`
+gọi batch tới `/{video_id}/video_insights` chỉ cho bài `isVideo`, merge kết quả vào
+`FacebookPostInsight.videoViews` sau khi đã lấy xong fan_reach/clicks/like/comment/share — lỗi ở
+bước này chỉ làm `videoViews = null` cho đúng bài đó, không kéo cả bài xuống `failed`. Không đụng
+schema (`erd.md` giữ nguyên), không đụng publisher (video_id vẫn đúng cho permalink + upload, chỉ
+sai chỗ dùng cho insights). BE test: 20 case trong `facebook-insights.client.spec.ts` (bỏ 1 case
+cũ giả định sai, thêm 3 case mới cho `video_insights`), toàn bộ **894 test backend xanh**,
+lint/build xanh. **Còn nợ:** user chưa test tay bằng token thật trên page có video đã đăng để xác
+nhận `total_video_views` đúng là metric còn sống trên Graph version đang dùng — nếu Graph vẫn trả
+rỗng/lỗi thì cần đo lại bằng Graph API Explorer (nguyên tắc đã ghi trong comment file, xem §6).
+
+---
+
+**Session trước đó:** **Responsive cơ bản cho mobile/tablet (yêu cầu user, không có
 file plan — user chốt "code luôn").** Trước đây web chỉ chạy được trên desktop: sidebar
 `position: fixed` rộng 240px + `marginLeft: 240` cứng nên trên điện thoại menu chiếm 2/3 màn
 hình và nội dung bị đẩy khuất. **Cách làm:** thêm hook `frontend/src/hooks/useResponsive.ts`

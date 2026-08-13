@@ -92,15 +92,40 @@ describe('FacebookInsightsClient', () => {
       expect(bodyOf(init)).toContain('secret-page-token');
     });
 
-    it('chỉ hỏi metric video cho bài video', async () => {
+    it('bài ảnh KHÔNG gọi thêm request video_insights', async () => {
       fetchMock.mockResolvedValue(
-        jsonResponse(200, [
-          okEntry(insightsBody({ post_video_views: 5000 })),
-          okEntry(insightsBody({ post_clicks: 10 })),
-        ]),
+        jsonResponse(200, [okEntry(insightsBody({ post_clicks: 10 }))]),
       );
 
       await client.getPostInsights(
+        [{ postId: 'i_1', isVideo: false }],
+        'page-token',
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const body = bodyOf(fetchMock.mock.calls[0][1]);
+      expect(decodeURIComponent(body)).not.toContain('video_insights');
+    });
+
+    it('lượt xem video lấy qua edge riêng /{video_id}/video_insights, không phải insights.metric()', async () => {
+      fetchMock
+        // Lượt 1: fields (fan_reach/clicks + like/comment/share) cho cả 2 bài.
+        .mockResolvedValueOnce(
+          jsonResponse(200, [
+            okEntry(insightsBody({ post_clicks: 5000 })),
+            okEntry(insightsBody({ post_clicks: 10 })),
+          ]),
+        )
+        // Lượt 2: video_insights — chỉ gọi cho bài video.
+        .mockResolvedValueOnce(
+          jsonResponse(200, [
+            okEntry({
+              data: [{ name: 'total_video_views', values: [{ value: 9999 }] }],
+            }),
+          ]),
+        );
+
+      const result = await client.getPostInsights(
         [
           { postId: 'v_1', isVideo: true },
           { postId: 'i_1', isVideo: false },
@@ -108,11 +133,39 @@ describe('FacebookInsightsClient', () => {
         'page-token',
       );
 
-      const body = bodyOf(fetchMock.mock.calls[0][1]);
-      const batch = decodeURIComponent(body);
-      const [videoPart, imagePart] = batch.split('i_1');
-      expect(videoPart).toContain('post_video_views');
-      expect(imagePart ?? '').not.toContain('post_video_views');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const firstBody = decodeURIComponent(bodyOf(fetchMock.mock.calls[0][1]));
+      expect(firstBody).not.toContain('post_video_views');
+      expect(firstBody).not.toContain('video_insights');
+
+      const secondBody = decodeURIComponent(bodyOf(fetchMock.mock.calls[1][1]));
+      expect(secondBody).toContain('v_1/video_insights');
+      expect(secondBody).toContain('total_video_views');
+      expect(secondBody).not.toContain('i_1');
+
+      const video = result.ok.find((r) => r.postId === 'v_1');
+      const image = result.ok.find((r) => r.postId === 'i_1');
+      expect(video?.videoViews).toBe(9999);
+      expect(image?.videoViews).toBeNull();
+    });
+
+    it('lỗi khi lấy video_insights KHÔNG làm hỏng cả bài — videoViews giữ null', async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse(200, [okEntry(insightsBody({ post_clicks: 1 }))]),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse(200, [errorEntry(400, 100, 'Unsupported get request')]),
+        );
+
+      const result = await client.getPostInsights(
+        [{ postId: 'v_1', isVideo: true }],
+        'page-token',
+      );
+
+      expect(result.failed).toEqual([]);
+      expect(result.ok[0].clicks).toBe(1);
+      expect(result.ok[0].videoViews).toBeNull();
     });
 
     // Đây là ca hỏng kinh điển của Batch API: gộp cả lô thành lỗi vì đúng 1 bài.
@@ -395,12 +448,11 @@ describe('FacebookInsightsClient', () => {
           .mockResolvedValueOnce(
             jsonResponse(200, [invalidMetric('post_fan_reach')]),
           )
-          // Dò: cả 3 metric đều bị từ chối.
+          // Dò: cả 2 metric đều bị từ chối.
           .mockResolvedValueOnce(
             jsonResponse(200, [
               invalidMetric('post_fan_reach'),
               invalidMetric('post_clicks'),
-              invalidMetric('post_video_views'),
             ]),
           )
           .mockResolvedValue(
