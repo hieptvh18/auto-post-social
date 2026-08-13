@@ -389,12 +389,18 @@ export class FacebookInsightsClient implements FacebookInsights {
   }
 
   private buildRelativeUrl(target: FacebookInsightTarget): string {
+    // Bài video dùng video_id thô làm postId (xem module comment ở đầu file) —
+    // node đó KHÔNG có field `insights` (Graph trả thẳng
+    // "(#100) Tried accessing nonexisting field (insights)", lỗi ở CẢ request
+    // chứ không phải 1 metric sai) chứ không riêng gì `post_video_views`. Đo thật
+    // 2026-08-13: gửi `insights.metric()` trên video_id giết cả like/comment/
+    // share theo. Video không hỏi field này; lượt xem lấy riêng ở `fetchVideoViews`.
     const unsupported = this.unsupportedFor(pageIdOf(target.postId));
-    // Lượt xem video KHÔNG nằm trong danh sách này — nó đi qua edge riêng
-    // `/video_insights`, xem `fetchVideoViews`.
-    const metrics = [METRIC_FAN_REACH, METRIC_CLICKS].filter(
-      (metric) => !unsupported.has(metric),
-    );
+    const metrics = target.isVideo
+      ? []
+      : [METRIC_FAN_REACH, METRIC_CLICKS].filter(
+          (metric) => !unsupported.has(metric),
+        );
 
     // Page không hỗ trợ metric nào ⇒ BỎ HẲN khối `insights` thay vì gửi
     // `insights.metric()` rỗng (Graph coi là cú pháp sai và trượt cả bài). Vẫn
@@ -468,8 +474,10 @@ export class FacebookInsightsClient implements FacebookInsights {
         : {};
 
     // Không cảnh báo "thiếu khối insights" khi chính ta đã cố ý không hỏi metric
-    // nào (page không hỗ trợ cái nào) — đó là trạng thái đã biết, không phải sự cố.
+    // nào — page không hỗ trợ cái nào, HOẶC bài là video (node không có field
+    // này, xem `buildRelativeUrl`) — đó là trạng thái đã biết, không phải sự cố.
     const askedForMetrics =
+      !target.isVideo &&
       this.unsupportedFor(pageIdOf(target.postId)).size < ALL_METRICS.length;
     const metrics = this.readMetrics(
       body.insights,

@@ -107,12 +107,42 @@ describe('FacebookInsightsClient', () => {
       expect(decodeURIComponent(body)).not.toContain('video_insights');
     });
 
-    it('lượt xem video lấy qua edge riêng /{video_id}/video_insights, không phải insights.metric()', async () => {
+    /**
+     * Ca thật 2026-08-13: video_id KHÔNG có field `insights` (khác chuyện tên
+     * metric sai) — Graph trả thẳng "(#100) Tried accessing nonexisting field
+     * (insights)" và giết CẢ request (kể cả like/comment/share) nếu vẫn nhét
+     * `insights.metric()` vào field list cho bài video.
+     */
+    it('bài video KHÔNG hỏi field `insights` trong request fields — tránh "nonexisting field"', async () => {
       fetchMock
-        // Lượt 1: fields (fan_reach/clicks + like/comment/share) cho cả 2 bài.
         .mockResolvedValueOnce(
           jsonResponse(200, [
-            okEntry(insightsBody({ post_clicks: 5000 })),
+            okEntry({
+              likes: { summary: { total_count: 4 } },
+              comments: { summary: { total_count: 1 } },
+              shares: { count: 0 },
+            }),
+          ]),
+        )
+        .mockResolvedValueOnce(jsonResponse(200, [okEntry({ data: [] })]));
+
+      await client.getPostInsights([{ postId: 'v_1', isVideo: true }], 'tok');
+
+      const sent = decodeURIComponent(bodyOf(fetchMock.mock.calls[0][1]));
+      expect(sent).not.toContain('insights');
+      expect(sent).toContain('likes.summary');
+    });
+
+    it('lượt xem video lấy qua edge riêng /{video_id}/video_insights, fan_reach/clicks không áp dụng cho video', async () => {
+      fetchMock
+        // Lượt 1: fields — video chỉ hỏi like/comment/share, ảnh vẫn hỏi insights.metric().
+        .mockResolvedValueOnce(
+          jsonResponse(200, [
+            okEntry({
+              likes: { summary: { total_count: 2 } },
+              comments: { summary: { total_count: 0 } },
+              shares: { count: 0 },
+            }),
             okEntry(insightsBody({ post_clicks: 10 })),
           ]),
         )
@@ -146,13 +176,22 @@ describe('FacebookInsightsClient', () => {
       const video = result.ok.find((r) => r.postId === 'v_1');
       const image = result.ok.find((r) => r.postId === 'i_1');
       expect(video?.videoViews).toBe(9999);
+      expect(video?.fanReach).toBeNull();
+      expect(video?.clicks).toBeNull();
+      expect(video?.likeCount).toBe(2);
       expect(image?.videoViews).toBeNull();
     });
 
     it('lỗi khi lấy video_insights KHÔNG làm hỏng cả bài — videoViews giữ null', async () => {
       fetchMock
         .mockResolvedValueOnce(
-          jsonResponse(200, [okEntry(insightsBody({ post_clicks: 1 }))]),
+          jsonResponse(200, [
+            okEntry({
+              likes: { summary: { total_count: 1 } },
+              comments: { summary: { total_count: 0 } },
+              shares: { count: 0 },
+            }),
+          ]),
         )
         .mockResolvedValueOnce(
           jsonResponse(200, [errorEntry(400, 100, 'Unsupported get request')]),
@@ -164,7 +203,7 @@ describe('FacebookInsightsClient', () => {
       );
 
       expect(result.failed).toEqual([]);
-      expect(result.ok[0].clicks).toBe(1);
+      expect(result.ok[0].likeCount).toBe(1);
       expect(result.ok[0].videoViews).toBeNull();
     });
 

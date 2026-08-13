@@ -22,11 +22,23 @@ gọi batch tới `/{video_id}/video_insights` chỉ cho bài `isVideo`, merge k
 `FacebookPostInsight.videoViews` sau khi đã lấy xong fan_reach/clicks/like/comment/share — lỗi ở
 bước này chỉ làm `videoViews = null` cho đúng bài đó, không kéo cả bài xuống `failed`. Không đụng
 schema (`erd.md` giữ nguyên), không đụng publisher (video_id vẫn đúng cho permalink + upload, chỉ
-sai chỗ dùng cho insights). BE test: 20 case trong `facebook-insights.client.spec.ts` (bỏ 1 case
-cũ giả định sai, thêm 3 case mới cho `video_insights`), toàn bộ **894 test backend xanh**,
-lint/build xanh. **Còn nợ:** user chưa test tay bằng token thật trên page có video đã đăng để xác
-nhận `total_video_views` đúng là metric còn sống trên Graph version đang dùng — nếu Graph vẫn trả
-rỗng/lỗi thì cần đo lại bằng Graph API Explorer (nguyên tắc đã ghi trong comment file, xem §6).
+sai chỗ dùng cho insights).
+
+**Sửa tiếp cùng ngày — user chạy thật trên server, gặp lỗi mới `(#100) Tried accessing
+nonexisting field (insights)` ở TỪNG bài.** Bản vá đầu chỉ bỏ `post_video_views` khỏi
+`insights.metric()` nhưng **vẫn** gửi `insights.metric(post_fan_reach,post_clicks)` cho bài
+video — hoá ra video_id **không có field `insights` luôn**, không riêng gì tên metric sai như
+ảnh. Gửi field đó vào node video làm Graph lỗi **cả request**, kéo theo mất luôn like/comment/
+share vốn đang lấy đúng. Sửa lại `buildRelativeUrl`: bài `isVideo` **bỏ hẳn** `insights.metric()`
+khỏi field list (chỉ còn `likes.summary`/`comments.summary`/`shares`), tức **fan_reach/clicks
+không lấy được cho bài video qua API** (giống hệt tình trạng "bài ảnh không có tổng lượt hiển
+thị" đã ghi nhận trước đó — user xác nhận chỉ cần lượt view, chấp nhận thiếu tương tác cho
+video). `parseEntry` cũng bỏ cảnh báo "thiếu khối insights" khi target là video (chủ động không
+hỏi, không phải sự cố). BE test: 21 case trong `facebook-insights.client.spec.ts`, toàn bộ **895
+test backend xanh**, lint/build xanh. **Còn nợ:** `total_video_views` qua `/video_insights` mới
+xác nhận qua tài liệu Meta, **chưa đo bằng Graph API Explorer** — user cần bấm "Đồng bộ ngay"
+trên page có video thật để xác nhận số lên đúng; nếu vẫn lỗi/rỗng thì đo lại metric bằng Explorer
+trước khi sửa tiếp (nguyên tắc đã ghi trong comment file).
 
 ---
 
