@@ -17,6 +17,7 @@ import type { DriveStorage } from '../../../infra/drive/drive-storage.interface'
 import type { ContentAssetsService } from '../../content-assets/content-assets.service';
 import type { SettingsService } from '../../settings/settings.service';
 import type { CreateMediaUploadJobDto } from '../dto/create-media-upload-job.dto';
+import type { MediaUploadCompletionHook } from '../media-upload-completion.hook';
 import type { MediaUploadJobData } from '../media-upload.constants';
 import type {
   MediaUploadJobRecord,
@@ -138,6 +139,9 @@ interface Mocks {
     Pick<Queue<MediaUploadJobData>, 'add' | 'remove' | 'obliterate'>
   > & { name: string };
   settings: jest.Mocked<Pick<SettingsService, 'getDriveConfig'>>;
+  completionHook: jest.Mocked<
+    Pick<MediaUploadCompletionHook, 'onJobSucceeded' | 'onJobFailed'>
+  > | null;
 }
 
 const build = (
@@ -219,6 +223,10 @@ const build = (
     { now: () => NOW },
     queue as unknown as Queue<MediaUploadJobData>,
     driveImportQueue as unknown as Queue<MediaUploadJobData>,
+    // Không truyền ⇒ `undefined`, Nest chưa vào cuộc nên default param `= null`
+    // của service KHÔNG tự chạy ở constructor gọi tay như thế này — phải tự ép
+    // `?? null` để khớp đúng hành vi "chưa ai đăng ký hook" (QĐ-6).
+    overrides.completionHook === undefined ? null : overrides.completionHook,
   );
 
   return {
@@ -229,6 +237,7 @@ const build = (
     queue,
     driveImportQueue,
     settings,
+    completionHook: overrides.completionHook ?? null,
   };
 };
 
@@ -366,6 +375,9 @@ describe('MediaUploadJobsService', () => {
       expect(contentAssets.create).toHaveBeenCalledWith(
         expect.objectContaining({ driveFileId: 'drive-1' }),
         expect.objectContaining({ id: ACTOR.id, role: UserRole.CONTENT }),
+        // Upload TAY (không qua reup) ⇒ cả 2 field nội bộ đều undefined —
+        // `ContentAssetsService.create()` tự rơi về hành vi RBAC bình thường.
+        { sourceType: undefined, forceApprove: undefined },
       );
       expect(repository.update).toHaveBeenLastCalledWith('job-1', {
         status: MediaUploadStatus.SUCCESS,
@@ -426,6 +438,7 @@ describe('MediaUploadJobsService', () => {
           extraFiles: [expect.objectContaining({ driveFileId: 'drive-2' })],
         }),
         expect.anything(),
+        expect.anything(),
       );
     });
 
@@ -485,6 +498,196 @@ describe('MediaUploadJobsService', () => {
       expect(repository.update).not.toHaveBeenCalled();
     });
 
+    /**
+     * HỒI QUY 2026-08-16: `process()` từng hardcode chỉ nhận `LOCAL_FILE`, nên
+     * job `source = REUP` (plan 29) bị `runJob()` tự bỏ qua ngay dòng đầu —
+     * không upload, không tạo bài, không ghi lỗi. BullMQ vẫn coi job là
+     * "completed" (không có exception nào ném ra) nên job **treo vĩnh viễn**,
+     * không bao giờ tự retry. Phát hiện khi 2 video reup thật kẹt >10 phút.
+     */
+    /**
+     * HỒI QUY 2026-08-16 (đợt 2, phát hiện khi rà soát dọn file sau bug I18):
+     * `removeTempFiles()` trước đây chỉ `rm(tempPath, {force:true})` — xoá ĐÚNG
+     * FILE, để lại THƯ MỤC RỖNG `REUP_TMP_DIR/<videoId>/` (mỗi video 1 thư mục
+     * riêng — cạm bẫy C5, plan 28). Không dọn ⇒ số thư mục rỗng tăng dần theo
+     * mỗi video đăng thành công, không ai xoá.
+     *
+     * LOCAL_FILE KHÔNG được đổi hành vi: multer ghi phẳng mọi file vào CHUNG
+     * một `MEDIA_UPLOAD_TMP_DIR` (không có thư mục con riêng) — xoá "thư mục
+     * cha" kiểu chung cho LOCAL_FILE sẽ xoá nhầm toàn bộ thư mục tạm dùng chung.
+     */
+    it('job REUP thành công ⇒ xoá CẢ THƯ MỤC CHA, không chỉ file', async () => {
+      const { service, repository } = build();
+      repository.findById.mockResolvedValue(
+        makeJob({
+          source: MediaUploadSource.REUP,
+          files: [
+            {
+              originalFilename: 'video.mp4',
+              mimeType: 'video/mp4',
+              size: 123,
+              tempPath: '/tmp/reup/video-abc/index.mp4',
+            },
+          ],
+        }),
+      );
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(rmMock).toHaveBeenCalledWith(
+        '/tmp/reup/video-abc',
+        expect.objectContaining({ recursive: true, force: true }),
+      );
+    });
+
+    it('job LOCAL_FILE thành công ⇒ VẪN chỉ xoá đúng file (hồi quy)', async () => {
+      const { service, repository } = build();
+      repository.findById.mockResolvedValue(makeJob());
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(rmMock).toHaveBeenCalledWith('/tmp/upload/abc.jpg', {
+        force: true,
+      });
+      // KHÔNG được gọi rm với { recursive: true } — đó là dấu hiệu xoá thư mục.
+      const calledRecursive = (
+        rmMock.mock.calls as unknown as [string, Record<string, unknown>][]
+      ).some(([, opts]) => opts?.recursive === true);
+      expect(calledRecursive).toBe(false);
+    });
+
+    /**
+     * `POST /reup/videos/:id/retry` (nút "Thử lại" trên UI reup) KHÔNG BAO GIỜ
+     * đọc lại `tempPath` cũ — nó luôn tải mới hoàn toàn từ YouTube vào một thư
+     * mục khác (`ReupVideosService.retry()` tạo job `reup-download` mới). Giữ
+     * file tới khi cron 24h (`MEDIA_UPLOAD_JOB_RETENTION_MS`) là rác chắc chắn,
+     * không có đường nào dùng lại ⇒ phải dọn NGAY khi hết lượt, không đợi cron.
+     */
+    it('job REUP hết lượt (FAILED) ⇒ dọn NGAY, không đợi cron 24h', async () => {
+      const { service, repository, contentAssets } = build();
+      repository.findById.mockResolvedValue(
+        makeJob({
+          source: MediaUploadSource.REUP,
+          files: [
+            {
+              originalFilename: 'video.mp4',
+              mimeType: 'video/mp4',
+              size: 123,
+              tempPath: '/tmp/reup/video-xyz/index.mp4',
+            },
+          ],
+        }),
+      );
+      contentAssets.create.mockRejectedValue(new Error('Hết quota Drive'));
+
+      await expect(
+        service.process({
+          mediaUploadJobId: 'job-1',
+          attemptNo: 3,
+          isLastAttempt: true,
+        }),
+      ).rejects.toThrow('Hết quota Drive');
+
+      expect(rmMock).toHaveBeenCalledWith(
+        '/tmp/reup/video-xyz',
+        expect.objectContaining({ recursive: true, force: true }),
+      );
+      expect(repository.update).toHaveBeenLastCalledWith(
+        'job-1',
+        expect.objectContaining({ filesRemovedAt: NOW }),
+      );
+    });
+
+    it('job REUP CÒN lượt (chưa hết) ⇒ GIỮ file, không dọn (đúng quyết định user)', async () => {
+      const { service, repository, contentAssets } = build();
+      repository.findById.mockResolvedValue(
+        makeJob({
+          source: MediaUploadSource.REUP,
+          files: [
+            {
+              originalFilename: 'video.mp4',
+              mimeType: 'video/mp4',
+              size: 123,
+              tempPath: '/tmp/reup/video-def/index.mp4',
+            },
+          ],
+        }),
+      );
+      contentAssets.create.mockRejectedValue(new Error('Lỗi tạm thời'));
+
+      await expect(
+        service.process({
+          mediaUploadJobId: 'job-1',
+          attemptNo: 1,
+          isLastAttempt: false,
+        }),
+      ).rejects.toThrow('Lỗi tạm thời');
+
+      expect(rmMock).not.toHaveBeenCalled();
+    });
+
+    it('job LOCAL_FILE hết lượt ⇒ vẫn GIỮ file như trước (hồi quy)', async () => {
+      const { service, repository, contentAssets } = build();
+      repository.findById.mockResolvedValue(makeJob());
+      contentAssets.create.mockRejectedValue(new Error('Hết quota Drive'));
+
+      await expect(
+        service.process({
+          mediaUploadJobId: 'job-1',
+          attemptNo: 3,
+          isLastAttempt: true,
+        }),
+      ).rejects.toThrow('Hết quota Drive');
+
+      expect(rmMock).not.toHaveBeenCalled();
+    });
+
+    it('job source = REUP cũng được xử lý, KHÔNG bị worker bỏ qua', async () => {
+      const { service, repository, contentAssets, storage } = build();
+      repository.findById.mockResolvedValue(
+        makeJob({ source: MediaUploadSource.REUP }),
+      );
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+      expect(contentAssets.create).toHaveBeenCalledTimes(1);
+      expect(repository.update).toHaveBeenLastCalledWith('job-1', {
+        status: MediaUploadStatus.SUCCESS,
+        contentAssetId: 'content-1',
+        errorMessage: null,
+        filesRemovedAt: NOW,
+      });
+    });
+
+    it('job source = DRIVE_LINK vẫn bị worker media-upload bỏ qua (đúng — thuộc worker khác)', async () => {
+      const { service, repository, storage } = build();
+      repository.findById.mockResolvedValue(
+        makeJob({ source: MediaUploadSource.DRIVE_LINK }),
+      );
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(storage.upload).not.toHaveBeenCalled();
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
     it('bỏ qua lặng lẽ khi job đã bị xoá khỏi DB', async () => {
       const { service, repository, storage } = build();
       repository.findById.mockResolvedValue(null);
@@ -496,6 +699,108 @@ describe('MediaUploadJobsService', () => {
       });
 
       expect(storage.upload).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Plan 29 §3.3 / §6 R1 — điều kiện Done: hook chỉ được gọi khi có ai đăng ký
+   * (`@Optional`, QĐ-6), và job upload TAY (không đi qua reup) chạy đúng như
+   * trước khi plan 29 tồn tại — không một dòng hành vi nào khác đi.
+   */
+  describe('hook báo kết quả job (plan 29 §3.3)', () => {
+    it('KHÔNG ai đăng ký hook ⇒ job upload tay chạy y hệt như trước (hồi quy)', async () => {
+      const { service, repository, contentAssets } = build();
+      repository.findById.mockResolvedValue(makeJob());
+
+      await expect(
+        service.process({
+          mediaUploadJobId: 'job-1',
+          attemptNo: 1,
+          isLastAttempt: false,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(contentAssets.create).toHaveBeenCalledTimes(1);
+      expect(repository.update).toHaveBeenLastCalledWith('job-1', {
+        status: MediaUploadStatus.SUCCESS,
+        contentAssetId: 'content-1',
+        errorMessage: null,
+        filesRemovedAt: NOW,
+      });
+    });
+
+    it('có hook đăng ký ⇒ onJobSucceeded được gọi kèm job + contentAssetId', async () => {
+      const completionHook: jest.Mocked<
+        Pick<MediaUploadCompletionHook, 'onJobSucceeded' | 'onJobFailed'>
+      > = {
+        onJobSucceeded: jest.fn().mockResolvedValue(undefined),
+        onJobFailed: jest.fn().mockResolvedValue(undefined),
+      };
+      const { service, repository } = build({ completionHook });
+      repository.findById.mockResolvedValue(makeJob());
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(completionHook.onJobSucceeded).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'job-1' }),
+        'content-1',
+      );
+      expect(completionHook.onJobFailed).not.toHaveBeenCalled();
+    });
+
+    it('job lỗi ⇒ gọi onJobFailed kèm message + isLastAttempt', async () => {
+      const completionHook: jest.Mocked<
+        Pick<MediaUploadCompletionHook, 'onJobSucceeded' | 'onJobFailed'>
+      > = {
+        onJobSucceeded: jest.fn().mockResolvedValue(undefined),
+        onJobFailed: jest.fn().mockResolvedValue(undefined),
+      };
+      const { service, contentAssets, repository } = build({ completionHook });
+      repository.findById.mockResolvedValue(makeJob());
+      contentAssets.create.mockRejectedValue(new Error('Drive lỗi'));
+
+      await expect(
+        service.process({
+          mediaUploadJobId: 'job-1',
+          attemptNo: 1,
+          isLastAttempt: true,
+        }),
+      ).rejects.toThrow('Drive lỗi');
+
+      expect(completionHook.onJobFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'job-1' }),
+        'Drive lỗi',
+        true,
+      );
+    });
+
+    it('hook TỰ NÓ ném lỗi ⇒ bị NUỐT, job vẫn coi là thành công', async () => {
+      const completionHook: jest.Mocked<
+        Pick<MediaUploadCompletionHook, 'onJobSucceeded' | 'onJobFailed'>
+      > = {
+        onJobSucceeded: jest.fn().mockRejectedValue(new Error('hook hỏng')),
+        onJobFailed: jest.fn().mockResolvedValue(undefined),
+      };
+      const { service, repository } = build({ completionHook });
+      repository.findById.mockResolvedValue(makeJob());
+
+      // KHÔNG được ném ra ngoài — job upload đã thật sự thành công.
+      await expect(
+        service.process({
+          mediaUploadJobId: 'job-1',
+          attemptNo: 1,
+          isLastAttempt: false,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(repository.update).toHaveBeenLastCalledWith(
+        'job-1',
+        expect.objectContaining({ status: MediaUploadStatus.SUCCESS }),
+      );
     });
   });
 
@@ -626,6 +931,31 @@ describe('MediaUploadJobsService', () => {
       await service.onModuleInit();
 
       expect(queue.obliterate).not.toHaveBeenCalled();
+    });
+
+    it('job REUP còn dở lúc restart ⇒ xoá THƯ MỤC CHA, không chỉ file', async () => {
+      const { service, repository } = build();
+      repository.findPending.mockResolvedValue([
+        makeJob({
+          source: MediaUploadSource.REUP,
+          status: MediaUploadStatus.UPLOADING_TO_DRIVE,
+          files: [
+            {
+              originalFilename: 'video.mp4',
+              mimeType: 'video/mp4',
+              size: 123,
+              tempPath: '/tmp/reup/video-restart/index.mp4',
+            },
+          ],
+        }),
+      ]);
+
+      await service.onModuleInit();
+
+      expect(rmMock).toHaveBeenCalledWith(
+        '/tmp/reup/video-restart',
+        expect.objectContaining({ recursive: true, force: true }),
+      );
     });
   });
 

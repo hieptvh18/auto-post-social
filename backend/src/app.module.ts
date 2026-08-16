@@ -22,6 +22,8 @@ import { ManualPostModule } from './modules/manual-post/manual-post.module';
 import { MediaModule } from './modules/media/media.module';
 import { MediaUploadJobsModule } from './modules/media-upload-jobs/media-upload-jobs.module';
 import { MonitorModule } from './modules/monitor/monitor.module';
+import { ReupMediaHookModule } from './modules/reup/reup-media.hook';
+import { ReupModule } from './modules/reup/reup.module';
 import { PublishJobsModule } from './modules/publish-jobs/publish-jobs.module';
 import { PostInsightsModule } from './modules/post-insights/post-insights.module';
 import { PublishScheduleModule } from './modules/publish-schedule/publish-schedule.module';
@@ -64,6 +66,10 @@ import { UsersModule } from './modules/users/users.module';
     PostInsightsModule,
     MonitorModule,
     DashboardModule,
+    ReupModule,
+    // @Global — cung cấp `MEDIA_UPLOAD_COMPLETION_HOOK` cho worker media-upload
+    // mà KHÔNG bắt module đó import ngược lại reup (plan 29 §3.3, QĐ-6 §3).
+    ReupMediaHookModule,
     HealthModule,
   ],
   providers: [

@@ -40,6 +40,12 @@ export interface DriveStorage {
   upload(file: UploadFileInput): Promise<DriveFile>;
   createReadStream(fileId: string): Promise<Readable>;
   delete(fileId: string): Promise<void>;
+  /**
+   * Xoá file, coi **404 là thành công** (file đã không còn thì mục tiêu "file
+   * không còn tồn tại" đã đạt) — dùng cho cron dọn dẹp reup (plan 30 §3.1 bước
+   * 1). Lỗi khác (403/500...) vẫn ném ra để cron KHÔNG đánh dấu đã xoá.
+   */
+  deleteIfExists(fileId: string): Promise<void>;
   /** Đọc metadata file nguồn (chỉ metadata — không tải nội dung). */
   getMetadata(fileId: string): Promise<DriveFileMeta>;
   /**

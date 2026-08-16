@@ -30,6 +30,8 @@ export interface ScheduleJobResponse {
   /** Tên người đăng — `'Bot'` nếu do engine tự động, còn lại là tên user đăng tay. */
   publishedBy: string;
   isManual: boolean;
+  /** != null = cron dọn dẹp đã xoá file Drive của bài này (plan 30) — link/thumbnail đã chết. */
+  resourceDeletedAt: Date | null;
 }
 
 /** Dấu vết cron đã chạm mốc giờ này trong ngày (`slot_runs`, plan 07). */
@@ -113,6 +115,7 @@ export function toScheduleJobResponse(
     attemptCount: row.attemptCount,
     publishedBy: row.createdBy,
     isManual: row.createdBy !== BOT_PUBLISHER,
+    resourceDeletedAt: row.contentAsset.resourceDeletedAt,
   };
 }
 

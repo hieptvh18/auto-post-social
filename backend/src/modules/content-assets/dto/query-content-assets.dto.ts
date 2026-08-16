@@ -18,6 +18,17 @@ export const ASSIGNMENT_FILTERS = ['assigned', 'unassigned'] as const;
 export type AssignmentFilter = (typeof ASSIGNMENT_FILTERS)[number];
 
 /**
+ * Bộ lọc "Loại" của màn Quản lý Ảnh/Video (plan 27 §3.2). `ALL` là giá trị chỉ
+ * có ở tầng query — DB chỉ biết `MANUAL`/`REUP`.
+ *
+ * **Chỉ user có `reup:view` mới dùng được.** Role khác gửi giá trị nào cũng bị
+ * service **bỏ qua** và ép cứng `MANUAL` — không ném lỗi, vì ném lỗi là xác
+ * nhận rằng có tồn tại loại bài khác (cùng lý lẽ với 404 thay vì 403).
+ */
+export const SOURCE_TYPE_FILTERS = ['MANUAL', 'REUP', 'ALL'] as const;
+export type SourceTypeFilter = (typeof SOURCE_TYPE_FILTERS)[number];
+
+/**
  * Query string luôn là chuỗi — đổi 'true'/'false' về boolean cho `@IsBoolean`.
  *
  * **Phải đọc từ `obj[key]` (giá trị gốc), không dùng `value`:** ValidationPipe bật
@@ -50,6 +61,15 @@ export class QueryContentAssetsDto {
   @IsOptional()
   @IsEnum(ContentStatus)
   status?: ContentStatus;
+
+  @ApiPropertyOptional({
+    enum: SOURCE_TYPE_FILTERS,
+    description:
+      'Lọc theo Loại bài. CHỈ có tác dụng với user có quyền `reup:view` — role khác gửi lên sẽ bị bỏ qua và luôn chỉ nhận được bài MANUAL.',
+  })
+  @IsOptional()
+  @IsIn(SOURCE_TYPE_FILTERS)
+  sourceType?: SourceTypeFilter;
 
   @ApiPropertyOptional({ description: 'Lọc bài đã tick Đạt ADS' })
   @IsOptional()

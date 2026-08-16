@@ -3,6 +3,7 @@ import {
   MediaUploadSource,
   MediaUploadStatus,
   type Prisma,
+  type UserRole,
 } from '../../../generated/prisma/client';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import type {
@@ -22,7 +23,9 @@ export interface MediaUploadJobActor {
   id: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'EDITOR' | 'CONTENT';
+  // Dùng thẳng enum Prisma, KHÔNG liệt kê tay: liệt kê tay thì thêm role mới
+  // (SUPER_ADMIN, plan 26) là lỗi biên dịch rải khắp repository.
+  role: UserRole;
 }
 
 /** Một job upload, `files`/`metadata` đã parse khỏi JSON thô của Prisma. */
@@ -40,6 +43,8 @@ export interface MediaUploadJobRecord {
   bullJobId: string | null;
   filesRemovedAt: Date | null;
   contentAssetId: string | null;
+  /** != null ⇒ job của cron reup; null ⇒ upload tay (nhánh cũ, plan 29 §3.3). */
+  reupVideoId: string | null;
   createdById: string;
   createdBy: MediaUploadJobActor;
   createdAt: Date;
@@ -53,6 +58,14 @@ export interface CreateMediaUploadJobData {
   files: MediaUploadFileInfo[];
   metadata: MediaUploadMetadata;
   createdById: string;
+  /**
+   * Plan 29 §3.3 (cách a): job này sinh ra từ video reup nào.
+   *
+   * `null`/bỏ trống = **upload tay** — nhánh CŨ, phải chạy y hệt như trước khi
+   * có reup. Đây là thay đổi **duy nhất** được phép chạm vào module này, và test
+   * hồi quy cho nhánh `null` là điều kiện Done của plan 29 (§6 R1).
+   */
+  reupVideoId?: string | null;
 }
 
 export interface UpdateMediaUploadJobData {
@@ -113,6 +126,7 @@ export class MediaUploadJobsRepository {
         files: data.files as unknown as Prisma.InputJsonValue,
         metadata: data.metadata as unknown as Prisma.InputJsonValue,
         createdById: data.createdById,
+        reupVideoId: data.reupVideoId ?? null,
       },
     });
     return toRecord(created);
@@ -227,6 +241,7 @@ function toRecord(row: {
   bullJobId: string | null;
   filesRemovedAt: Date | null;
   contentAssetId: string | null;
+  reupVideoId: string | null;
   createdById: string;
   createdBy: MediaUploadJobActor;
   createdAt: Date;

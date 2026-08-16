@@ -732,4 +732,113 @@ describe('SettingsService', () => {
       expect(result.serviceAccountEmail).toBeNull();
     });
   });
+  // ─────────────────────── Reup schedule (plan 32) ───────────────────────
+
+  describe('lịch chạy cron reup', () => {
+    const scheduleRecord = (value: unknown): AppSetting => ({
+      key: SettingKey.REUP_SCHEDULE,
+      value: value as AppSetting['value'],
+      updatedById: ACTOR,
+      createdAt: new Date('2026-08-16'),
+      updatedAt: new Date('2026-08-16'),
+    });
+
+    const VALID = {
+      discoveryEnabled: true,
+      discoveryTime: '02:00',
+      cleanupEnabled: true,
+      cleanupTime: '03:00',
+    };
+
+    describe('getReupScheduleConfig', () => {
+      it('chưa có bản ghi ⇒ mặc định 02:00 / 03:00', async () => {
+        repository.findByKey.mockResolvedValue(null);
+
+        await expect(service.getReupScheduleConfig()).resolves.toEqual(VALID);
+      });
+
+      it('bản ghi hỏng (không phải object) ⇒ dùng mặc định, KHÔNG ném — app vẫn boot', async () => {
+        repository.findByKey.mockResolvedValue(scheduleRecord('hỏng'));
+
+        await expect(service.getReupScheduleConfig()).resolves.toEqual(VALID);
+      });
+
+      it('giờ trong DB sai định dạng ⇒ chỉ field đó rơi về mặc định', async () => {
+        repository.findByKey.mockResolvedValue(
+          scheduleRecord({ ...VALID, discoveryTime: '25:99' }),
+        );
+
+        const result = await service.getReupScheduleConfig();
+
+        expect(result.discoveryTime).toBe('02:00');
+        expect(result.cleanupTime).toBe('03:00');
+      });
+
+      it('repository ném lỗi (DB chết) ⇒ vẫn trả mặc định thay vì làm sập onModuleInit', async () => {
+        repository.findByKey.mockRejectedValue(new Error('DB down'));
+
+        await expect(service.getReupScheduleConfig()).resolves.toEqual(VALID);
+      });
+
+      it('bản ghi hợp lệ ⇒ đọc đúng giờ đã lưu (restart không quay về 02:00)', async () => {
+        repository.findByKey.mockResolvedValue(
+          scheduleRecord({ ...VALID, discoveryTime: '09:30' }),
+        );
+
+        const result = await service.getReupScheduleConfig();
+
+        expect(result.discoveryTime).toBe('09:30');
+      });
+    });
+
+    describe('updateReupScheduleSettings', () => {
+      beforeEach(() => {
+        repository.findByKey.mockResolvedValue(null);
+      });
+
+      it('lưu được giờ hợp lệ + ghi audit', async () => {
+        const input = { ...VALID, discoveryTime: '05:45' };
+
+        await service.updateReupScheduleSettings(input, ACTOR);
+
+        expect(repository.upsert).toHaveBeenCalledWith(
+          SettingKey.REUP_SCHEDULE,
+          input,
+          ACTOR,
+        );
+        expect(auditService.log).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditAction.SETTINGS_UPDATE }),
+        );
+      });
+
+      it('discoveryTime sai định dạng ⇒ 400', async () => {
+        await expect(
+          service.updateReupScheduleSettings(
+            { ...VALID, discoveryTime: '2:00' },
+            ACTOR,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        expect(repository.upsert).not.toHaveBeenCalled();
+      });
+
+      it('cleanupTime sai định dạng ⇒ 400', async () => {
+        await expect(
+          service.updateReupScheduleSettings(
+            { ...VALID, cleanupTime: '24:00' },
+            ACTOR,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('hai giờ trùng nhau ⇒ 400 với thông báo tiếng Việt rõ nghĩa', async () => {
+        await expect(
+          service.updateReupScheduleSettings(
+            { ...VALID, cleanupTime: '02:00' },
+            ACTOR,
+          ),
+        ).rejects.toThrow(/không được trùng nhau/);
+        expect(repository.upsert).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

@@ -7,12 +7,14 @@ import type {
 } from '../types';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
+  SUPER_ADMIN: 'Quản trị cấp cao',
   ADMIN: 'Quản trị viên',
   EDITOR: 'Editor',
   CONTENT: 'Content',
 };
 
 export const ROLE_COLORS: Record<UserRole, string> = {
+  SUPER_ADMIN: 'purple',
   ADMIN: 'red',
   EDITOR: 'gold',
   CONTENT: 'blue',
@@ -103,6 +105,7 @@ export const LEGAL_CONTACT_EMAIL = 'hiephoangtran002@gmail.com';
 export const LEGAL_UPDATED_AT = '03/08/2026';
 
 export const PREVIEW_EMAILS: Record<UserRole, string> = {
+  SUPER_ADMIN: 'superadmin@phucan-cxk.vn',
   ADMIN: 'admin@phucan-cxk.vn',
   EDITOR: 'editor@phucan-cxk.vn',
   CONTENT: 'content@phucan-cxk.vn',

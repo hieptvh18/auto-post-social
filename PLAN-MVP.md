@@ -53,6 +53,7 @@ phải chỉ qua curl/Swagger.
 | **M9** | **Tổng quan (Dashboard) chạy số liệu thật** | [plans/14-dashboard.md](./plans/14-dashboard.md) | 🟡 code+test+smoke API xong, chưa smoke UI | DashboardPage (màn cuối còn mock) |
 | **M10** | **Kết nối Page bằng đăng nhập Facebook** (thay dán token tay) | [plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md) | 🟡 code+test xong 27/07, chưa chạy với Meta app thật | PageManagementPage, SettingsPage |
 | **M11** | **Tracking lượt xem bài đã đăng** (Facebook Post Insights) | [plans/25-page-post-insights.md](./plans/25-page-post-insights.md) | 🟡 code+test xong 08/08, chưa chạy với Graph thật | PageManagementPage, PageInsightsPage (mới) |
+| **M12** | **Reup pipeline** — tự tìm video trending theo chủ đề, tải về, đưa vào kho, dọn file sau khi đăng | [plans/reup/README.md](./plans/reup/README.md) (6 plan: 26→31) | ⬜ chốt thiết kế 15/08, chưa code | ReupSettingsPage (mới), UserManagementPage, ContentManagementPage, AuditLogsPage |
 
 Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8** → **M9**.
 M8 phụ thuộc M6 (dữ liệu `publish_jobs` + `publish_job_events`) và M1 (`audit_logs`).
@@ -65,6 +66,15 @@ vĩnh viễn qua đăng nhập cá nhân thay vì dán token ngắn hạn.
 M11 phụ thuộc M4 (`facebook_pages` + token mã hoá) và M6 (`content_page_assignments`
 đã có `facebook_post_id`). Nó **thêm scope `read_insights`** vào luồng OAuth của
 M10 ⇒ mọi kết nối tạo trước 08/08 phải bấm "Kết nối lại" mới đọc được số liệu.
+M12 phụ thuộc M3 (`content_assets`), M6 (auto-post engine nhặt bài) và plan 23/24
+(ống `MediaUploadJob` đẩy Drive — reup **dùng lại**, không viết ống thứ hai). Nó nối
+project Python `ai-video-downloader` vào backend như một *producer* đổ bài vào kho:
+auto-post engine **không sửa gì**, ngoại lệ duy nhất là thêm điều kiện
+`resource_deleted_at IS NULL` vào picker ở plan 30. Bộ plan tách 6 file, thứ tự
+26 → 31 bắt buộc, chi tiết ở [plans/reup/README.md](./plans/reup/README.md).
+Toàn bộ dữ liệu reup (chủ đề, video, bài trong kho, audit log) chỉ **SUPER_ADMIN** truy
+cập được — chặn ở **service**, không chỉ ẩn ở UI, vì role khác gọi thẳng API vẫn phải
+không lấy được gì.
 
 Quy tắc cho mỗi milestone từ M3 trở đi: **không tick "Done" cho tới khi đã test được
 bằng tay trên UI thật** (không phải mock, không chỉ Swagger) theo điều kiện nghiệm

@@ -25,6 +25,7 @@ import {
   Statistic,
   Tag,
   Timeline,
+  Tooltip,
   Typography,
   message,
 } from 'antd';
@@ -700,6 +701,11 @@ function JobRow({
           <Tag color={job.mediaType === 'video' ? 'purple' : 'blue'}>
             {MEDIA_TYPE_LABELS[job.mediaType]}
           </Tag>
+          {job.resourceDeletedAt && (
+            <Tooltip title="Cron dọn dẹp đã xoá file trên Drive để giải phóng dung lượng — bản ghi và thống kê vẫn giữ nguyên.">
+              <Tag color="default">Đã xoá file</Tag>
+            </Tooltip>
+          )}
         </Space>
         <Text type="secondary" style={{ fontSize: 12 }}>
           {job.caption.slice(0, 80)}
@@ -752,7 +758,7 @@ function JobRow({
               <LinkOutlined /> Xem bài trên Facebook
             </a>
           )}
-          {job.driveUrl && (
+          {job.driveUrl && !job.resourceDeletedAt && (
             <a
               href={job.driveUrl}
               target="_blank"
@@ -903,6 +909,9 @@ function MockTimelinePage() {
                                     {MEDIA_TYPE_LABELS[job.mediaType]}
                                   </Tag>
                                 )}
+                                {job.resourceDeletedAt && (
+                                  <Tag color="default">Đã xoá file</Tag>
+                                )}
                               </Space>
                               <Text strong>{job.contentTitle}</Text>
                               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -925,7 +934,7 @@ function MockTimelinePage() {
                                     <LinkOutlined /> Xem bài trên Facebook
                                   </a>
                                 )}
-                                {job.driveUrl && (
+                                {job.driveUrl && !job.resourceDeletedAt && (
                                   <a
                                     href={job.driveUrl}
                                     target="_blank"

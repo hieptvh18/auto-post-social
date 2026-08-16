@@ -12,6 +12,7 @@ import type {
   ContentAssignment,
 } from '../content-assets.repository';
 import {
+  ContentSource,
   ContentStatus,
   MediaType,
   UserRole,
@@ -52,6 +53,8 @@ const makeAsset = (
   updatedById: 'content-1',
   editorId: null,
   isActive: true,
+  sourceType: ContentSource.MANUAL,
+  resourceDeletedAt: null,
   createdBy: actor('content-1'),
   updatedBy: actor('content-1'),
   editor: null,
@@ -113,6 +116,14 @@ const adminUser: AuthenticatedUser = {
   email: 'admin@company.local',
   name: 'Admin User',
   role: UserRole.ADMIN,
+};
+
+/** Role duy nhất có `reup:view` (plan 26) ⇒ người duy nhất thấy bài REUP. */
+const superAdminUser: AuthenticatedUser = {
+  id: 'super-1',
+  email: 'super@company.local',
+  name: 'Super Admin',
+  role: UserRole.SUPER_ADMIN,
 };
 
 describe('ContentAssetsService', () => {
@@ -1287,6 +1298,187 @@ describe('ContentAssetsService', () => {
 
       expect(repository.create).toHaveBeenCalledWith(
         expect.objectContaining({ extraFiles: [] }),
+      );
+    });
+  });
+
+  /**
+   * Plan 27 §3.2 — ranh giới BẢO MẬT, không phải tiện ích hiển thị.
+   * Ẩn dropdown ở FE là chưa đủ: role thường gọi thẳng API `?sourceType=REUP`
+   * vẫn phải KHÔNG lấy được gì (cạm bẫy C7).
+   */
+  describe('lọc sourceType theo quyền reup:view (plan 27 §3.2)', () => {
+    const queryBase = { page: 1, limit: 20 };
+
+    const findManyArg = (): { sourceType?: ContentSource } => {
+      const calls = repository.findMany.mock.calls as unknown[][];
+      return calls[0][0] as { sourceType?: ContentSource };
+    };
+
+    beforeEach(() => {
+      repository.findMany.mockResolvedValue({ data: [], total: 0 });
+    });
+
+    it.each([
+      ['không truyền', undefined],
+      ['cố tình truyền REUP', 'REUP'],
+      ['cố tình truyền ALL', 'ALL'],
+      ['truyền MANUAL', 'MANUAL'],
+    ])('ADMIN %s ⇒ luôn bị ép cứng về MANUAL', async (_label, sourceType) => {
+      await service.findAll({ ...queryBase, sourceType } as never, adminUser);
+
+      expect(findManyArg().sourceType).toBe(ContentSource.MANUAL);
+    });
+
+    it.each([
+      [UserRole.EDITOR, editorUser],
+      [UserRole.CONTENT, contentUser],
+    ])('%s truyền REUP ⇒ vẫn chỉ MANUAL', async (_role, user) => {
+      await service.findAll(
+        { ...queryBase, sourceType: 'REUP' } as never,
+        user,
+      );
+
+      expect(findManyArg().sourceType).toBe(ContentSource.MANUAL);
+    });
+
+    it('ADMIN truyền sourceType sai quyền ⇒ KHÔNG ném lỗi (chỉ lặng lẽ lọc)', async () => {
+      await expect(
+        service.findAll(
+          { ...queryBase, sourceType: 'REUP' } as never,
+          adminUser,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('SUPER_ADMIN không truyền ⇒ mặc định REUP', async () => {
+      await service.findAll(queryBase, superAdminUser);
+
+      expect(findManyArg().sourceType).toBe(ContentSource.REUP);
+    });
+
+    it('SUPER_ADMIN truyền MANUAL ⇒ lọc MANUAL', async () => {
+      await service.findAll(
+        { ...queryBase, sourceType: 'MANUAL' } as never,
+        superAdminUser,
+      );
+
+      expect(findManyArg().sourceType).toBe(ContentSource.MANUAL);
+    });
+
+    it('SUPER_ADMIN truyền ALL ⇒ KHÔNG lọc (undefined)', async () => {
+      await service.findAll(
+        { ...queryBase, sourceType: 'ALL' } as never,
+        superAdminUser,
+      );
+
+      expect(findManyArg().sourceType).toBeUndefined();
+    });
+  });
+
+  /**
+   * Rủi ro R1c: quên áp luật ở findOne/update/delete ⇒ ADMIN đoán id là đọc/sửa
+   * được bài reup. 404 chứ không 403 — 403 tiết lộ rằng bài đó tồn tại.
+   */
+  describe('truy cập lẻ vào bài REUP khi thiếu reup:view ⇒ 404', () => {
+    const reupAsset = (): ContentAssetWithActors =>
+      makeAsset({ sourceType: ContentSource.REUP, createdById: 'super-1' });
+
+    it('ADMIN findOne bài REUP ⇒ NotFound (không phải Forbidden)', async () => {
+      repository.findById.mockResolvedValue(reupAsset());
+
+      await expect(service.findOne('asset-1', adminUser)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('ADMIN update bài REUP ⇒ NotFound, KHÔNG ghi gì', async () => {
+      repository.findById.mockResolvedValue(reupAsset());
+
+      await expect(
+        service.update('asset-1', { title: 'x' }, adminUser),
+      ).rejects.toThrow(NotFoundException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN remove bài REUP ⇒ NotFound, KHÔNG xoá file Drive', async () => {
+      repository.findById.mockResolvedValue(reupAsset());
+
+      await expect(service.remove('asset-1', adminUser)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(repository.delete).not.toHaveBeenCalled();
+      expect(driveStorage.delete).not.toHaveBeenCalled();
+    });
+
+    it('SUPER_ADMIN findOne bài REUP ⇒ đọc được bình thường', async () => {
+      repository.findById.mockResolvedValue(reupAsset());
+
+      await expect(
+        service.findOne('asset-1', superAdminUser),
+      ).resolves.toMatchObject({ sourceType: ContentSource.REUP });
+    });
+
+    it('bài MANUAL vẫn đọc được như trước (chống hồi quy)', async () => {
+      repository.findById.mockResolvedValue(makeAsset());
+
+      await expect(
+        service.findOne('asset-1', adminUser),
+      ).resolves.toMatchObject({ id: 'asset-1' });
+    });
+  });
+
+  describe('create — sourceType là RBAC field-level (plan 27 §3.2)', () => {
+    const dto = {
+      title: 'Bài mới',
+      caption: 'caption',
+      category: 'Kiến thức',
+      mediaType: MediaType.image,
+      driveFileId: 'drive-9',
+    };
+
+    beforeEach(() => {
+      repository.create.mockResolvedValue(makeAsset());
+    });
+
+    it('ADMIN gửi sourceType=REUP ⇒ vẫn ghi MANUAL', async () => {
+      await service.create(
+        { ...dto, sourceType: ContentSource.REUP },
+        adminUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceType: ContentSource.MANUAL }),
+      );
+    });
+
+    it('CONTENT gửi sourceType=REUP ⇒ vẫn ghi MANUAL', async () => {
+      await service.create(
+        { ...dto, sourceType: ContentSource.REUP },
+        contentUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceType: ContentSource.MANUAL }),
+      );
+    });
+
+    it('SUPER_ADMIN gửi sourceType=REUP ⇒ ghi đúng REUP', async () => {
+      await service.create(
+        { ...dto, sourceType: ContentSource.REUP },
+        superAdminUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceType: ContentSource.REUP }),
+      );
+    });
+
+    it('SUPER_ADMIN không gửi sourceType ⇒ mặc định MANUAL (không tự nâng loại)', async () => {
+      await service.create(dto, superAdminUser);
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceType: ContentSource.MANUAL }),
       );
     });
   });

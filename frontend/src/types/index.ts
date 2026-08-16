@@ -1,4 +1,39 @@
-export type UserRole = 'ADMIN' | 'EDITOR' | 'CONTENT';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'EDITOR' | 'CONTENT';
+
+// Type của menu Reup (plan 27) đặt ở file riêng cho gọn; re-export ở đây để
+// component import từ `../types` như mọi type khác.
+// `import` riêng vì `export ... from` KHÔNG đưa tên vào scope của chính file này,
+// mà `ContentAssetResponse` bên dưới cần dùng tới.
+import type { ContentSource, SourceTypeFilter } from './reup';
+
+export type {
+  ContentSource,
+  CreateReupTopicBody,
+  PaginatedReupRuns,
+  PaginatedReupTopics,
+  PaginatedReupVideos,
+  QueryReupTopicsParams,
+  QueryReupVideosParams,
+  ReupCleanupCandidate,
+  ReupCleanupPreview,
+  ReupCleanupRunResult,
+  ReupCleanupSettingsResponse,
+  ReupDiscoveryResult,
+  ReupHealthResponse,
+  ReupPlatform,
+  ReupRunResponse,
+  ReupRunStatus,
+  ReupScheduleSettingsResponse,
+  ReupTopicResponse,
+  ReupVideoResponse,
+  ReupVideoStatus,
+  SourceTypeFilter,
+  UpdateReupCleanupSettingsBody,
+  UpdateReupScheduleBody,
+  UpdateReupTopicBody,
+  UpdateYoutubeApiSettingsBody,
+  YoutubeApiSettingsResponse,
+} from './reup';
 
 export type MediaType = 'image' | 'video';
 
@@ -227,6 +262,8 @@ export interface PublishJob {
   attempts: number;
   facebookPostId: string | null;
   createdBy: string;
+  /** != null = cron dọn dẹp đã xoá file Drive của bài này (plan 30) — link/thumbnail đã chết. */
+  resourceDeletedAt?: string | null;
 }
 
 export type SlotMediaType = MediaType | 'all';
@@ -382,6 +419,8 @@ export interface ScheduleJob {
   /** Tên người đăng — 'Bot' nếu do engine tự động, còn lại là user đăng tay. */
   publishedBy: string;
   isManual: boolean;
+  /** != null = cron dọn dẹp đã xoá file Drive của bài này (plan 30) — link/thumbnail đã chết. */
+  resourceDeletedAt: string | null;
 }
 
 /** Trạng thái một lần cron chạm mốc giờ (backend `SlotRunStatus`). */
@@ -788,6 +827,13 @@ export interface ContentAssetResponse {
   isAds: boolean;
   /** `false` = ngưng dùng: vẫn hiện trong kho (làm mờ) nhưng Bot không lấy nữa. */
   isActive: boolean;
+  /** Plan 27: `MANUAL` = tự upload · `REUP` = cron tự kéo về từ nguồn ngoài. */
+  sourceType: ContentSource;
+  /**
+   * Plan 30: != null = file trên Drive đã bị xoá để giải phóng dung lượng.
+   * Bản ghi/thống kê vẫn còn — UI hiện Tag "Đã xoá file", thumbnail là placeholder.
+   */
+  resourceDeletedAt: string | null;
   rejectComment: string | null;
   createdById: string;
   approvedById: string | null;
@@ -887,6 +933,11 @@ export interface QueryContentAssetsParams {
   createdBy?: string;
   /** Lọc theo người dựng video/ảnh. */
   editorId?: string;
+  /**
+   * Plan 27 — lọc "Loại". CHỈ có tác dụng với user có `reup:view`; role khác
+   * gửi lên cũng bị backend bỏ qua và luôn chỉ nhận bài MANUAL.
+   */
+  sourceType?: SourceTypeFilter;
   page?: number;
   limit?: number;
 }
@@ -1005,6 +1056,8 @@ export interface PublishJobItem {
   attemptCount: number;
   createdBy: string;
   createdAt: string;
+  /** != null = cron dọn dẹp đã xoá file Drive của bài này (plan 30). */
+  resourceDeletedAt: string | null;
 }
 
 /** Query `GET /publish-jobs` — `date` = 1 ngày, `from`/`to` = khoảng ngày. */

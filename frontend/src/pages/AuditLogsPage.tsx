@@ -51,6 +51,20 @@ const ACTION_LABELS: Record<string, string> = {
   MANUAL_PUBLISH: 'Đăng bài thủ công',
   AUTO_PUBLISH: 'Bot đăng tự động',
   PUBLISH_JOB_RETRY: 'Đăng lại job hỏng',
+  // Reup (plan 31) — chỉ SUPER_ADMIN nhìn thấy nhóm này. Backend đã lọc sạch cả
+  // bảng lẫn dropdown, FE không cần (và KHÔNG được) tự lọc lại.
+  REUP_TOPIC_CREATE: 'Tạo chủ đề reup',
+  REUP_TOPIC_UPDATE: 'Sửa chủ đề reup',
+  REUP_TOPIC_DELETE: 'Tắt chủ đề reup',
+  REUP_DISCOVER_CRON: 'Quét video reup (tự động)',
+  REUP_DISCOVER_MANUAL: 'Quét video reup (bấm tay)',
+  REUP_VIDEO_IMPORTED: 'Video reup vào kho',
+  REUP_VIDEO_FAILED: 'Video reup lỗi',
+  REUP_VIDEO_RETRY: 'Thử lại video reup',
+  REUP_VIDEO_SKIP: 'Bỏ qua video reup',
+  REUP_CLEANUP_CRON: 'Dọn file reup (tự động)',
+  REUP_CLEANUP_MANUAL: 'Dọn file reup (bấm tay)',
+  REUP_RESOURCE_DELETE: 'Xoá file của một bài reup',
 };
 
 const PAGE_SIZE = 20;

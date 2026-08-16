@@ -42,7 +42,33 @@ export const AuditAction = {
   AUTO_PUBLISH: 'AUTO_PUBLISH',
   /** Người dùng bấm "Đăng lại" cho một job đã hỏng ở màn Lịch đăng bài. */
   PUBLISH_JOB_RETRY: 'PUBLISH_JOB_RETRY',
+
+  // ── Reup (plan 31 §3.1) ────────────────────────────────────────────────
+  // MỌI action reup PHẢI bắt đầu bằng `REUP_`. Đây không phải quy ước đặt tên
+  // cho đẹp: `AuditService.findMany`/`findActions` lọc RBAC bằng **tiền tố**
+  // này. Thêm action reup mà quên tiền tố ⇒ ADMIN nhìn thấy nó (plan 31 §3.2).
+  REUP_TOPIC_CREATE: 'REUP_TOPIC_CREATE',
+  REUP_TOPIC_UPDATE: 'REUP_TOPIC_UPDATE',
+  REUP_TOPIC_DELETE: 'REUP_TOPIC_DELETE',
+  /** Cron A chạy xong 1 chủ đề — 1 dòng/chủ đề/ngày, `userId = null` (Bot). */
+  REUP_DISCOVER_CRON: 'REUP_DISCOVER_CRON',
+  REUP_DISCOVER_MANUAL: 'REUP_DISCOVER_MANUAL',
+  REUP_VIDEO_IMPORTED: 'REUP_VIDEO_IMPORTED',
+  REUP_VIDEO_FAILED: 'REUP_VIDEO_FAILED',
+  REUP_VIDEO_RETRY: 'REUP_VIDEO_RETRY',
+  REUP_VIDEO_SKIP: 'REUP_VIDEO_SKIP',
+  /** Cron dọn dẹp — **1 dòng cho cả lô**, chỉ ghi khi `deletedCount > 0`. */
+  REUP_CLEANUP_CRON: 'REUP_CLEANUP_CRON',
+  REUP_CLEANUP_MANUAL: 'REUP_CLEANUP_MANUAL',
+  REUP_RESOURCE_DELETE: 'REUP_RESOURCE_DELETE',
 } as const;
+
+/**
+ * Tiền tố nhóm action chỉ `reup:view` mới xem được. Lọc bằng **tiền tố**, không
+ * liệt kê tay từng action — liệt kê tay thì thêm action mới là quên lọc
+ * (plan 31 §6 R2).
+ */
+export const REUP_ACTION_PREFIX = 'REUP_';
 
 @Injectable()
 export class AuditService {

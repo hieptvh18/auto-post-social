@@ -11,6 +11,8 @@ datasource db {
 }
 
 enum UserRole {
+  /// Plan 26: đứng trên ADMIN. Chỉ role này có permission `reup:*`.
+  SUPER_ADMIN
   ADMIN
   EDITOR
   CONTENT
@@ -78,6 +80,39 @@ enum MediaUploadStatus {
 enum MediaUploadSource {
   LOCAL_FILE
   DRIVE_LINK
+  /// Plan 29: video do cron reup tải về, dùng lại đúng ống upload này (QĐ-3).
+  REUP
+}
+
+/// Plan 27 — nguồn của một bài trong kho. Chỉ để TÁCH 2 MENU; metadata nguồn
+/// nằm ở `reup_videos`, không nhồi vào `content_assets` (QĐ-4).
+enum ContentSource {
+  MANUAL
+  REUP
+}
+
+enum ReupPlatform {
+  YOUTUBE
+  DOUYIN
+  TIKTOK
+}
+
+enum ReupVideoStatus {
+  PENDING
+  DOWNLOADING
+  DOWNLOADED
+  UPLOADING
+  IMPORTED
+  FAILED
+  SKIPPED
+}
+
+/// Khuôn từ `SlotRunStatus` (plan 07) — cùng ý nghĩa, cùng cách đóng sổ.
+enum ReupRunStatus {
+  CLAIMED
+  DONE
+  SKIPPED
+  ERROR
 }
 
 model User {
@@ -99,6 +134,7 @@ model User {
   appSettings     AppSetting[]
   fbConnections   FacebookConnection[]
   mediaUploadJobs MediaUploadJob[]
+  reupTopics      ReupTopic[] @relation("ReupTopicCreator")
 
   @@map("users")
 }
@@ -174,6 +210,12 @@ model ContentAsset {
   /// Plan 24: fileId GỐC bên Drive người khác khi bài được nhập bằng link
   /// (`drive_file_id` là bản copy trong folder tool). null = upload từ máy.
   sourceDriveFileId String?   @map("source_drive_file_id")
+  /// Plan 27 (QĐ-4): MANUAL = kho cũ, REUP = video cron tự kéo về. Chỉ dùng để
+  /// tách 2 menu — `default(MANUAL)` ⇒ bài cũ giữ nguyên hành vi, không backfill.
+  sourceType    ContentSource @default(MANUAL) @map("source_type")
+  /// Plan 30: != null = file trên Drive ĐÃ BỊ XOÁ để giải phóng dung lượng,
+  /// nhưng bản ghi + insight + publish_jobs vẫn giữ. Picker phải loại bài này.
+  resourceDeletedAt DateTime? @map("resource_deleted_at")
   status        ContentStatus @default(PENDING_REVIEW)
   isAds         Boolean       @default(false) @map("is_ads") // Đạt ADS
   isActive      Boolean       @default(true) @map("is_active") // false = ngưng dùng: Bot không lấy nữa (khác status duyệt)
@@ -193,6 +235,7 @@ model ContentAsset {
   assignments     ContentPageAssignment[]
   extraFiles      ContentAssetFile[] // ảnh phụ của bài nhiều ảnh (plan 22)
   mediaUploadJobs MediaUploadJob[] // job upload đã sinh ra bài này (plan 23)
+  reupVideo       ReupVideo? // video nguồn, chỉ có khi source_type = REUP (plan 27)
 
   @@index([status])
   @@index([editorId]) // filter "Editor" trên màn Quản lý Ảnh/Video
@@ -202,6 +245,7 @@ model ContentAsset {
   @@index([isAds])
   @@index([isActive])
   @@index([sourceDriveFileId]) // Cảnh báo "link này đã nhập rồi" (plan 24)
+  @@index([sourceType]) // Màn kho lọc theo Loại; luật RBAC ép cứng MANUAL (plan 27 §3.2)
   @@index([status, isActive, updatedAt]) // Cron picker: APPROVED + đang dùng, order by updated_at ASC
   @@map("content_assets")
 }
@@ -250,6 +294,9 @@ model MediaUploadJob {
   /// != null = file tạm đã bị xoá ⇒ không "Thử lại" được nữa.
   filesRemovedAt   DateTime?         @map("files_removed_at")
   contentAssetId   String?           @map("content_asset_id") @db.Uuid
+  /// Plan 29 §3.3 cách (a): job này sinh ra từ video reup nào. null = upload tay
+  /// (nhánh CŨ, phải chạy y như trước — đây là điều kiện Done của plan 29).
+  reupVideoId      String?           @map("reup_video_id") @db.Uuid
   createdById      String            @map("created_by") @db.Uuid
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
@@ -260,7 +307,106 @@ model MediaUploadJob {
   @@index([status]) // Cron dọn job đã kết thúc
   @@index([source, status]) // Guard chỉ đếm job LOCAL_FILE đang chiếm đĩa (plan 24)
   @@index([createdById, status]) // FE poll "job upload của tôi"
+  @@index([reupVideoId]) // Worker tra ngược về reup_videos khi job xong (plan 29)
   @@map("media_upload_jobs")
+}
+
+/// Plan 27 — một "chủ đề cần reup" do người vận hành khai báo ở màn /reup.
+model ReupTopic {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  platform       ReupPlatform @default(YOUTUBE)
+  /// Từ khoá tìm. Postgres text[] — chỉ đọc/ghi nguyên mảng, KHÔNG filter theo
+  /// phần tử (cần filter thì phải tách bảng con, xem plan 27 §6 R4).
+  keywords       String[]
+  regionCode     String       @default("VN") @map("region_code")
+  /// Map sang `content_assets.category` khi import — bài reup vào đúng "Dạng" bài.
+  category       String
+  /// Số video tối đa kéo về MỖI NGÀY. Chặn 1..10 ở service.
+  dailyQuota     Int          @default(3) @map("daily_quota")
+  minViewCount   Int          @default(50000) @map("min_view_count")
+  maxAgeDays     Int          @default(30) @map("max_age_days")
+  minDurationSec Int          @default(15) @map("min_duration_sec")
+  maxDurationSec Int          @default(180) @map("max_duration_sec")
+  /// true = vào thẳng APPROVED (auto hoàn toàn). false = PENDING_REVIEW (QĐ-5).
+  autoApprove    Boolean      @default(false) @map("auto_approve")
+  /// Caption mặc định cho bài reup; `{title}` được thay bằng tiêu đề video gốc.
+  captionTemplate String?     @map("caption_template") @db.Text
+  hashtags       String?      @db.Text
+  isActive       Boolean      @default(true) @map("is_active")
+  createdById    String       @map("created_by") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  createdBy User        @relation("ReupTopicCreator", fields: [createdById], references: [id])
+  videos    ReupVideo[]
+  runs      ReupRun[]
+
+  @@unique([name, platform]) // Không khai trùng một chủ đề trên cùng nền tảng
+  @@index([isActive]) // Cron chỉ quét chủ đề đang bật
+  @@map("reup_topics")
+}
+
+/// Plan 27 — một video nguồn đã phát hiện.
+/// UNIQUE(platform, external_id) là chỗ CHỐNG TẢI TRÙNG (QĐ-4): không có nó thì
+/// hôm sau cron tải lại đúng video hôm nay.
+model ReupVideo {
+  id               String          @id @default(uuid()) @db.Uuid
+  topicId          String          @map("topic_id") @db.Uuid
+  platform         ReupPlatform
+  externalId       String          @map("external_id") // youtube videoId
+  sourceUrl        String          @map("source_url") @db.Text
+  title            String
+  authorName       String          @map("author_name")
+  publishedAt      DateTime?       @map("published_at")
+  durationSec      Int?            @map("duration_sec")
+  /// View LÚC PHÁT HIỆN — không refresh về sau, chỉ dùng để lọc/xếp hạng.
+  viewCount        BigInt?         @map("view_count")
+  thumbnailUrl     String?         @map("thumbnail_url") @db.Text
+  status           ReupVideoStatus @default(PENDING)
+  /// File tạm trên đĩa server — xoá sau khi lên Drive xong (plan 29).
+  localPath        String?         @map("local_path") @db.Text
+  fileSize         BigInt?         @map("file_size")
+  contentAssetId   String?         @unique @map("content_asset_id") @db.Uuid
+  mediaUploadJobId String?         @map("media_upload_job_id") @db.Uuid
+  errorMessage     String?         @map("error_message") @db.Text
+  attemptCount     Int             @default(0) @map("attempt_count")
+  discoveredAt     DateTime        @default(now()) @map("discovered_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  topic        ReupTopic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  contentAsset ContentAsset? @relation(fields: [contentAssetId], references: [id])
+
+  @@unique([platform, externalId]) // CHỐNG TẢI TRÙNG (QĐ-4)
+  @@index([status]) // Queue/UI lọc theo trạng thái
+  @@index([topicId, discoveredAt]) // Tab "Video đã kéo" của một chủ đề, mới nhất trước
+  @@map("reup_videos")
+}
+
+/// Plan 27 — nhật ký một lần cron chạm một chủ đề. Khuôn từ `slot_runs` (plan 07).
+model ReupRun {
+  id           String        @id @default(uuid()) @db.Uuid
+  topicId      String        @map("topic_id") @db.Uuid
+  /// 'YYYY-MM-DD' theo Asia/Ho_Chi_Minh — cùng quy ước `slot_runs.run_date`.
+  runDate      String        @map("run_date")
+  status       ReupRunStatus @default(CLAIMED)
+  foundCount   Int           @default(0) @map("found_count")
+  pickedCount  Int           @default(0) @map("picked_count")
+  /// Plan 29: quota YouTube tiêu trong lượt này (search.list = 100 units).
+  quotaUsed    Int           @default(0) @map("quota_used")
+  /// QUOTA_EXCEEDED | NOT_CONFIGURED | PLATFORM_NOT_SUPPORTED | NO_NEW_VIDEO |
+  /// DOWNLOADER_UNAVAILABLE | CONTRACT_MISMATCH
+  skipReason   String?       @map("skip_reason")
+  errorMessage String?       @map("error_message") @db.Text
+  startedAt    DateTime      @default(now()) @map("started_at")
+  finishedAt   DateTime?     @map("finished_at")
+
+  topic ReupTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, runDate]) // CHỐNG DOUBLE-FIRE, khuôn ADR-006
+  @@index([runDate, status]) // Tab "Nhật ký quét" xem theo ngày
+  @@map("reup_runs")
 }
 
 /// Phân bổ content -> page. publishedAt != null nghĩa là ĐÃ đăng trên page đó.

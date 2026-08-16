@@ -4,8 +4,84 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-13 (Fix lượt xem video không fetch được trong Post Insights)
-**Session gần nhất (mới nhất):** **Fix bug: `/pages/:pageId/insights` không lấy được lượt xem
+**Cập nhật lần cuối:** 2026-08-16 (Plan 32 — cấu hình giờ chạy cron reup từ giao diện)
+**Session gần nhất (mới nhất):** **Plan 32 — cấu hình giờ chạy cron reup từ giao diện.**
+Hai cron reup (quét 02:00, dọn dẹp 03:00) trước đây hardcode bằng `@Cron('0 2 * * *')` —
+đổi giờ phải sửa code + deploy lại. Xoá hẳn `reup-discovery.scheduler.ts` và
+`reup-cleanup.scheduler.ts`; logic tick chuyển vào `ReupScheduleService` (implements
+`OnModuleInit`), quản lý 2 `CronJob` (thư viện `cron` v4, `CronJob.from({...})`) qua
+`SchedulerRegistry` của `@nestjs/schedule` — API chính thức cho phép đăng ký/gỡ job lúc
+runtime, có hiệu lực **ngay không cần restart**. Lịch lưu ở `app_settings['reup_schedule']`
+(`discoveryEnabled/discoveryTime/cleanupEnabled/cleanupTime`, kiểu `'HH:mm'` theo
+Asia/Ho_Chi_Minh) — **không tách key thứ ba khỏi `reup_cleanup`**: `REUP_SCHEDULE` trả lời
+"cron chạy LÚC NÀO", `REUP_CLEANUP` trả lời "lượt dọn xoá CÁI GÌ" (`retentionDays`), hai
+việc khác bản chất nên giữ hai key. **Hai cạm bẫy đã xử lý đúng theo plan §3.2:** (1)
+`SchedulerRegistry.deleteCronJob()` ném lỗi khi job chưa tồn tại ⇒ `removeJob()` luôn
+`doesExist('cron', name)` trước, không thì lần boot đầu (registry rỗng) app chết ngay;
+(2) job cũ phải `stop()` **trước** khi gỡ khỏi registry — gỡ khỏi map không dừng tick, bỏ
+qua bước này là có 2 cron cùng chạy sau vài lần đổi giờ mà khoá chống double-fire ở DB che
+mất triệu chứng, cực khó lần ra. `rescheduleAll()` là nguồn dựng job duy nhất, gọi ở
+`onModuleInit` và ngay sau khi `PUT /reup/settings/schedule` lưu xong. Settings hỏng/không
+đọc được ⇒ `SettingsService.getReupScheduleConfig()` **tự nuốt lỗi**, log WARN, trả mặc
+định 02:00/03:00 — **không bao giờ ném**, vì đây chỉ là tính năng phụ (QĐ-6), lỗi DB không
+được phép làm app không boot. Validate hai giờ ở **service** (rule 01 — ràng buộc chéo
+field cần đọc state): định dạng `HH:mm` sai ⇒ 400, hai giờ **trùng nhau** ⇒ 400 (dọn dẹp có
+thể xoá file của bài lượt quét đang xử lý). `GET/PUT /reup/settings/schedule` (`reup:view`/
+`reup:manage`) trả thêm `discoveryNextRunAt`/`cleanupNextRunAt` từ `CronJob.nextDate()` —
+bằng chứng cấu hình đã có hiệu lực thật, không chỉ ghi vào DB. FE: tab mới **Lịch chạy**
+trong `/reup` — 2 khối Quét video/Dọn dẹp file, mỗi khối Switch + `TimePicker`
+(`minuteStep={5}`) + dòng "Lần chạy kế tiếp"; cảnh báo tĩnh (không gọi thêm API) nhắc tránh
+trùng khung giờ auto-post — **không** fetch slot của mọi page để so khớp chính xác, vì đây
+chỉ là gợi ý không chặn (R4), việc thêm cross-page fetch không đáng giá trị mang lại (đã hỏi
+và chốt với user). Không đụng schema (`erd.md` giữ nguyên — cấu hình nằm trong JSON của
+`app_settings`, không có bảng/cột mới), không thêm biến `.env`. BE **+22 test (1123 tổng)**:
+15 test `reup-schedule.service.spec.ts` (đăng ký lần đầu không lỗi dù registry rỗng, đổi giờ
+stop+xoá đúng job cũ, đổi 3 lần liên tiếp vẫn đúng 1 job/loại, tắt job không đăng ký,
+nextRunAt null khi tắt, lỗi discovery/cleanup không thoát ra ngoài onTick) + test mới trong
+`settings.service.spec.ts` (bản ghi hỏng/thiếu field/DB lỗi ⇒ mặc định, 2 case 400). FE build
+xanh (không cần test riêng — component/hook UI theo rule 02 không bắt buộc). Lint/build 2
+phía xanh. **Còn nợ:** chưa bấm tay đổi giờ thật trên UI + đợi cron bắn đúng giờ (điều kiện
+nghiệm thu §5 của plan) — cần backend chạy thật với `REUP_PYTHON_BIN`/Drive credential.
+
+---
+
+**Session trước đó:** **Plan 30 — cron dọn dung lượng: xoá file Drive của bài
+reup đã đăng quá hạn, giữ nguyên record.** Mỗi ngày reup kéo 2-3 video, không bao giờ tự
+dọn ⇒ đầy dung lượng Drive theo thời gian. Cron mới `@Cron('0 3 * * *')` (sau cron reup
+02:00) tìm `content_assets` `sourceType=REUP` + `PUBLISHED` + đăng quá `retentionDays`
+ngày (mặc định 7, cấu hình ở `app_settings['reup_cleanup']`, **mặc định `enabled=false`**
+— người vận hành phải xem trước danh sách rồi mới bật tay) + **không còn** `publish_job`
+`SCHEDULED/QUEUED/PUBLISHING` (C6 — tránh xoá file khi page khác còn job treo), xoá file
+trên Drive (**404 coi là thành công**, lỗi khác giữ nguyên để lần sau thử lại — tránh rác
+vĩnh viễn), set `resourceDeletedAt` nhưng **giữ nguyên** `content_assets`/`publish_jobs`/
+insight để còn tra cứu. **Ranh giới cứng: chỉ `sourceType=REUP`** — bài `MANUAL` không bao
+giờ bị đụng, chặn ngay trong câu SQL `findCandidates`. **Ngoại lệ duy nhất được phép sửa
+`src/modules/auto-post/**`** (đã ghi trước trong README bộ reup): thêm
+`resource_deleted_at IS NULL` vào picker (`content-picker.repository.ts`) — thiếu điều
+kiện này thì Bot đăng lại nội dung có file đã bị xoá, job `FAILED` khó lần ra vì bài vẫn
+trông bình thường. Thêm `DriveStorage.deleteIfExists()` vào interface dùng chung (404 =
+thành công) thay vì đổi hành vi `delete()` đang dùng cho xoá bài thủ công. 3 endpoint
+`GET preview / POST run / DELETE videos/:id/resource` + `GET/PUT reup/cleanup/settings`
+(thêm ngoài bảng gốc, cùng khuôn `reup/settings/youtube` của plan 28). FE: tab **Dọn dẹp**
+mới ở `/reup` (switch bật/tắt + retentionDays + bảng preview + nút "Dọn ngay" có
+Popconfirm ghi rõ số bài + "không khôi phục được"), Tag **"Đã xoá file"** thêm ở 3 màn:
+tab Video đã kéo, Timeline (cả nhánh API thật lẫn mock), và Quản lý Ảnh/Video (đã có sẵn
+từ phiên trước khi thêm cột `resourceDeletedAt` vào schema). Đã lộ thêm
+`resourceDeletedAt` qua `ScheduleJobResponse`/`PublishJobResponse` để Timeline/Failed
+Jobs/Queue Monitor hiển thị đúng — 2 chỗ nằm ngoài phạm vi liệt kê ở plan §3.5 nhưng cần
+thiết để Tag hiển thị được ở Timeline như plan yêu cầu. **Không cần migration mới** —
+cột `resource_deleted_at` đã được thêm sẵn ở migration `20260815010000_reup_topics_videos_runs`
+của plan 27 (dự trù trước cho plan 30). BE **+23 test (1101 tổng)**: 19 test
+`reup-cleanup.service.spec.ts` (preview, run × 404/500/enabled=false, deleteOne × 7 case
+luật §3.2), 2 test scheduler (nuốt lỗi không kéo sập app), 2 test picker mới. FE 83 test
+cũ xanh, lint/build 2 phía xanh. **Còn nợ:** chưa bấm tay end-to-end trên Drive thật (file
+biến mất sau "Dọn ngay"), chưa đợi cron 03:00 chạy qua đường `@Cron` thật, chưa đo dung
+lượng Drive giảm đúng bằng preview — cần `REUP_PYTHON_BIN`/`REUP_PROJECT_DIR` +
+Drive credential thật (việc của user). Chi tiết: [plans/reup/30-reup-cleanup.md](./plans/reup/30-reup-cleanup.md).
+
+---
+
+**Session trước đó:** **Fix bug: `/pages/:pageId/insights` không lấy được lượt xem
 video (yêu cầu user, không có file plan — bug fix cho plan 25).** User báo lượt xem video của
 bài đã đăng luôn trống. **Nguyên nhân gốc:** `FacebookPublisherClient.publishVideo()`
 (`facebook-publisher.client.ts:251`) trả về **video_id thô** làm `postId` (khác ảnh — ảnh có
@@ -596,6 +672,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M10 — Kết nối Page bằng đăng nhập Facebook | 🟡 | 2026-07-27 — code + 41 test mới xanh, lint/build 2 phía xanh ([plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md)); **chưa smoke với Meta app thật** (cần App ID/Secret + tài khoản có role Tester) ⇒ chưa chuyển plan sang DONE (§6 mục 19) |
 
 | M11 — Tracking lượt xem bài đã đăng (Facebook Insights) | 🟡 | 2026-08-08 — code + 45 test mới xanh, lint/build 2 phía xanh ([plans/25-page-post-insights.md](./plans/25-page-post-insights.md)); **chưa gọi Graph Insights thật** ⇒ chưa chuyển plan sang DONE (§6 mục 33, 34) |
+| M12 — Reup: tự tìm/tải/đăng lại video trending + dọn dẹp | 🟡 | 2026-08-16 — plan 26·27·28·29·30·32 code+test xong ([plans/reup/README.md](./plans/reup/README.md)); plan 31 (audit log)·33 (unified queue monitor) chưa làm; **chưa chạy trọn end-to-end trên hạ tầng thật** (Python downloader + Drive + Facebook) ⇒ chưa chuyển plan sang DONE |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
@@ -1415,6 +1492,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 33 | ~~Tên metric Insights chưa xác minh~~ ✅ ĐÃ LÀM 2026-08-08 — **và giả định ban đầu SAI** | Đo thật: `post_impressions*`, `post_reach`, `post_views`, `page_impressions*` đã bị Meta **gỡ hẳn** (v19→v23 đều `(#100) not a valid insights metric`, token có đủ `read_insights`). Đang dùng `post_video_views` · `post_fan_reach` · `post_clicks`. **Hệ quả còn lại:** bài **ảnh** không có lượt xem/hiển thị tổng qua API — nếu sau này cần con số như Business Suite thì phải chờ Meta mở metric mới, không sửa được bằng code. Chi tiết plan 25 §8. |
 | 36 | **Responsive mobile/tablet chưa bấm tay trên thiết bị thật** | Code xong, lint/build/67 test FE xanh, nhưng **chưa mở bằng điện thoại/tablet thật** lần nào — loại thay đổi này chỉ lộ lỗi khi chạm tay (rule 02 không test component). Cần kiểm: (1) ở ≤991px hiện nút hamburger, mở Drawer menu, bấm 1 mục ⇒ **Drawer tự đóng và điều hướng đúng**; (2) xoay ngang / phóng to cửa sổ qua 992px ⇒ Drawer tự đóng, `Sider` thật hiện ra, **không chồng nhau**; (3) **header dính khi cuộn** (đây là thứ dễ hỏng nhất — xem ghi chú `overflow-x` ở §7) và ở `/timeline` desktop thẻ lọc vẫn dính, mobile thì không; (4) mọi bảng cuộn ngang **trong khung của nó**, cả trang không trượt ngang; (5) Modal "Thêm Ảnh/Video" (2 tab), Drawer sửa bài, ConnectPagesModal vừa màn hình; (6) `/dashboard` các chart không vỡ; (7) đăng nhập/upload/đăng bài chạy y như cũ. |
 | 35 | **Thumbnail Google Drive hết hạn ⇒ ảnh 404 trên mọi màn có ảnh** | `content_assets.thumbnail_url` lưu nguyên `thumbnailLink` mà Drive trả lúc upload (`lh3.googleusercontent.com/...`). Link này **hết hạn** sau một thời gian ⇒ ảnh vỡ ở `/content` (Drawer preview) lẫn `/pages/:id/insights`. Đã vá tạm ở màn thống kê: `onError` ẩn hẳn thẻ `<img>` thay vì để icon ảnh hỏng. **Cách sửa gốc** (chưa làm, cần user chốt vì đụng nhiều màn): thêm endpoint proxy `GET /media/:driveFileId/thumbnail` ở backend, stream ảnh xuống bằng credential Drive của hệ thống và cache — khi đó FE chỉ cần trỏ vào URL của chính mình, không phụ thuộc link tạm của Google. Cách rẻ hơn nhưng kém bền: mỗi lần đọc bài thì gọi Drive lấy `thumbnailLink` mới (tốn 1 call/bài). |
+| 37 | **M12 Reup (plan 26-30) chưa chạy end-to-end trên hạ tầng thật** | Code + test xanh cho cả 5 plan (BE 1101 test, FE 83 test). **Chặn bởi `REUP_PYTHON_BIN`/`REUP_PROJECT_DIR` chưa có trong `.env`** (việc của user, xem `plans/reup/ISSUES-TO-REVIEW.md` mục V1) — thiếu 2 biến này thì tính năng reup tự động báo `DOWNLOADER_UNAVAILABLE`, không crash app (QĐ-6) nhưng cũng không chạy được. Khi có: (1) tạo chủ đề quota 2 ⇒ Quét ngay ⇒ 2 video `IMPORTED`, file có thật trên Drive; (2) bài `APPROVED` được auto-post đăng thật lên Page; (3) đợi qua N ngày hoặc chỉnh `retentionDays` xuống thấp ⇒ bấm "Dọn ngay" ở tab Dọn dẹp ⇒ file **biến mất thật** trên Drive (mở link ⇒ 404), Tag "Đã xoá file" hiện đúng ở cả 3 màn (Video đã kéo, Timeline, Quản lý Ảnh/Video); (4) đổi tên thư mục `ai-video-downloader` giữa lúc chạy ⇒ `SKIPPED/DOWNLOADER_UNAVAILABLE`, không kéo sập cron auto-post. Xem chi tiết còn nợ ở từng plan §7. |
 | 34 | **M11 (plan 25) chưa smoke UI + chưa nộp App Review `read_insights`** | Code BE+FE xong (BE 880 test, FE 63). **Chưa bấm tay** — chạy §5 của plan 25: (1) `/pages` bấm "Kết nối bằng Facebook" ⇒ màn consent phải **hiện mục "Read Insights"** (nếu không hiện thì scope chưa vào, xem lại `OAUTH_SCOPES`); (2) tên page bấm được, mở đúng Page ở tab mới; (3) nút "Chi tiết" mở `/pages/:id/insights`, **bài mới nhất nằm trên cùng khi vừa mở**; (4) bấm tiêu đề bài ⇒ mở **đúng bài đó**; (5) "Đồng bộ ngay" ⇒ số điền vào, "Cập nhật lần cuối" nhảy; bấm lại ngay ⇒ **429** kèm câu giải thích; (6) đối chiếu số với **Meta Business Suite** cùng bài (lệch nhỏ do trễ là bình thường); (7) xoá 1 bài trên Facebook ⇒ lần đồng bộ sau bài đó có Tag đỏ "Đã bị xoá", **các bài khác vẫn cập nhật**; (8) page kết nối **trước 08/08** phải hiện Tag vàng "Thiếu quyền thống kê" + Alert + nút "Đồng bộ ngay" bị khoá. **Quan trọng:** scope đã cấp là bất biến ⇒ mọi kết nối cũ phải bấm "Kết nối lại", đây là ca dễ tưởng là bug nhất. Còn lại: nộp **App Review** cho `read_insights` (cần Business Verification + screencast quay từ consent tới màn hiện số) nếu mở cho user ngoài team — với page mà tài khoản có role trong Meta app thì Standard Access đã chạy được, **không chặn** việc nghiệm thu. Xong thì `git mv plans/25-page-post-insights.md plans/DONE/`. |
 
 ---

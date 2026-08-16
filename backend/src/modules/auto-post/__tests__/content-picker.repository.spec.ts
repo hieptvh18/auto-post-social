@@ -74,6 +74,25 @@ describe('ContentPickerRepository', () => {
     expect(capturedSql()).toContain('c.is_active = TRUE');
   });
 
+  it('bỏ qua bài đã bị dọn dẹp xoá file (resource_deleted_at != null, plan 30 luật 3)', async () => {
+    await repository.pickForSlot({
+      facebookPageId: 'page-1',
+      categories: ['Review'],
+      mediaType: 'all',
+      limit: 2,
+    });
+
+    // Thiếu điều kiện này ⇒ Bot đăng lại nội dung có file đã bị cron dọn dẹp
+    // xoá khỏi Drive ⇒ job FAILED khó lần ra (plan 30 §3.2 luật 3).
+    expect(capturedSql()).toContain('c.resource_deleted_at IS NULL');
+  });
+
+  it('đếm kho theo danh mục cũng bỏ bài đã bị dọn dẹp xoá file (khớp với picker)', async () => {
+    await repository.countByCategoryForPage('page-1');
+
+    expect(capturedSql()).toContain('c.resource_deleted_at IS NULL');
+  });
+
   it('loại bài đang có job QUEUED/PUBLISHING/FAILED trên page đó (không xếp hàng 2 lần, không tự re-pick bài vừa lỗi)', async () => {
     await repository.pickForSlot({
       facebookPageId: 'page-1',

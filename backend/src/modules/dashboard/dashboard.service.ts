@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { SlotRunStatus, UserRole } from '../../../generated/prisma/client';
+import { isAdminLevel } from '../../common/permissions';
 import { todayInTz } from '../../common/utils/datetime.util';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { AppConfigService } from '../../config/app-config.service';
@@ -79,7 +80,7 @@ export class DashboardService {
       this.repository.countJobVolume(range, ownerId),
       this.repository.countInFlightJobs(ownerId),
       this.repository.countPages(),
-      actor.role === UserRole.ADMIN
+      isAdminLevel(actor.role)
         ? this.repository.countActiveUsers()
         : Promise.resolve(null),
     ]);
@@ -187,7 +188,7 @@ export class DashboardService {
       this.autoPostConfigs.findAllConfigs(),
       this.slotRuns.findByRunDate(todayInTz(now, timezone)),
       // Token là dữ liệu nhạy cảm ⇒ chỉ ADMIN được biết page nào sắp hết hạn.
-      actor.role === UserRole.ADMIN
+      isAdminLevel(actor.role)
         ? this.repository.findPagesWithExpiringToken(tokenDeadline)
         : Promise.resolve([]),
     ]);

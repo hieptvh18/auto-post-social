@@ -41,6 +41,13 @@ export interface ContentAssetResponse {
   isAds: boolean;
   /** `false` = ngưng dùng: vẫn hiện ở kho (làm mờ) nhưng Bot không lấy nữa. */
   isActive: boolean;
+  /** Plan 27: `MANUAL` = tự upload · `REUP` = cron tự kéo về từ nguồn ngoài. */
+  sourceType: ContentAsset['sourceType'];
+  /**
+   * Plan 30: != null = file trên Drive đã bị xoá để giải phóng dung lượng.
+   * Bản ghi/insight/lịch sử đăng vẫn còn; UI hiện Tag "Đã xoá file".
+   */
+  resourceDeletedAt: Date | null;
   rejectComment: string | null;
   createdById: string;
   approvedById: string | null;
@@ -90,6 +97,8 @@ export function toContentAssetResponse(
     status: asset.status,
     isAds: asset.isAds,
     isActive: asset.isActive,
+    sourceType: asset.sourceType,
+    resourceDeletedAt: asset.resourceDeletedAt,
     rejectComment: asset.rejectComment,
     createdById: asset.createdById,
     approvedById: asset.approvedById,

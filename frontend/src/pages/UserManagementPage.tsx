@@ -38,6 +38,16 @@ const ROLE_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => ({
   label,
 }));
 
+/**
+ * Plan 26 §3.3: option SUPER_ADMIN chỉ hiện khi CHÍNH người đang đăng nhập là
+ * SUPER_ADMIN. Đây chỉ là tiện ích hiển thị — hàng rào thật nằm ở
+ * `users.service.ts` (ADMIN gửi role SUPER_ADMIN ⇒ 403).
+ */
+function roleOptionsFor(role: UserRole) {
+  if (role === 'SUPER_ADMIN') return ROLE_OPTIONS;
+  return ROLE_OPTIONS.filter((option) => option.value !== 'SUPER_ADMIN');
+}
+
 /** Chọn implementation theo cờ mock (rule 01 FE + ADR-005). */
 export default function UserManagementPage() {
   return env.useMock ? <MockUserManagementPage /> : <RealUserManagementPage />;
@@ -285,7 +295,7 @@ function RealUserManagementPage() {
             <Input.Password placeholder="••••••••" autoComplete="new-password" />
           </Form.Item>
           <Form.Item name="role" label="Quyền" rules={[{ required: true }]}>
-            <Select options={ROLE_OPTIONS} />
+            <Select options={roleOptionsFor(currentUser.role)} />
           </Form.Item>
           {editing && (
             <Form.Item

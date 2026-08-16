@@ -1,6 +1,6 @@
 # 05 — RBAC
 
-> Roles, permissions, guards — v3.0 (3 role)
+> Roles, permissions, guards — v3.1 (4 role, thêm `SUPER_ADMIN` ở plan 26)
 
 ---
 
@@ -8,7 +8,8 @@
 
 | Role | Mô tả | Workspace chính |
 |------|-------|-----------------|
-| `ADMIN` | Toàn quyền hệ thống | All modules + Monitor |
+| `SUPER_ADMIN` | Đứng trên ADMIN. Mọi quyền của ADMIN **cộng** `reup:*` (menu Reup Setting) | All modules + Monitor + Reup |
+| `ADMIN` | Toàn quyền hệ thống **trừ** menu Reup | All modules + Monitor |
 | `EDITOR` | Duyệt bài, quản lý cài đặt đăng tự động | Quản lý Ảnh/Video, Auto-Post, Timeline |
 | `CONTENT` | Upload và quản lý content của mình | Quản lý Ảnh/Video (bài của mình) |
 
@@ -19,20 +20,36 @@ Không còn `REVIEWER` / `PUBLISHER` riêng — việc duyệt gộp vào trang 
 
 ## 2. Permission Matrix
 
-| Permission | ADMIN | EDITOR | CONTENT |
-|------------|:-----:|:------:|:-------:|
-| `users:manage` | ✓ | | |
-| `pages:manage` | ✓ | | |
-| `content:create` | ✓ | ✓ | ✓ |
-| `content:edit` | ✓ | ✓ | ✓ (bài của mình) |
-| `content:delete` | ✓ | ✓ | ✓ (bài của mình) |
-| `content:review` (đổi trạng thái, is_ads) | ✓ | ✓ | |
-| `autopost:manage` | ✓ | ✓ | |
-| `timeline:view` | ✓ | ✓ | |
-| `queue:view` | ✓ | | |
-| `jobs:retry` | ✓ | | |
-| `audit:view` | ✓ | | |
-| `dashboard:view` | ✓ | ✓ | ✓ |
+| Permission | SUPER_ADMIN | ADMIN | EDITOR | CONTENT |
+|------------|:-----------:|:-----:|:------:|:-------:|
+| `users:manage` | ✓ | ✓ | | |
+| `pages:manage` | ✓ | ✓ | | |
+| `content:create` | ✓ | ✓ | ✓ | ✓ |
+| `content:edit` | ✓ | ✓ | ✓ | ✓ (bài của mình) |
+| `content:delete` | ✓ | ✓ | ✓ | ✓ (bài của mình) |
+| `content:review` (đổi trạng thái, is_ads) | ✓ | ✓ | ✓ | |
+| `autopost:manage` | ✓ | ✓ | ✓ ¹ | |
+| `timeline:view` | ✓ | ✓ | ✓ ¹ | |
+| `queue:view` | ✓ | ✓ | | |
+| `jobs:retry` | ✓ | ✓ | | |
+| `audit:view` | ✓ | ✓ | | |
+| `settings:manage` | ✓ | ✓ | | |
+| `dashboard:view` | ✓ | ✓ | ✓ ¹ | ✓ |
+| `reup:view` ² | ✓ | | | |
+| `reup:manage` ² | ✓ | | | |
+
+¹ **Đã lệch từ 2026-08-07:** code thực tế **không** cấp 3 permission này cho EDITOR
+(chốt với user: EDITOR chỉ dùng màn Quản lý Ảnh/Video + Hướng dẫn). Nguồn sự thật là
+`backend/src/common/permissions.ts`; dòng này giữ nguyên chờ user chốt lại spec.
+
+² **Plan 26 — chỉ SUPER_ADMIN.** Đây là lý do tồn tại của role mới: trước đó
+`ROLE_PERMISSIONS[ADMIN] = PERMISSIONS` (toàn bộ), nên mọi permission mới thêm vào
+là ADMIN **tự động** có. Nay ADMIN được tính bằng `PERMISSIONS.filter(p => !p.startsWith('reup:'))`.
+
+**Ai được tạo SUPER_ADMIN:** chỉ SUPER_ADMIN. ADMIN gọi `POST /users` với
+`role: SUPER_ADMIN` ⇒ **403**; ADMIN sửa/vô hiệu hoá một SUPER_ADMIN sẵn có ⇒ **403**.
+Hạ quyền/khoá **SUPER_ADMIN cuối cùng đang hoạt động** ⇒ **422** (chống khoá chết hệ
+thống — không còn ai vào được menu Reup và ADMIN không tự tạo lại được).
 
 ---
 

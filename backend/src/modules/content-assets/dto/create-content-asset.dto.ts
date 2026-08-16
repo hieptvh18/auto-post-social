@@ -11,7 +11,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { MediaType } from '../../../../generated/prisma/client';
+import { ContentSource, MediaType } from '../../../../generated/prisma/client';
 import { MAX_IMAGES_PER_CONTENT_ASSET } from '../content-assets.constants';
 
 /**
@@ -133,4 +133,14 @@ export class CreateContentAssetDto {
   @ValidateNested({ each: true })
   @Type(() => CreateContentAssetFileDto)
   extraFiles?: CreateContentAssetFileDto[];
+
+  @ApiPropertyOptional({
+    enum: ContentSource,
+    default: ContentSource.MANUAL,
+    description:
+      'Loại bài. CHỈ user có quyền `reup:view` ghi được — role khác gửi lên sẽ bị bỏ qua và luôn lưu MANUAL.',
+  })
+  @IsOptional()
+  @IsEnum(ContentSource)
+  sourceType?: ContentSource;
 }

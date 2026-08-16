@@ -100,6 +100,50 @@ describe('validateEnv', () => {
       expect(result.AUTOPOST_ENABLED).toBe(expected);
     });
 
+    /**
+     * Cạm bẫy C10 / QĐ-6 (plan 28): `ai-video-downloader` là phụ thuộc TUỲ CHỌN.
+     * Rule 04 nói env thiếu ⇒ crash lúc boot; nhóm `REUP_*` là **ngoại lệ có chủ
+     * đích**. Validate chúng như biến bắt buộc nghĩa là máy chưa cài downloader
+     * thì **cả backend không khởi động được** — hỏng đúng thứ QĐ-6 muốn tránh.
+     */
+    describe('biến REUP_* là TUỲ CHỌN (QĐ-6, cạm bẫy C10)', () => {
+      it('thiếu HOÀN TOÀN mọi biến REUP_* ⇒ vẫn hợp lệ, app boot được', () => {
+        const result = validateEnv(validEnv());
+
+        expect(result.REUP_PYTHON_BIN).toBeUndefined();
+        expect(result.REUP_PROJECT_DIR).toBeUndefined();
+        // Vẫn có mặc định dùng được để adapter không phải tự đoán thư mục.
+        expect(result.REUP_TMP_DIR).toContain('tool-auto-fb-reup');
+        expect(result.REUP_DOWNLOAD_TIMEOUT_MS).toBe(600_000);
+      });
+
+      it('khai REUP_* nhưng để RỖNG (copy từ .env.example) ⇒ vẫn hợp lệ', () => {
+        const result = validateEnv({
+          ...validEnv(),
+          REUP_PYTHON_BIN: '',
+          REUP_PROJECT_DIR: '',
+          REUP_TMP_DIR: '',
+        });
+
+        expect(result.REUP_TMP_DIR).toContain('tool-auto-fb-reup');
+      });
+
+      it('khai tường minh thì dùng đúng giá trị đó', () => {
+        const result = validateEnv({
+          ...validEnv(),
+          REUP_PYTHON_BIN: '/opt/dl/.venv/bin/python3',
+          REUP_PROJECT_DIR: '/opt/dl',
+          REUP_TMP_DIR: '/data/reup',
+          REUP_DOWNLOAD_TIMEOUT_MS: '900000',
+        });
+
+        expect(result.REUP_PYTHON_BIN).toBe('/opt/dl/.venv/bin/python3');
+        expect(result.REUP_PROJECT_DIR).toBe('/opt/dl');
+        expect(result.REUP_TMP_DIR).toBe('/data/reup');
+        expect(result.REUP_DOWNLOAD_TIMEOUT_MS).toBe(900_000);
+      });
+    });
+
     it('chấp nhận GOOGLE_DRIVE_FOLDER_ID và GOOGLE_SERVICE_ACCOUNT_JSON tuỳ chọn', () => {
       const result = validateEnv({
         ...validEnv(),

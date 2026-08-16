@@ -11,6 +11,7 @@ import {
   Checkbox,
   DatePicker,
   Drawer,
+  Empty,
   Form,
   Image,
   Input,
@@ -72,10 +73,12 @@ import type {
   BulkResult,
   ContentAsset,
   ContentAssetResponse,
+  ContentSource,
   ContentStatus,
   MediaType,
   MediaUploadJobResponse,
   MediaUploadStatus,
+  SourceTypeFilter,
 } from '../types';
 import {
   CONTENT_CATEGORIES,
@@ -246,6 +249,24 @@ const UPLOAD_JOB_STATUS_META: Record<
   FAILED: { label: 'Upload lỗi', color: 'error' },
 };
 
+/**
+ * Bộ lọc "Loại" (plan 27) — chỉ render cho user có `reup:view`.
+ * Thứ tự cố ý: Reup đứng đầu vì đó là **giá trị mặc định** của SUPER_ADMIN.
+ */
+const SOURCE_TYPE_OPTIONS: { value: SourceTypeFilter; label: string }[] = [
+  { value: 'REUP', label: 'Reup' },
+  { value: 'MANUAL', label: 'Tự upload' },
+  { value: 'ALL', label: 'Tất cả' },
+];
+
+const SOURCE_TYPE_TAG: Record<
+  ContentSource,
+  { label: string; color: string }
+> = {
+  MANUAL: { label: 'Tự upload', color: 'default' },
+  REUP: { label: 'Reup', color: 'purple' },
+};
+
 /** Job upload -> dòng giả để Table render chung với bài thật. */
 function uploadJobToRow(job: MediaUploadJobResponse): ContentRow {
   return {
@@ -264,6 +285,10 @@ function uploadJobToRow(job: MediaUploadJobResponse): ContentRow {
     status: 'PENDING_REVIEW',
     isAds: false,
     isActive: true,
+    // Dòng "mờ" luôn là upload TAY của chính người đang ngồi đây — job reup
+    // chạy nền phía server, không đi qua hàng đợi trình duyệt này.
+    sourceType: 'MANUAL',
+    resourceDeletedAt: null,
     rejectComment: null,
     createdById: job.createdBy.id,
     approvedById: null,
@@ -1017,6 +1042,13 @@ function RealContentManagementPage() {
   // const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
   const [editorFilter, setEditorFilter] = useState<string | undefined>();
   const [activeFilter, setActiveFilter] = useState<boolean | undefined>();
+  /**
+   * Plan 27 §3.2 — bộ lọc "Loại", **chỉ SUPER_ADMIN thấy**. Mặc định `REUP`
+   * đúng như user chốt: đây là màn chính để duyệt bài reup. Role khác không có
+   * state này và backend cũng ép cứng MANUAL, nên đây thuần là hiển thị.
+   */
+  const [sourceTypeFilter, setSourceTypeFilter] =
+    useState<SourceTypeFilter>('REUP');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -1039,6 +1071,8 @@ function RealContentManagementPage() {
   const canBulkDelete = can(user.role, 'content:delete');
   const canBulkEdit = can(user.role, 'content:edit');
   const canBulk = canBulkDelete || canBulkEdit;
+  /** Chỉ SUPER_ADMIN — quyết định có hiện dropdown/cột "Loại" hay không. */
+  const canViewReup = can(user.role, 'reup:view');
   const { data, isLoading } = useContentAssets({
     search: search || undefined,
     category: categoryFilter,
@@ -1047,6 +1081,9 @@ function RealContentManagementPage() {
     status: statusFilter,
     editorId: editorFilter,
     isActive: activeFilter,
+    // Role thường KHÔNG gửi field này. Kể cả có gửi, backend cũng ép cứng
+    // MANUAL — đây chỉ là để URL/cache sạch, không phải hàng rào bảo mật.
+    sourceType: canViewReup ? sourceTypeFilter : undefined,
     page,
     limit: pageSize,
   });
@@ -1399,6 +1436,15 @@ function RealContentManagementPage() {
             />
             {record.isAds && <Tag color="gold">Đạt ADS</Tag>}
             {!record.isActive && <Tag>Ngưng dùng</Tag>}
+            {/* Chỉ hiện khi đang xem "Tất cả": lúc đang lọc đúng 1 loại thì tag
+                này lặp lại y hệt trên mọi dòng, chỉ tổ chiếm chỗ. */}
+            {canViewReup && sourceTypeFilter === 'ALL' && (
+              <Tag color={SOURCE_TYPE_TAG[record.sourceType].color}>
+                {SOURCE_TYPE_TAG[record.sourceType].label}
+              </Tag>
+            )}
+            {/* Plan 30: file Drive đã bị dọn, bản ghi/thống kê vẫn còn. */}
+            {record.resourceDeletedAt !== null && <Tag>Đã xoá file</Tag>}
           </Space>
         );
       },
@@ -1526,6 +1572,20 @@ function RealContentManagementPage() {
       />
 
       <Space wrap className="filter-bar" style={{ marginBottom: 16 }}>
+        {/* Plan 27 §3.2 — chỉ SUPER_ADMIN. Role khác không có ô này VÀ cũng
+            không lách được qua API (service ép cứng MANUAL). */}
+        {canViewReup && (
+          <Select
+            style={{ width: 160 }}
+            value={sourceTypeFilter}
+            options={SOURCE_TYPE_OPTIONS}
+            onChange={(value: SourceTypeFilter) => {
+              setSourceTypeFilter(value);
+              setPage(1);
+              setSelectedIds([]);
+            }}
+          />
+        )}
         <Select
           placeholder="Dạng (danh mục)"
           allowClear
@@ -1689,6 +1749,20 @@ function RealContentManagementPage() {
         }
         rowClassName={(record) =>
           isPendingRow(record) ? 'row-uploading' : record.isActive ? '' : 'row-inactive'
+        }
+        // Rủi ro R1d (plan 27): SUPER_ADMIN mặc định xem "Reup" nên trước khi có
+        // cron thì bảng RỖNG — phải nói rõ đó là đúng, không phải mất dữ liệu.
+        locale={
+          canViewReup && sourceTypeFilter === 'REUP'
+            ? {
+                emptyText: (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="Chưa có bài reup nào. Kho bài tự upload vẫn còn nguyên — đổi ô Loại sang “Tự upload” để xem."
+                  />
+                ),
+              }
+            : undefined
         }
         pagination={{
           current: page,

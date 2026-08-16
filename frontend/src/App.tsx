@@ -14,6 +14,7 @@ import LoginPage from './pages/LoginPage';
 import PageInsightsPage from './pages/PageInsightsPage';
 import PageManagementPage from './pages/PageManagementPage';
 import QueueMonitorPage from './pages/QueueMonitorPage';
+import ReupSettingsPage from './pages/ReupSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 import TimelinePage from './pages/TimelinePage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -87,6 +88,10 @@ export function AppRoutes() {
           </Route>
           <Route element={<RoleRoute path="/audit" />}>
             <Route path="audit" element={<AuditLogsPage />} />
+          </Route>
+          {/* Menu Reup — chỉ SUPER_ADMIN (allowlist ở `canAccessRoute`). */}
+          <Route element={<RoleRoute path="/reup" />}>
+            <Route path="reup" element={<ReupSettingsPage />} />
           </Route>
         </Route>
       </Route>

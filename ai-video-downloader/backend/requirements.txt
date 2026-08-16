@@ -1,0 +1,12 @@
+playwright>=1.44
+aiohttp>=3.9
+aiofiles>=23.2
+rich>=13.7
+click>=8.1
+faster-whisper>=1.0.0
+# YouTube reup (tool-auto-fb plan 28): tải video qua CLI `yt-dlp`.
+# Gọi bằng subprocess chứ không import ⇒ cài bằng pip HOẶC brew đều được;
+# đường dẫn ghi đè bằng env `YT_DLP_BIN` nếu binary nằm chỗ khác.
+# Phần tìm video dùng Data API v3 qua REST + aiohttp (đã có ở trên),
+# KHÔNG thêm google-api-python-client chỉ để gọi 1 endpoint.
+yt-dlp>=2024.1.1

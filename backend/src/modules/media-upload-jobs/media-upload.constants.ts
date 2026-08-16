@@ -93,6 +93,20 @@ export interface MediaUploadMetadata {
    * xoá file gốc thì bài không đăng được nữa.
    */
   copyToDrive?: boolean;
+  /**
+   * Plan 29: loại bài sẽ ghi vào `content_assets.source_type`.
+   *
+   * Phải đi qua metadata chứ không suy ra từ `source = REUP` ở worker: giá trị
+   * này bắt buộc có mặt **ngay lúc INSERT** `content_assets` (§6 R2) — set sau
+   * bằng UPDATE tạo ra khoảng thời gian bài reup lọt vào màn kho của role thường.
+   * Bỏ trống ⇒ `MANUAL`.
+   */
+  sourceType?: 'MANUAL' | 'REUP';
+  /**
+   * Plan 29: `topic.autoApprove = true` ⇒ bài vào thẳng `APPROVED`, Bot nhặt
+   * đăng luôn. Bỏ trống/false ⇒ `PENDING_REVIEW` (QĐ-5, mặc định an toàn).
+   */
+  autoApprove?: boolean;
 }
 
 /** Caption placeholder khi user không nhập — cột DB là NOT NULL. */

@@ -57,6 +57,12 @@ export interface PickForSlotParams {
  * tick cron sau sẽ tự re-pick nội dung vừa đăng lỗi và tạo job trùng một cách
  * âm thầm. Muốn đăng lại nội dung lỗi thì dùng nút "Đăng lại"/"Chạy lại mốc này"
  * (tự re-dùng job cũ), không phải để Bot tự chọn lại.
+ *
+ * `resource_deleted_at IS NULL` (plan 30 §3.2 luật 3) — NGOẠI LỆ DUY NHẤT được
+ * phép sửa ở module `auto-post` trong cả bộ plan reup (README §4). Cron dọn
+ * dẹp (plan 30) xoá file Drive của bài reup đã đăng quá hạn nhưng giữ nguyên
+ * record; thiếu điều kiện này thì Bot đăng lại nội dung có file không còn tồn
+ * tại ⇒ job FAILED khó lần ra vì bài vẫn trông hoàn toàn bình thường.
  */
 @Injectable()
 export class ContentPickerRepository {
@@ -87,6 +93,7 @@ export class ContentPickerRepository {
         publishedAt: null,
         contentAsset: {
           isActive: true,
+          resourceDeletedAt: null,
           status: {
             in: [
               ContentStatus.APPROVED,
@@ -121,6 +128,7 @@ export class ContentPickerRepository {
          AND a.published_at IS NULL
        WHERE c.status IN ('APPROVED', 'PUBLISHING', 'PUBLISHED')
          AND c.is_active = TRUE
+         AND c.resource_deleted_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM publish_jobs j
             WHERE j.content_asset_id = c.id
@@ -154,6 +162,7 @@ export class ContentPickerRepository {
          AND a.published_at IS NULL
        WHERE c.status IN ('APPROVED', 'PUBLISHING', 'PUBLISHED')
          AND c.is_active = TRUE
+         AND c.resource_deleted_at IS NULL
          AND c.category = ANY(${params.categories}::text[])
          ${mediaFilter}
          AND NOT EXISTS (

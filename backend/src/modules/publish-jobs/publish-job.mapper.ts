@@ -21,6 +21,8 @@ export interface PublishJobResponse {
   attemptCount: number;
   createdBy: string;
   createdAt: string;
+  /** != null = cron dọn dẹp đã xoá file Drive của bài này (plan 30). */
+  resourceDeletedAt: string | null;
 }
 
 export interface PublishJobEventResponse {
@@ -49,6 +51,8 @@ export function toPublishJobResponse(job: JobWithContext): PublishJobResponse {
     attemptCount: job.attemptCount,
     createdBy: job.createdBy,
     createdAt: job.createdAt.toISOString(),
+    resourceDeletedAt:
+      job.contentAsset.resourceDeletedAt?.toISOString() ?? null,
   };
 }
 

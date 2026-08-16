@@ -83,10 +83,27 @@ export class UsersRepository {
     return this.prisma.user.update({ where: { id }, data });
   }
 
-  /** Đếm admin còn hoạt động — chặn xóa/khóa admin cuối cùng. */
+  /**
+   * Đếm người còn quyền quản trị — chặn xóa/khóa admin cuối cùng.
+   *
+   * Plan 26: tính **cả** SUPER_ADMIN. SUPER_ADMIN đứng trên ADMIN nên khi hệ
+   * thống còn một SUPER_ADMIN đang hoạt động thì hạ ADMIN cuối cùng không hề
+   * khoá chết hệ thống — chặn ở đó là chặn nhầm.
+   */
   countActiveAdmins(): Promise<number> {
     return this.prisma.user.count({
-      where: { role: 'ADMIN', isActive: true },
+      where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] }, isActive: true },
+    });
+  }
+
+  /**
+   * Đếm SUPER_ADMIN còn hoạt động — chặn hạ/khoá SUPER_ADMIN **cuối cùng**
+   * (plan 26 §3.4). Không có ai thì mất hẳn đường vào menu Reup, và không ADMIN
+   * nào tự tạo lại được (đúng luật §3.4 bên trên).
+   */
+  countActiveSuperAdmins(): Promise<number> {
+    return this.prisma.user.count({
+      where: { role: 'SUPER_ADMIN', isActive: true },
     });
   }
 }

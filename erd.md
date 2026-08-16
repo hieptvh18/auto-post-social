@@ -3,8 +3,8 @@
 > **Bản đồ dữ liệu chính thức.** Mọi thay đổi schema PHẢI cập nhật file này —
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
-**Cập nhật:** 2026-08-08
-**Migration tương ứng:** `20260808064846_post_insights_real_metrics` (plan 25)
+**Cập nhật:** 2026-08-15
+**Migration tương ứng:** `20260815010000_reup_topics_videos_runs` (plan 27)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -34,6 +34,10 @@ erDiagram
     content_assets |o--o{ media_upload_jobs : "created by"
     content_page_assignments ||--o| post_insights : "current metrics"
     content_page_assignments ||--o{ post_insight_snapshots : "daily history"
+    users ||--o{ reup_topics : "declares (created_by)"
+    reup_topics ||--o{ reup_videos : discovers
+    reup_topics ||--o{ reup_runs : "scanned as"
+    content_assets |o--o| reup_videos : "imported from"
 
     users {
         uuid id PK
@@ -89,6 +93,8 @@ erDiagram
         string mime_type
         bigint file_size
         string source_drive_file_id
+        enum source_type
+        timestamp resource_deleted_at
         enum status
         boolean is_ads
         boolean is_active
@@ -135,6 +141,65 @@ erDiagram
         int fan_reach
         int clicks
         timestamp created_at
+    }
+
+    reup_topics {
+        uuid id PK
+        string name
+        enum platform
+        string_array keywords
+        string region_code
+        string category
+        int daily_quota
+        int min_view_count
+        int max_age_days
+        int min_duration_sec
+        int max_duration_sec
+        boolean auto_approve
+        text caption_template
+        text hashtags
+        boolean is_active
+        uuid created_by FK
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    reup_videos {
+        uuid id PK
+        uuid topic_id FK
+        enum platform
+        string external_id
+        text source_url
+        string title
+        string author_name
+        timestamp published_at
+        int duration_sec
+        bigint view_count
+        text thumbnail_url
+        enum status
+        text local_path
+        bigint file_size
+        uuid content_asset_id FK
+        uuid media_upload_job_id
+        text error_message
+        int attempt_count
+        timestamp discovered_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    reup_runs {
+        uuid id PK
+        uuid topic_id FK
+        string run_date
+        enum status
+        int found_count
+        int picked_count
+        int quota_used
+        string skip_reason
+        text error_message
+        timestamp started_at
+        timestamp finished_at
     }
 
     auto_post_slots {
@@ -208,6 +273,7 @@ erDiagram
         string bull_job_id
         timestamp files_removed_at
         uuid content_asset_id FK
+        uuid reup_video_id
         uuid created_by FK
         timestamp created_at
         timestamp updated_at
@@ -249,7 +315,11 @@ erDiagram
 
 | Enum | Giá trị | Dùng ở |
 |------|---------|--------|
-| `UserRole` | `ADMIN` · `EDITOR` · `CONTENT` | `users.role` |
+| `UserRole` | `SUPER_ADMIN` · `ADMIN` · `EDITOR` · `CONTENT` | `users.role` |
+| `ContentSource` | `MANUAL` · `REUP` | `content_assets.source_type` |
+| `ReupPlatform` | `YOUTUBE` · `DOUYIN` · `TIKTOK` | `reup_topics.platform`, `reup_videos.platform` |
+| `ReupVideoStatus` | `PENDING` · `DOWNLOADING` · `DOWNLOADED` · `UPLOADING` · `IMPORTED` · `FAILED` · `SKIPPED` | `reup_videos.status` |
+| `ReupRunStatus` | `CLAIMED` · `DONE` · `SKIPPED` · `ERROR` | `reup_runs.status` |
 | `MediaType` | `image` · `video` | `content_assets.media_type` |
 | `SlotMediaType` | `image` · `video` · `all` | `auto_post_slots.media_type` |
 | `ContentStatus` | `PENDING_REVIEW` · `APPROVED` · `REJECTED` · `PUBLISHING` · `PUBLISHED` | `content_assets.status` |
@@ -258,7 +328,7 @@ erDiagram
 | `PublishJobEventType` | `ENQUEUED` · `STARTED` · `SUCCEEDED` · `FAILED` · `RETRY_SCHEDULED` · `GAVE_UP` | `publish_job_events.event` |
 | `FacebookConnectMode` | `MANUAL_TOKEN` · `FB_LOGIN` | `facebook_pages.connect_mode` |
 | `MediaUploadStatus` | `QUEUED` · `UPLOADING_TO_DRIVE` · `COPYING_FROM_DRIVE` · `SUCCESS` · `FAILED` | `media_upload_jobs.status` |
-| `MediaUploadSource` | `LOCAL_FILE` · `DRIVE_LINK` | `media_upload_jobs.source` |
+| `MediaUploadSource` | `LOCAL_FILE` · `DRIVE_LINK` · `REUP` | `media_upload_jobs.source` |
 
 ---
 
@@ -295,6 +365,16 @@ erDiagram
 | `post_insights` | mọi cột số **NULLABLE, không default** | Phân biệt "chưa đo" (`NULL`) với "đo được 0" (`0`) — xem §4 |
 | `post_insights` | `facebook_post_id` | Tra ngược từ ID bài Facebook về assignment khi debug số liệu lệch |
 | `post_insight_snapshots` | **UNIQUE `(assignment_id, snapshot_date)`** | **Job chạy 4 lần/ngày vẫn chỉ để lại 1 dòng/ngày** — upsert theo khoá này, không cần dọn trùng |
+| `content_assets` | `source_type` | Bộ lọc "Loại" của màn kho. Role thiếu `reup:view` bị **ép cứng** `MANUAL` ở service ⇒ đây là điều kiện WHERE chạy trên **mọi** request của màn đó |
+| `reup_topics` | **UNIQUE `(name, platform)`** | Không khai trùng một chủ đề trên cùng nền tảng (409 thay vì 2 dòng đá nhau) |
+| `reup_topics` | `is_active` | Cron discovery chỉ quét chủ đề đang bật |
+| `reup_videos` | **UNIQUE `(platform, external_id)`** | **CHỐNG TẢI TRÙNG** — không có nó thì hôm sau cron tải lại đúng video hôm nay (QĐ-4) |
+| `reup_videos` | UNIQUE `content_asset_id` | 1 bài trong kho ↔ tối đa 1 video nguồn |
+| `reup_videos` | `status` | Queue lấy job + UI lọc theo trạng thái |
+| `reup_videos` | `(topic_id, discovered_at)` | Tab "Video đã kéo" của một chủ đề, mới nhất trước |
+| `reup_runs` | **UNIQUE `(topic_id, run_date)`** | **Chống cron double-fire** (khuôn ADR-006) — claim bằng INSERT, bắt P2002. Bấm "Quét ngay" 2 lần cùng ngày cũng chỉ 1 run |
+| `reup_runs` | `(run_date, status)` | Tab "Nhật ký quét" xem theo ngày |
+| `media_upload_jobs` | `reup_video_id` | Worker tra ngược từ job upload về `reup_videos` để đóng sổ (plan 29 §3.3 cách a) |
 | `audit_logs` | `user_id` · `action` · `created_at` | Truy vết |
 | `app_settings` | PK `key` | Số dòng rất nhỏ (1 dòng/nhóm config), tra bằng khoá chính là đủ — không cần index phụ |
 
@@ -305,6 +385,13 @@ erDiagram
 | Ràng buộc | Nơi enforce |
 |-----------|-------------|
 | Mỗi content chỉ đăng **1 lần / 1 page** | UNIQUE `(content_asset_id, facebook_page_id)` + `published_at IS NULL` trong picker |
+| **`content_assets.source_type = REUP` vô hình với role thiếu `reup:view`** — không thấy ở danh sách, và truy cập lẻ theo id trả **404 (không phải 403)**: 403 tự nó xác nhận bài đó tồn tại. Role thường gửi `?sourceType=REUP` bị **bỏ qua**, ép cứng `MANUAL`, **không** ném lỗi (để màn kho dùng y như trước plan 27) | `ContentAssetsService.findAll()` + `getOrFail()` — **chỉ** ở service của màn kho |
+| **Lọc `source_type` TUYỆT ĐỐI không được đặt ở repository dùng chung / Prisma middleware.** Cron picker, timeline, lịch đăng bài, dashboard, publish-jobs phải thấy **cả** bài REUP — đó là toàn bộ mục đích của reup. Đặt nhầm chỗ ⇒ Bot không bao giờ đăng bài reup **hoặc** dashboard đếm thiếu, và hỏng **âm thầm** | `ContentAssetsRepository.findMany()` là nơi **duy nhất** nhận field `sourceType`; picker dùng raw SQL không có điều kiện này |
+| `content_assets.source_type` **phải set ngay lúc INSERT**, không UPDATE sau. Update sau tạo ra khoảng thời gian bài reup lọt vào màn kho của role thường | `ContentAssetsRepository.create()` nhận `sourceType`; không có đường update nào cho cột này |
+| `reup_topics.min_duration_sec < max_duration_sec`; `daily_quota` 1..10; `max_age_days` 1..365; chủ đề `YOUTUBE` bắt buộc có ≥1 keyword | `ReupTopicsService` (400) — kiểm trên giá trị **sau khi gộp** với state cũ, vì PATCH chỉ gửi một nửa cặp field |
+| Tối đa **20 chủ đề đang bật** cùng lúc (quota YouTube `search.list` = 100 units/lần, trần 10.000/ngày) | `ReupTopicsService.assertActiveTopicLimit()` (422) |
+| Xoá chủ đề reup = **soft delete** (`is_active = false`). Xoá cứng sẽ CASCADE mất `reup_videos`, tức mất luôn `external_id` đang dùng để chống tải trùng | `ReupTopicsService.remove()` |
+| `reup_topics.platform != YOUTUBE` ⇒ **vẫn lưu được**, nhưng cron bỏ qua (`SKIPPED/PLATFORM_NOT_SUPPORTED`). Cố ý không chặn ở DTO: người vận hành cần khai báo sẵn (QĐ-2) | `ReupTopicsService` trả cờ `isPlatformSupported`; cron kiểm lúc chạy |
 | `PUBLISHING` / `PUBLISHED` chỉ Bot được set | `ContentAssetsService.transitionStatus()` — client set ⇒ 422 |
 | `status = REJECTED` bắt buộc có `reject_comment` | Service (400 nếu thiếu) |
 | `content_assets.caption` bắt buộc (Bot dùng khi đăng) | DB NOT NULL + DTO |
@@ -365,6 +452,8 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-08-15 | `20260815010000_reup_topics_videos_runs` | **Plan 27 (nền dữ liệu reup).** **Hoàn toàn additive — không DROP, không đổi kiểu, không backfill.** (1) 4 enum mới: `ContentSource`, `ReupPlatform`, `ReupVideoStatus`, `ReupRunStatus`; thêm giá trị `REUP` cho `MediaUploadSource`. (2) 3 bảng mới: `reup_topics` (chủ đề người vận hành khai báo + bộ lọc + `daily_quota` + `auto_approve`), `reup_videos` (video nguồn đã phát hiện — UNIQUE `(platform, external_id)` là chỗ **chống tải trùng**), `reup_runs` (nhật ký cron, khuôn từ `slot_runs`, UNIQUE `(topic_id, run_date)` **chống double-fire**). (3) `content_assets` thêm **2 cột**: `source_type` (`DEFAULT 'MANUAL'` ⇒ toàn bộ bài cũ giữ nguyên hành vi) + `resource_deleted_at` (nullable, plan 30 dùng), kèm index `source_type`. (4) `media_upload_jobs.reup_video_id` (nullable) + index — điểm nối để worker upload có sẵn đóng sổ ngược về `reup_videos` (plan 29 §3.3 cách a); nhánh `NULL` = upload tay chạy **y như cũ**. Gộp sẵn `reup_runs.quota_used` và `MediaUploadSource.REUP` của plan 29 vào migration này để không phải `ALTER TYPE` thêm lần nữa. `source_type` chỉ dùng để **tách 2 menu**; metadata nguồn (link gốc, tác giả, view) nằm ở `reup_videos` chứ không nhồi vào `content_assets` (QĐ-4). |
+| 2026-08-15 | `20260815000000_add_super_admin_role` | **Plan 26 (role SUPER_ADMIN).** Thêm **một giá trị** vào enum `UserRole`: `SUPER_ADMIN`, đặt `BEFORE 'ADMIN'` để thứ tự enum phản ánh thứ bậc quyền. **Không** đổi `@default(CONTENT)`, **không** đụng dòng dữ liệu nào ⇒ không cần backfill, mọi user cũ giữ nguyên role. `ALTER TYPE ... ADD VALUE` đứng **một mình** trong migration vì ở nhiều phiên bản Postgres nó không chạy được trong transaction cùng DDL khác. Lý do tồn tại: `ADMIN` trước đây nắm **toàn bộ** permission (`ROLE_PERMISSIONS[ADMIN] = PERMISSIONS`) nên không có cách nào tạo người quản trị đứng trên ADMIN; 2 permission mới `reup:view`/`reup:manage` (không lưu DB, hardcode ở `common/permissions.ts`) chỉ cấp cho `SUPER_ADMIN` để làm nền phân quyền cho menu Reup của plan 27→31. |
 | 2026-08-08 | `20260808064846_post_insights_real_metrics` | **Plan 25 §8 — sửa sau khi đo Graph API thật.** Migration trước đặt sai giả định. (1) **Bỏ** `impressions`, `impressions_unique` ở cả 2 bảng: Meta đã **gỡ hẳn** họ `post_impressions*` / `post_reach` / `page_impressions*` khỏi Graph API — kiểm chứng trên v19·v20·v21·v22·v23 đều trả `(#100) The value must be a valid insights metric`, không phải lỗi quyền (token có `read_insights`, loại PAGE, `expires_at=0`). (2) **Thêm** `fan_reach` (`post_fan_reach`) và `clicks` (`post_clicks`) — 2 chỉ số còn đọc được cho mọi loại bài; `video_views` (`post_video_views`) giữ nguyên, chỉ có ở bài video. (3) **Mọi cột số chuyển sang NULLABLE, bỏ `DEFAULT 0`**, kể cả `like_count`/`comment_count`/`share_count`; `fetched_at` cũng thành nullable. Lý do: nhánh `create` cũ ghi `?? 0` nên lần đồng bộ đầu tiên mà không lấy được số sẽ **ghi 0 vào DB** ⇒ UI hiện "0 lượt xem" cho bài chưa hề đo được — đúng triệu chứng user gặp. Nay `NULL` = chưa đo, `0` = đo được 0. Bảng đang rỗng dữ liệu thật (4 dòng đều là lỗi) nên không cần backfill. |
 | 2026-08-08 | `20260808054704_post_insights` | **Plan 25 (tracking lượt xem bài đã đăng).** Hai bảng mới, **không đụng bảng nào có sẵn** ngoài 2 quan hệ ngược trên `content_page_assignments`. (1) `post_insights` — số liệu **hiện tại** của 1 bài: `impressions`, `impressions_unique`, `video_views` (nullable = không phải video), `like_count`/`comment_count`/`share_count`, `fetched_at`, `missing_on_fb_at`, `sync_error_message`; UNIQUE `assignment_id` + index `facebook_post_id`. (2) `post_insight_snapshots` — ảnh chụp **theo ngày** (`snapshot_date` dạng `'YYYY-MM-DD'` theo `Asia/Ho_Chi_Minh`, cùng quy ước `slot_runs.run_date`), UNIQUE `(assignment_id, snapshot_date)`. **Lý do tách 2 bảng:** màn danh sách chỉ cần 1 join vào bảng "hiện tại", không phải `DISTINCT ON` trên bảng lịch sử mỗi lần render. **Lý do neo vào `content_page_assignments` chứ không `publish_jobs`:** assignment có UNIQUE `(content, page)` nên 1 bài = 1 dòng, còn 1 content retry nhiều lần đẻ nhiều `publish_jobs` ⇒ cộng view sẽ nhân đôi; và cả 2 đường đăng (Bot + đăng tay) đều đã ghi `facebook_post_id` vào assignment. Không thêm enum. Không cần backfill (bảng rỗng, job đồng bộ tự điền). |
 | 2026-08-07 | `20260807130353_drive_link_import` | **Plan 24 (nhập bài từ link Google Drive).** Enum mới `MediaUploadSource` (`LOCAL_FILE`/`DRIVE_LINK`) + giá trị mới `COPYING_FROM_DRIVE` cho `MediaUploadStatus`; `media_upload_jobs.source` (NOT NULL, default `LOCAL_FILE` ⇒ **không cần backfill**) + index `(source, status)`; `content_assets.source_drive_file_id` (nullable) + index. Lý do: thêm đường thứ hai để đưa bài vào kho — dán link Drive, tool gọi `files.copy` (copy phía server Google, **0 byte qua backend**) về folder cấu hình. Dùng lại nguyên bảng `media_upload_jobs` của plan 23 nên dòng "mờ"/"Thử lại"/cron dọn không phải viết lại; cột `source` là thứ duy nhất phân biệt 2 luồng. `source_drive_file_id` chỉ để cảnh báo nhập trùng, **không** unique (user được phép cố ý nhập lại). |

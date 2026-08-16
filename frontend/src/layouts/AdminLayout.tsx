@@ -1,6 +1,7 @@
 import {
   AuditOutlined,
   CalendarOutlined,
+  CloudDownloadOutlined,
   DashboardOutlined,
   FieldTimeOutlined,
   FileImageOutlined,
@@ -52,6 +53,12 @@ const mainMenuItems = [
   { key: '/guide', icon: <QuestionCircleOutlined />, label: 'Hướng dẫn sử dụng' },
 ];
 
+// Nhóm riêng trên sidebar. Vẫn lọc bằng `canAccessRoute` như 2 nhóm kia — không
+// tự viết điều kiện role ở đây (một nguồn sự thật, plan 26 C1).
+const reupMenuItems = [
+  { key: '/reup', icon: <CloudDownloadOutlined />, label: 'Reup Setting' },
+];
+
 const monitorMenuItems = [
   { key: '/queue', icon: <UnorderedListOutlined />, label: 'Queue Monitor' },
   { key: '/failed', icon: <WarningOutlined />, label: 'Failed Jobs' },
@@ -81,9 +88,22 @@ export function AdminLayout() {
   const visibleMonitor = monitorMenuItems.filter((item) =>
     canAccessRoute(user.role, item.key),
   );
+  const visibleReup = reupMenuItems.filter((item) =>
+    canAccessRoute(user.role, item.key),
+  );
 
   const visibleMenu = [
     ...visibleMain,
+    ...(visibleReup.length > 0
+      ? [
+        {
+          key: 'reup-group',
+          label: 'Reup',
+          type: 'group' as const,
+          children: visibleReup,
+        },
+      ]
+      : []),
     ...(visibleMonitor.length > 0
       ? [
           {
@@ -96,8 +116,10 @@ export function AdminLayout() {
       : []),
   ];
 
+  // Phải gộp CẢ 3 nhóm: thiếu `visibleReup` thì vào /reup menu không sáng mục nào
+  // và rơi về `defaultRouteFor` — nhìn như đang đứng ở Tổng quan.
   const selectedKey =
-    [...visibleMain, ...visibleMonitor].find((item) =>
+    [...visibleMain, ...visibleReup, ...visibleMonitor].find((item) =>
       location.pathname.startsWith(item.key),
     )?.key ?? defaultRouteFor(user.role);
 

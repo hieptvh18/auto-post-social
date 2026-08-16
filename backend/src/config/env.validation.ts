@@ -62,8 +62,16 @@ const emptyToDir =
   ({ value }: { value: unknown }): unknown =>
     typeof value !== 'string' || value.trim() === '' ? fallback : value;
 
+/**
+ * Thư mục giữ file .mp4 do downloader tải về, trước khi đẩy lên Drive (plan 28).
+ * Tách riêng khỏi 2 thư mục trên: file reup có thể vài trăm MB và sống qua nhiều
+ * lần retry của queue, không được dính chung với thư mục bị xoá lúc boot.
+ */
+const DEFAULT_REUP_TMP_DIR = join(tmpdir(), 'tool-auto-fb-reup');
+
 const emptyToDefaultDir = emptyToDir(DEFAULT_MEDIA_CACHE_DIR);
 const emptyToDefaultUploadDir = emptyToDir(DEFAULT_MEDIA_UPLOAD_TMP_DIR);
+const emptyToDefaultReupTmpDir = emptyToDir(DEFAULT_REUP_TMP_DIR);
 
 const toInt = ({ value }: { value: unknown }): unknown => {
   if (typeof value !== 'string' || value.trim() === '') return value;
@@ -260,6 +268,53 @@ export class EnvVars {
   @IsInt()
   @Min(1)
   DRIVE_IMPORT_MAX_LINKS_PER_REQUEST = 50;
+
+  // ── Reup downloader (plan 28) ─────────────────────────────────────────────
+  //
+  // **NGOẠI LỆ CÓ CHỦ ĐÍCH so với rule 04** (cạm bẫy C10, QĐ-6): 4 biến dưới đây
+  // đều `@IsOptional()` và **KHÔNG** được validate kiểu "thiếu là crash".
+  //
+  // Lý do: `ai-video-downloader` là **phụ thuộc tuỳ chọn**. Máy chưa cài Python /
+  // chưa clone downloader vẫn phải chạy được đủ mọi tính năng còn lại. Bắt buộc
+  // các biến này lúc boot nghĩa là **cả backend không khởi động được** chỉ vì
+  // thiếu một tính năng phụ — khác hẳn `DATABASE_URL`/`TOKEN_ENCRYPTION_KEY`
+  // (hạ tầng lõi, thiếu là crash đúng).
+  //
+  // Thiếu ⇒ phát hiện lúc adapter thực sự được gọi ⇒ `DownloaderUnavailableError`
+  // ⇒ `reup_runs.SKIPPED / DOWNLOADER_UNAVAILABLE` + 1 dòng WARN.
+
+  /** Đường dẫn python trong venv của downloader. Không phải secret. */
+  @IsOptional()
+  @IsString()
+  REUP_PYTHON_BIN?: string;
+
+  /** Thư mục gốc project `ai-video-downloader` (cwd khi spawn). */
+  @IsOptional()
+  @IsString()
+  REUP_PROJECT_DIR?: string;
+
+  /** Nơi để file .mp4 tạm trước khi đẩy lên Drive. */
+  @Transform(emptyToDefaultReupTmpDir)
+  @IsString()
+  @IsNotEmpty()
+  REUP_TMP_DIR: string = DEFAULT_REUP_TMP_DIR;
+
+  @Transform(toInt)
+  @IsInt()
+  @Min(1000)
+  REUP_DOWNLOAD_TIMEOUT_MS = 600_000;
+
+  /**
+   * API key YouTube Data API v3 — **fallback** khi `app_settings['youtube_api']`
+   * chưa có bản ghi (cùng khuôn ADR-014 đang dùng cho Drive/Facebook: clone repo
+   * xong là chạy được ngay, chưa cần vào UI cấu hình).
+   *
+   * Nguồn ưu tiên vẫn là DB: nhập key ở màn Reup Setting sẽ **thắng** biến này.
+   * Optional — thiếu ⇒ tính năng reup báo `NOT_CONFIGURED`, app vẫn boot (QĐ-6).
+   */
+  @IsOptional()
+  @IsString()
+  API_GG_CLOUD_YOUTOBE_V3?: string;
 
   @Transform(toBoolean)
   @IsBoolean()

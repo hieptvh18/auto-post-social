@@ -200,4 +200,21 @@ export class GoogleDriveStorage implements DriveStorage {
       mapDriveError(error, `xoá file ${fileId}`);
     }
   }
+
+  /** 404 = file đã không còn ⇒ coi như xoá thành công (plan 30 §3.1). */
+  async deleteIfExists(fileId: string): Promise<void> {
+    try {
+      await this.drive.files.delete({ fileId, supportsAllDrives: true });
+    } catch (error) {
+      const code = readErrorCode(error);
+      if (code === 404) return;
+      mapDriveError(error, `xoá file ${fileId}`);
+    }
+  }
+}
+
+function readErrorCode(error: unknown): number | undefined {
+  if (error === null || typeof error !== 'object') return undefined;
+  const code = (error as { code?: number | string }).code;
+  return typeof code === 'number' ? code : undefined;
 }

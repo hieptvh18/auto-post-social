@@ -44,7 +44,7 @@ export class UsersController {
     @Body() dto: CreateUserDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<UserResponse> {
-    return this.usersService.create(dto, actor.id);
+    return this.usersService.create(dto, actor);
   }
 
   @Put(':id')
@@ -54,7 +54,7 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<UserResponse> {
-    return this.usersService.update(id, dto, actor.id);
+    return this.usersService.update(id, dto, actor);
   }
 
   @Delete(':id')
@@ -63,6 +63,6 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<UserResponse> {
-    return this.usersService.remove(id, actor.id);
+    return this.usersService.remove(id, actor);
   }
 }

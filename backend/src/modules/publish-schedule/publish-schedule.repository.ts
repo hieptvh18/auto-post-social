@@ -16,6 +16,7 @@ export type ScheduleJobRow = PublishJob & {
     mediaType: MediaType;
     driveUrl: string | null;
     thumbnailUrl: string | null;
+    resourceDeletedAt: Date | null;
   };
   facebookPage: { id: string; pageName: string; pageId: string };
 };
@@ -55,6 +56,7 @@ export class PublishScheduleRepository {
             mediaType: true,
             driveUrl: true,
             thumbnailUrl: true,
+            resourceDeletedAt: true,
           },
         },
         facebookPage: { select: { id: true, pageName: true, pageId: true } },

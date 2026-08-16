@@ -1,15 +1,35 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import type { User } from '../../../../generated/prisma/client';
 import { UserRole } from '../../../../generated/prisma/client';
+import type { AuthenticatedUser } from '../../../common/types/authenticated-user';
 import { AuditAction, type AuditService } from '../../audit/audit.service';
 import type { UsersRepository } from '../users.repository';
 import { UsersService } from '../users.service';
 
-const ACTOR = 'admin-1';
+/**
+ * Plan 26: service nhận cả `AuthenticatedUser` (không chỉ id) vì luật
+ * "chỉ SUPER_ADMIN đụng được role SUPER_ADMIN" cần biết role người thao tác.
+ * Giữ nguyên id 'admin-1' để các test cũ không phải sửa gì khác.
+ */
+const ACTOR: AuthenticatedUser = {
+  id: 'admin-1',
+  name: 'System Admin',
+  email: 'admin@company.local',
+  role: UserRole.ADMIN,
+};
+
+const SUPER_ACTOR: AuthenticatedUser = {
+  id: 'super-1',
+  name: 'Super Admin',
+  email: 'super@company.local',
+  role: UserRole.SUPER_ADMIN,
+};
 
 const makeUser = (overrides: Partial<User> = {}): User => ({
   id: 'u1',
@@ -31,6 +51,7 @@ describe('UsersService', () => {
     create: jest.Mock;
     update: jest.Mock;
     countActiveAdmins: jest.Mock;
+    countActiveSuperAdmins: jest.Mock;
   };
   let passwordService: { hash: jest.Mock; compare: jest.Mock };
   let auditService: { log: jest.Mock };
@@ -44,6 +65,7 @@ describe('UsersService', () => {
       create: jest.fn(),
       update: jest.fn(),
       countActiveAdmins: jest.fn(),
+      countActiveSuperAdmins: jest.fn(),
     };
     passwordService = {
       hash: jest.fn().mockResolvedValue('new-hash'),
@@ -136,7 +158,7 @@ describe('UsersService', () => {
       });
       expect(auditService.log).toHaveBeenCalledWith(
         expect.objectContaining({
-          userId: ACTOR,
+          userId: ACTOR.id,
           action: AuditAction.USER_CREATE,
           resource: 'user:u1',
         }),
@@ -233,33 +255,33 @@ describe('UsersService', () => {
 
     it('chặn admin tự vô hiệu hóa chính mình', async () => {
       repository.findById.mockResolvedValue(
-        makeUser({ id: ACTOR, role: UserRole.ADMIN }),
+        makeUser({ id: ACTOR.id, role: UserRole.ADMIN }),
       );
 
       await expect(
-        service.update(ACTOR, { isActive: false }, ACTOR),
+        service.update(ACTOR.id, { isActive: false }, ACTOR),
       ).rejects.toThrow('Không thể tự vô hiệu hóa tài khoản của mình');
       expect(repository.update).not.toHaveBeenCalled();
     });
 
     it('chặn admin tự hạ quyền chính mình', async () => {
       repository.findById.mockResolvedValue(
-        makeUser({ id: ACTOR, role: UserRole.ADMIN }),
+        makeUser({ id: ACTOR.id, role: UserRole.ADMIN }),
       );
 
       await expect(
-        service.update(ACTOR, { role: UserRole.EDITOR }, ACTOR),
+        service.update(ACTOR.id, { role: UserRole.EDITOR }, ACTOR),
       ).rejects.toThrow('Không thể tự đổi quyền của chính mình');
     });
 
     it('cho phép tự gửi lại đúng role hiện tại (no-op)', async () => {
-      const current = makeUser({ id: ACTOR, role: UserRole.ADMIN });
+      const current = makeUser({ id: ACTOR.id, role: UserRole.ADMIN });
       repository.findById.mockResolvedValue(current);
       repository.countActiveAdmins.mockResolvedValue(2);
       repository.update.mockResolvedValue(current);
 
       await expect(
-        service.update(ACTOR, { role: UserRole.ADMIN }, ACTOR),
+        service.update(ACTOR.id, { role: UserRole.ADMIN }, ACTOR),
       ).resolves.toBeDefined();
     });
 
@@ -384,10 +406,10 @@ describe('UsersService', () => {
 
     it('chặn admin tự xóa chính mình', async () => {
       repository.findById.mockResolvedValue(
-        makeUser({ id: ACTOR, role: UserRole.ADMIN }),
+        makeUser({ id: ACTOR.id, role: UserRole.ADMIN }),
       );
 
-      await expect(service.remove(ACTOR, ACTOR)).rejects.toThrow(
+      await expect(service.remove(ACTOR.id, ACTOR)).rejects.toThrow(
         BadRequestException,
       );
       expect(repository.update).not.toHaveBeenCalled();
@@ -416,6 +438,123 @@ describe('UsersService', () => {
       await expect(service.remove('u1', ACTOR)).resolves.toMatchObject({
         isActive: false,
       });
+    });
+  });
+
+  /**
+   * Plan 26 §3.4 — không có 2 luật này thì role SUPER_ADMIN chỉ là trang trí:
+   * bất kỳ ADMIN nào cũng tự nâng mình lên, hoặc khoá hết SUPER_ADMIN đi.
+   */
+  describe('phân quyền SUPER_ADMIN (plan 26 §3.4)', () => {
+    const superAdminDto = {
+      name: 'Super',
+      email: 'super@company.local',
+      password: 'TempPass123!',
+      role: UserRole.SUPER_ADMIN,
+    };
+
+    it('ADMIN tạo user role SUPER_ADMIN ⇒ 403', async () => {
+      await expect(service.create(superAdminDto, ACTOR)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('SUPER_ADMIN tạo user role SUPER_ADMIN ⇒ thành công', async () => {
+      repository.findByEmail.mockResolvedValue(null);
+      repository.create.mockResolvedValue(
+        makeUser({ role: UserRole.SUPER_ADMIN }),
+      );
+
+      await expect(
+        service.create(superAdminDto, SUPER_ACTOR),
+      ).resolves.toMatchObject({ role: UserRole.SUPER_ADMIN });
+    });
+
+    it('ADMIN nâng user thường lên SUPER_ADMIN ⇒ 403', async () => {
+      repository.findById.mockResolvedValue(makeUser());
+
+      await expect(
+        service.update('u1', { role: UserRole.SUPER_ADMIN }, ACTOR),
+      ).rejects.toThrow(ForbiddenException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN hạ quyền một SUPER_ADMIN sẵn có ⇒ 403', async () => {
+      repository.findById.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.SUPER_ADMIN }),
+      );
+
+      await expect(
+        service.update('u1', { role: UserRole.ADMIN }, ACTOR),
+      ).rejects.toThrow(ForbiddenException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN vô hiệu hoá một SUPER_ADMIN ⇒ 403', async () => {
+      repository.findById.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.SUPER_ADMIN }),
+      );
+
+      await expect(service.remove('u1', ACTOR)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('hạ role SUPER_ADMIN CUỐI CÙNG ⇒ 422', async () => {
+      repository.findById.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.SUPER_ADMIN }),
+      );
+      repository.countActiveAdmins.mockResolvedValue(5);
+      repository.countActiveSuperAdmins.mockResolvedValue(1);
+
+      await expect(
+        service.update('u1', { role: UserRole.ADMIN }, SUPER_ACTOR),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('vô hiệu hoá SUPER_ADMIN cuối cùng ⇒ 422', async () => {
+      repository.findById.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.SUPER_ADMIN }),
+      );
+      repository.countActiveAdmins.mockResolvedValue(5);
+      repository.countActiveSuperAdmins.mockResolvedValue(1);
+
+      await expect(service.remove('u1', SUPER_ACTOR)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+    });
+
+    it('hạ SUPER_ADMIN khi còn người khác ⇒ cho phép', async () => {
+      repository.findById.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.SUPER_ADMIN }),
+      );
+      repository.countActiveAdmins.mockResolvedValue(5);
+      repository.countActiveSuperAdmins.mockResolvedValue(2);
+      repository.update.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.ADMIN }),
+      );
+
+      await expect(
+        service.update('u1', { role: UserRole.ADMIN }, SUPER_ACTOR),
+      ).resolves.toMatchObject({ role: UserRole.ADMIN });
+    });
+
+    it('SUPER_ADMIN đang hoạt động ⇒ hạ ADMIN cuối cùng KHÔNG bị chặn', async () => {
+      repository.findById.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.ADMIN }),
+      );
+      // countActiveAdmins đếm cả SUPER_ADMIN ⇒ vẫn còn 2 người quản trị.
+      repository.countActiveAdmins.mockResolvedValue(2);
+      repository.update.mockResolvedValue(
+        makeUser({ id: 'u1', role: UserRole.EDITOR }),
+      );
+
+      await expect(
+        service.update('u1', { role: UserRole.EDITOR }, SUPER_ACTOR),
+      ).resolves.toMatchObject({ role: UserRole.EDITOR });
     });
   });
 });

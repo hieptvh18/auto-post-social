@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type {
   ContentAsset,
+  ContentSource,
   ContentStatus,
   MediaType,
   Prisma,
@@ -93,6 +94,16 @@ export interface FindContentAssetsFilter {
   createdBy?: string;
   /** Lọc theo người dựng video/ảnh. */
   editorId?: string;
+  /**
+   * Plan 27 §3.2 — lọc Loại bài của **màn kho**. Nhận giá trị **cụ thể**
+   * (`MANUAL`/`REUP`), không nhận `'ALL'`: `ContentAssetsService` đã dịch `ALL`
+   * thành `undefined` = không lọc.
+   *
+   * **Chỉ `findMany` (màn kho) truyền field này.** Picker auto-post, timeline,
+   * dashboard, publish-jobs KHÔNG được lọc theo nó (cạm bẫy C8) — lọc nhầm ở đây
+   * là Bot không bao giờ đăng bài reup và Dashboard đếm thiếu, hỏng **âm thầm**.
+   */
+  sourceType?: ContentSource;
   page: number;
   limit: number;
 }
@@ -111,6 +122,12 @@ export interface CreateContentAssetData {
   fileSize?: number;
   /** Plan 24: fileId gốc bên Drive người khác (bài nhập từ link). */
   sourceDriveFileId?: string;
+  /**
+   * Plan 27: bỏ trống ⇒ default `MANUAL` của schema. **Phải set ngay lúc tạo**,
+   * không UPDATE sau — update sau tạo ra một khoảng thời gian bài reup lọt vào
+   * màn Quản lý Ảnh/Video của role thường (plan 29 §6 R2).
+   */
+  sourceType?: ContentSource;
   createdById: string;
   /** Người upload cũng là người "sửa" đầu tiên — UI không bị trống cột này. */
   updatedById: string;
@@ -181,6 +198,7 @@ export class ContentAssetsRepository {
     if (filter.isActive !== undefined) where.isActive = filter.isActive;
     if (filter.createdBy !== undefined) where.createdById = filter.createdBy;
     if (filter.editorId !== undefined) where.editorId = filter.editorId;
+    if (filter.sourceType !== undefined) where.sourceType = filter.sourceType;
     if (filter.assignment === 'assigned') where.assignments = { some: {} };
     if (filter.assignment === 'unassigned') where.assignments = { none: {} };
     if (filter.search !== undefined && filter.search !== '') {
@@ -227,6 +245,7 @@ export class ContentAssetsRepository {
         fileSize:
           data.fileSize === undefined ? undefined : BigInt(data.fileSize),
         sourceDriveFileId: data.sourceDriveFileId,
+        sourceType: data.sourceType,
         createdById: data.createdById,
         updatedById: data.updatedById,
         editorId: data.editorId,

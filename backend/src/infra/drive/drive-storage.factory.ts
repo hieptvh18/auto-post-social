@@ -42,6 +42,10 @@ class OauthAwareDriveStorage implements DriveStorage {
     return this.run(() => this.inner.delete(fileId));
   }
 
+  deleteIfExists(fileId: string): Promise<void> {
+    return this.run(() => this.inner.deleteIfExists(fileId));
+  }
+
   getMetadata(fileId: string): Promise<DriveFileMeta> {
     return this.run(() => this.inner.getMetadata(fileId));
   }

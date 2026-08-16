@@ -145,4 +145,38 @@ export class AppConfigService {
   get monitor(): { stuckMinutes: number } {
     return { stuckMinutes: this.get('MONITOR_STUCK_MINUTES') };
   }
+
+  /**
+   * Cầu nối tới `ai-video-downloader` (plan 28).
+   *
+   * `pythonBin`/`projectDir` là `string | undefined` **có chủ đích** (QĐ-6):
+   * thiếu là chuyện bình thường, không phải lỗi cấu hình. Adapter tự dịch thành
+   * `DownloaderUnavailableError` lúc được gọi — app **không** kiểm lúc boot.
+   */
+  get reup(): {
+    pythonBin: string | undefined;
+    projectDir: string | undefined;
+    tmpDir: string;
+    downloadTimeoutMs: number;
+    /** Fallback khi `app_settings['youtube_api']` chưa có key (ADR-014). */
+    youtubeApiKey: string | undefined;
+  } {
+    return {
+      pythonBin: emptyToUndefined(this.get('REUP_PYTHON_BIN')),
+      projectDir: emptyToUndefined(this.get('REUP_PROJECT_DIR')),
+      tmpDir: this.get('REUP_TMP_DIR'),
+      downloadTimeoutMs: this.get('REUP_DOWNLOAD_TIMEOUT_MS'),
+      youtubeApiKey: emptyToUndefined(this.get('API_GG_CLOUD_YOUTOBE_V3')),
+    };
+  }
+}
+
+/**
+ * `.env` có key nhưng để trống ⇒ coi như **không cấu hình**, không phải chuỗi rỗng.
+ * Không có bước này thì `REUP_PYTHON_BIN=` (rất hay gặp khi copy `.env.example`)
+ * lọt qua mọi guard `!== undefined` rồi mới nổ lúc spawn với lỗi khó hiểu.
+ */
+function emptyToUndefined(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === '' ? undefined : trimmed;
 }

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ContentSource,
   ContentStatus,
   MediaType,
   UserRole,
@@ -15,7 +16,7 @@ import {
   runBulkSequential,
   type BulkResult,
 } from '../../common/bulk/bulk-result';
-import { hasPermission } from '../../common/permissions';
+import { hasPermission, isAdminLevel } from '../../common/permissions';
 import type { AuthenticatedUser } from '../../common/types/authenticated-user';
 import { DriveStorageFactory } from '../../infra/drive/drive-storage.factory';
 import { AuditAction, AuditService } from '../audit/audit.service';
@@ -32,7 +33,10 @@ import {
 } from './content-assets.repository';
 import { MAX_IMAGES_PER_CONTENT_ASSET } from './content-assets.constants';
 import { planStatusChange } from './content-status.transition';
-import type { QueryContentAssetsDto } from './dto/query-content-assets.dto';
+import type {
+  QueryContentAssetsDto,
+  SourceTypeFilter,
+} from './dto/query-content-assets.dto';
 import type { UpdateContentAssetDto } from './dto/update-content-asset.dto';
 
 export interface PaginatedContentAssets {
@@ -93,6 +97,12 @@ export interface CreateContentAssetInput {
    * dung đăng được, tự duyệt là mở đường cho Bot đăng bài "-" lên Page thật.
    */
   forceReview?: boolean;
+  /**
+   * Plan 27: chỉ user có `reup:view` mới ghi được giá trị này — role khác gửi
+   * lên bị **bỏ qua** và luôn ghi `MANUAL` (RBAC field-level, đúng khuôn đã chặn
+   * `status`/`isAds` với role CONTENT). Bỏ trống ⇒ `MANUAL`.
+   */
+  sourceType?: ContentSource;
 }
 
 /** Một ảnh phụ của bài nhiều ảnh — file đã đẩy lên Drive xong. */
@@ -131,6 +141,7 @@ export class ContentAssetsService {
       search: query.search,
       createdBy,
       editorId: query.editorId,
+      sourceType: resolveSourceTypeFilter(query.sourceType, actor),
       page: query.page,
       limit: query.limit,
     });
@@ -150,7 +161,7 @@ export class ContentAssetsService {
     id: string,
     actor: AuthenticatedUser,
   ): Promise<ContentAssetResponse> {
-    const asset = await this.getOrFail(id);
+    const asset = await this.getOrFail(id, actor);
     this.assertOwnership(asset, actor);
     return toContentAssetResponse(asset);
   }
@@ -219,9 +230,19 @@ export class ContentAssetsService {
     }));
   }
 
+  /**
+   * `internal` là đường **chỉ code phía server gọi được** (worker media-upload),
+   * không thể chạm tới từ HTTP — controller không có tham số thứ 3.
+   *
+   * Cần nó vì luật RBAC ở `resolveSourceTypeFilter`/`create` áp cho **đầu vào
+   * của client**: bài reup do cron sinh ra phải là `REUP` bất kể actor là ai.
+   * Nếu suy ra từ quyền của `actor` (người tạo chủ đề) thì hôm nào người đó bị
+   * hạ quyền, video reup sẽ **âm thầm** rơi vào kho MANUAL của mọi role.
+   */
   async create(
     dto: CreateContentAssetInput,
     actor: AuthenticatedUser,
+    internal?: { sourceType?: ContentSource; forceApprove?: boolean },
   ): Promise<ContentAssetResponse> {
     const assignedPageIds = dedupe(dto.assignedPageIds ?? []);
     const extraFiles = dto.extraFiles ?? [];
@@ -229,11 +250,13 @@ export class ContentAssetsService {
     await this.assertPagesExist(assignedPageIds);
     await this.assertEditorSelectable(dto.editorId);
 
-    // ADMIN tự upload thì khỏi phải tự duyệt lại bài của chính mình: vào thẳng
-    // APPROVED và ghi luôn người duyệt. Role khác vẫn qua hàng chờ duyệt.
+    // ADMIN/SUPER_ADMIN tự upload thì khỏi phải tự duyệt lại bài của chính mình:
+    // vào thẳng APPROVED và ghi luôn người duyệt. Role khác vẫn qua hàng chờ duyệt.
     // `forceReview` thắng tất cả (bài nhập từ link chưa có caption).
+    // `internal.forceApprove` = chủ đề reup bật `autoApprove` (plan 29, QĐ-5).
     const autoApproved =
-      actor.role === UserRole.ADMIN && dto.forceReview !== true;
+      internal?.forceApprove === true ||
+      (isAdminLevel(actor.role) && dto.forceReview !== true);
 
     const created = await this.repository.create({
       title: dto.title,
@@ -249,6 +272,14 @@ export class ContentAssetsService {
       mimeType: dto.mimeType,
       fileSize: dto.fileSize,
       sourceDriveFileId: dto.sourceDriveFileId,
+      // Đường `internal` (worker) thắng: bài reup phải là REUP bất kể actor là ai.
+      // Còn lại là RBAC field-level: thiếu `reup:view` ⇒ giá trị client gửi bị
+      // BỎ QUA, luôn ghi MANUAL — client không tự nâng loại bài của mình được.
+      sourceType:
+        internal?.sourceType ??
+        (canViewReup(actor)
+          ? (dto.sourceType ?? ContentSource.MANUAL)
+          : ContentSource.MANUAL),
       createdById: actor.id,
       updatedById: actor.id,
       editorId: dto.editorId,
@@ -278,7 +309,7 @@ export class ContentAssetsService {
     dto: UpdateContentAssetDto,
     actor: AuthenticatedUser,
   ): Promise<ContentAssetResponse> {
-    const current = await this.getOrFail(id);
+    const current = await this.getOrFail(id, actor);
     this.assertOwnership(current, actor);
     this.assertCanSetReviewFields(dto, actor);
     if (dto.editorId !== undefined && dto.editorId !== null) {
@@ -326,7 +357,7 @@ export class ContentAssetsService {
   }
 
   async remove(id: string, actor: AuthenticatedUser): Promise<void> {
-    const current = await this.getOrFail(id);
+    const current = await this.getOrFail(id, actor);
     await this.removeExisting(current, actor);
 
     await this.auditService.log({
@@ -347,7 +378,7 @@ export class ContentAssetsService {
     actor: AuthenticatedUser,
   ): Promise<BulkResult> {
     const result = await runBulkSequential(dedupe(ids), async (id) => {
-      const current = await this.getOrFail(id);
+      const current = await this.getOrFail(id, actor);
       try {
         await this.removeExisting(current, actor);
       } catch (error) {
@@ -381,7 +412,7 @@ export class ContentAssetsService {
   ): Promise<BulkResult> {
     const allowedIds: string[] = [];
     const result = await runBulkSequential(dedupe(ids), async (id) => {
-      const current = await this.getOrFail(id);
+      const current = await this.getOrFail(id, actor);
       try {
         this.assertOwnership(current, actor);
       } catch (error) {
@@ -649,9 +680,23 @@ export class ContentAssetsService {
     );
   }
 
-  private async getOrFail(id: string): Promise<ContentAssetWithActors> {
+  /**
+   * Cửa duy nhất để lấy 1 bài theo id — `findOne`/`update`/`remove`/`bulk*` đều
+   * đi qua đây, nên luật "bài REUP vô hình với role thường" đặt ở đây là phủ hết
+   * mọi đường vào cùng lúc (plan 27 §3.2, rủi ro R1c).
+   *
+   * **404 chứ không 403** là cố ý: 403 xác nhận "bài này có tồn tại, bạn không đủ
+   * quyền" — tức vẫn tiết lộ sự tồn tại của kho reup cho người đoán id.
+   */
+  private async getOrFail(
+    id: string,
+    actor: AuthenticatedUser,
+  ): Promise<ContentAssetWithActors> {
     const asset = await this.repository.findById(id);
     if (asset === null) {
+      throw new NotFoundException('Không tìm thấy content');
+    }
+    if (asset.sourceType === ContentSource.REUP && !canViewReup(actor)) {
       throw new NotFoundException('Không tìm thấy content');
     }
     return asset;
@@ -666,6 +711,36 @@ export class ContentAssetsService {
       throw new ForbiddenException('Chỉ thao tác được trên bài của chính mình');
     }
   }
+}
+
+/** Quyền xem kho reup — hôm nay chỉ SUPER_ADMIN có (plan 26). */
+function canViewReup(actor: AuthenticatedUser): boolean {
+  return hasPermission(actor.role, 'reup:view');
+}
+
+/**
+ * Dịch bộ lọc "Loại" của client thành điều kiện thật cho repository — **đây là
+ * ranh giới bảo mật của plan 27, không phải tiện ích hiển thị.**
+ *
+ * ```text
+ * KHÔNG có 'reup:view'  ⇒ BỎ QUA hoàn toàn giá trị client gửi (kể cả REUP/ALL)
+ *                         ⇒ ÉP CỨNG MANUAL. Không ném 403: role cũ phải dùng
+ *                           màn này y như trước, và ném lỗi là tự tố cáo rằng
+ *                           có tồn tại loại bài khác.
+ * CÓ 'reup:view'        ⇒ không truyền ⇒ mặc định REUP (màn Reup là màn chính
+ *                           của họ) · MANUAL/REUP ⇒ đúng loại đó · ALL ⇒ không lọc
+ * ```
+ *
+ * Trả `undefined` = **không lọc** (chỉ xảy ra với `ALL` của người có quyền).
+ */
+function resolveSourceTypeFilter(
+  requested: SourceTypeFilter | undefined,
+  actor: AuthenticatedUser,
+): ContentSource | undefined {
+  if (!canViewReup(actor)) return ContentSource.MANUAL;
+  if (requested === undefined) return ContentSource.REUP;
+  if (requested === 'ALL') return undefined;
+  return requested === 'REUP' ? ContentSource.REUP : ContentSource.MANUAL;
 }
 
 /** '#a  #b' -> ['#a', '#b']; token thiếu '#' vẫn nhận và được thêm vào. */

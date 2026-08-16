@@ -75,6 +75,13 @@ import {
     DriveImportsService,
     DriveImportProcessor,
   ],
-  exports: [MediaUploadJobsService, DriveImportsService],
+  // `MediaUploadJobsRepository` xuất ra cho module `reup` tạo job upload cho
+  // video vừa tải (plan 29, QĐ-3 — dùng lại ống có sẵn, không viết ống thứ hai).
+  // Chỉ là mở cửa đọc/ghi bảng; không đổi hành vi nào của luồng upload tay.
+  exports: [
+    MediaUploadJobsService,
+    DriveImportsService,
+    MediaUploadJobsRepository,
+  ],
 })
 export class MediaUploadJobsModule {}

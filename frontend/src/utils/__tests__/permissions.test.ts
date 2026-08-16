@@ -1,11 +1,45 @@
 import { describe, expect, it } from 'vitest';
-import { can, canAccessRoute, defaultRouteFor } from '../permissions';
+import {
+  RESTRICTED_ROUTES,
+  can,
+  canAccessRoute,
+  defaultRouteFor,
+} from '../permissions';
 
 describe('can', () => {
   it('ADMIN có mọi quyền quản trị', () => {
     expect(can('ADMIN', 'users:manage')).toBe(true);
     expect(can('ADMIN', 'settings:manage')).toBe(true);
     expect(can('ADMIN', 'pages:manage')).toBe(true);
+  });
+
+  it('SUPER_ADMIN có reup:*, ADMIN thì KHÔNG (plan 26)', () => {
+    expect(can('SUPER_ADMIN', 'reup:view')).toBe(true);
+    expect(can('SUPER_ADMIN', 'reup:manage')).toBe(true);
+    expect(can('ADMIN', 'reup:view')).toBe(false);
+    expect(can('ADMIN', 'reup:manage')).toBe(false);
+    expect(can('EDITOR', 'reup:view')).toBe(false);
+    expect(can('CONTENT', 'reup:view')).toBe(false);
+  });
+
+  it('SUPER_ADMIN giữ đủ mọi quyền của ADMIN (chống hồi quy)', () => {
+    for (const permission of [
+      'users:manage',
+      'pages:manage',
+      'content:create',
+      'content:edit',
+      'content:delete',
+      'content:review',
+      'autopost:manage',
+      'timeline:view',
+      'queue:view',
+      'jobs:retry',
+      'dashboard:view',
+      'settings:manage',
+      'audit:view',
+    ] as const) {
+      expect(can('SUPER_ADMIN', permission)).toBe(true);
+    }
   });
 
   it('EDITOR chỉ có quyền trên màn Quản lý Ảnh/Video', () => {
@@ -75,10 +109,47 @@ describe('canAccessRoute', () => {
   });
 });
 
+/**
+ * Cạm bẫy C1 / rủi ro R1 của plan 26: quên thêm SUPER_ADMIN vào một dòng bất kỳ
+ * của `RESTRICTED_ROUTES` ⇒ super-admin đăng nhập xong trắng menu. Vì vậy test
+ * duyệt **toàn bộ key của chính map đó** (không liệt kê tay vài route mẫu —
+ * liệt kê tay thì thêm route mới là test lại mù).
+ */
+describe('canAccessRoute — SUPER_ADMIN (plan 26 C1)', () => {
+  it.each(Object.keys(RESTRICTED_ROUTES))(
+    'SUPER_ADMIN vào được %s',
+    (path) => {
+      expect(canAccessRoute('SUPER_ADMIN', path)).toBe(true);
+    },
+  );
+
+  it('mọi route ADMIN vào được thì SUPER_ADMIN cũng vào được', () => {
+    for (const path of Object.keys(RESTRICTED_ROUTES)) {
+      if (canAccessRoute('ADMIN', path)) {
+        expect(canAccessRoute('SUPER_ADMIN', path)).toBe(true);
+      }
+    }
+  });
+
+  it('/reup CHỈ SUPER_ADMIN — ba role kia đều bị chặn', () => {
+    expect(canAccessRoute('SUPER_ADMIN', '/reup')).toBe(true);
+    expect(canAccessRoute('ADMIN', '/reup')).toBe(false);
+    expect(canAccessRoute('EDITOR', '/reup')).toBe(false);
+    expect(canAccessRoute('CONTENT', '/reup')).toBe(false);
+  });
+});
+
 describe('defaultRouteFor', () => {
   it('EDITOR về /content vì không vào được /dashboard', () => {
     expect(defaultRouteFor('EDITOR')).toBe('/content');
     expect(defaultRouteFor('ADMIN')).toBe('/dashboard');
     expect(defaultRouteFor('CONTENT')).toBe('/dashboard');
+  });
+
+  it('SUPER_ADMIN về /dashboard và route đó vào được thật', () => {
+    const route = defaultRouteFor('SUPER_ADMIN');
+    expect(route).toBe('/dashboard');
+    // Chống vòng redirect vô hạn: route mặc định phải thực sự truy cập được.
+    expect(canAccessRoute('SUPER_ADMIN', route)).toBe(true);
   });
 });
