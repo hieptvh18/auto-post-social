@@ -984,37 +984,39 @@ function ReupCleanupTab() {
         }
       />
 
-      <Form
-        form={form}
-        layout="inline"
-        style={{ marginBottom: 16 }}
-        initialValues={settings}
-        onFinish={() => void handleSaveSettings()}
-      >
-        <Form.Item
-          name="enabled"
-          label="Bật tự động dọn dẹp"
-          valuePropName="checked"
+      {settings && (
+        <Form
+          form={form}
+          layout="inline"
+          style={{ marginBottom: 16 }}
+          initialValues={settings}
+          onFinish={() => void handleSaveSettings()}
         >
-          <Switch loading={settingsLoading} />
-        </Form.Item>
-        <Form.Item
-          name="retentionDays"
-          label="Xoá file sau (ngày)"
-          tooltip="Tính từ lúc bài được đăng lên page."
-        >
-          <InputNumber min={1} max={365} style={{ width: 120 }} />
-        </Form.Item>
-        <Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={updateSettings.isPending}
+          <Form.Item
+            name="enabled"
+            label="Bật tự động dọn dẹp"
+            valuePropName="checked"
           >
-            Lưu cấu hình
-          </Button>
-        </Form.Item>
-      </Form>
+            <Switch loading={settingsLoading} />
+          </Form.Item>
+          <Form.Item
+            name="retentionDays"
+            label="Xoá file sau (ngày)"
+            tooltip="Tính từ lúc bài được đăng lên page."
+          >
+            <InputNumber min={1} max={365} style={{ width: 120 }} />
+          </Form.Item>
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={updateSettings.isPending}
+            >
+              Lưu cấu hình
+            </Button>
+          </Form.Item>
+        </Form>
+      )}
 
       <Space
         wrap
