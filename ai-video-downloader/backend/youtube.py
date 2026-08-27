@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -278,8 +279,60 @@ async def search_videos(
 
 
 def _resolve_ytdlp_bin() -> str:
-    """Đường dẫn yt-dlp. Cho phép ghi đè bằng env khi máy cài chỗ khác."""
-    return os.environ.get("YT_DLP_BIN", "yt-dlp")
+    """Đường dẫn yt-dlp, theo thứ tự: env → cạnh interpreter → PATH.
+
+    Bước giữa là bắt buộc, không phải cho tiện: backend NestJS spawn thẳng
+    `.venv/bin/python3` chứ KHÔNG `activate` venv, nên `.venv/bin` không nằm
+    trong PATH của process con. `yt-dlp` trần khi đó ném FileNotFoundError dù
+    nó nằm ngay cạnh interpreter đang chạy (sự cố 2026-08-16).
+    """
+    override = os.environ.get("YT_DLP_BIN", "").strip()
+    if override:
+        return override
+
+    sibling = Path(sys.executable).parent / "yt-dlp"
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        return str(sibling)
+
+    return "yt-dlp"
+
+
+def _summarize_stderr(stderr: str, max_len: int = 300) -> str:
+    """Rút dòng ERROR cuối của yt-dlp để nhét vào message lỗi.
+
+    Ưu tiên dòng bắt đầu bằng "ERROR:" (yt-dlp luôn in lý do thật ở đó); không
+    có thì lấy dòng cuối khác rỗng. Cắt ngắn vì `error_message` còn phải hiện
+    gọn trên UI.
+    """
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    picked = next(
+        (line for line in reversed(lines) if line.upper().startswith("ERROR:")),
+        lines[-1],
+    )
+    if len(picked) > max_len:
+        picked = picked[: max_len - 1] + "…"
+    return f": {picked}"
+
+
+def _resolve_js_runtime() -> str | None:
+    """Tên JS runtime cho yt-dlp, hoặc None nếu máy không có cái nào.
+
+    yt-dlp chỉ bật `deno` mặc định; `node` phải khai tên rõ ràng dù có sẵn
+    trong PATH. Trả None khi không tìm thấy gì để lệnh vẫn chạy được (mất
+    một số format, nhưng còn hơn là lỗi cấu hình cứng).
+    """
+    override = os.environ.get("YT_DLP_JS_RUNTIME", "").strip()
+    if override:
+        return override
+
+    for runtime in ("deno", "node", "bun"):
+        if shutil.which(runtime) is not None:
+            return runtime
+
+    return None
 
 
 def download_video(
@@ -312,18 +365,33 @@ def download_video(
         # 2026-08-15: yt-dlp tự chọn format 399 = **AV1**, mà Facebook xử lý AV1
         # rất kém (transcode lâu, có lúc từ chối). H.264 + AAC là tổ hợp Facebook
         # luôn nhận. Chuỗi fallback đi từ chặt tới lỏng để video hiếm vẫn tải được.
+        #
+        # **Giới hạn theo CẠNH NGẮN (`width<=1080`), KHÔNG theo `height<=1080`.**
+        # Đo thật 2026-08-27: video DỌC 1080x1920 có `height=1920` nên
+        # `height<=1080` loại sạch format 1080p, chỉ còn 480x854 lọt qua ⇒ mọi
+        # video dọc (Shorts, review phim) đều bị kéo về ở 480p. `width` là cạnh
+        # ngắn của video dọc nên chặn đúng thứ cần chặn: độ phân giải thực.
         "-f",
         (
-            "bestvideo[height<=1080][vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/"
-            "best[height<=1080][vcodec^=avc1][ext=mp4]/"
-            "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-            "best[height<=1080][ext=mp4]/best"
+            "bestvideo[width<=1080][vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/"
+            "best[width<=1080][vcodec^=avc1][ext=mp4]/"
+            "bestvideo[width<=1080][ext=mp4]+bestaudio[ext=m4a]/"
+            "best[width<=1080][ext=mp4]/best"
         ),
         "--merge-output-format",
         "mp4",
         "-o",
         output_template,
     ]
+
+    # YouTube ký URL media bằng JS nhúng trong player. Không có JS runtime,
+    # yt-dlp phải lùi về client thay thế và URL hay bị trả HTTP 403 (sự cố
+    # 2026-08-19). Chỉ thêm cờ khi thật sự tìm được runtime — khai runtime
+    # không tồn tại thì yt-dlp báo lỗi cấu hình ngay từ đầu.
+    js_runtime = _resolve_js_runtime()
+    if js_runtime is not None:
+        command += ["--js-runtimes", js_runtime]
+
     if max_filesize_mb is not None:
         command += ["--max-filesize", f"{max_filesize_mb}m"]
     command.append(url)
@@ -361,7 +429,8 @@ def download_video(
             if leftover.is_file():
                 leftover.unlink(missing_ok=True)
 
-        stderr = (completed.stderr or "").lower()
+        raw_stderr = completed.stderr or ""
+        stderr = raw_stderr.lower()
         if any(
             token in stderr
             for token in ("video unavailable", "private video", "has been removed")
@@ -369,9 +438,13 @@ def download_video(
             raise YoutubeError(
                 ERROR_VIDEO_UNAVAILABLE, "Video không còn khả dụng trên YouTube"
             )
+        # Kèm lý do THẬT vào message: mã thoát trần buộc người trực phải mò lại
+        # URL trong DB rồi chạy tay mới biết hỏng gì (sự cố 2026-08-19, mất
+        # nguyên buổi để phát hiện đó là HTTP 403).
         raise YoutubeError(
             ERROR_DOWNLOAD_FAILED,
-            f"yt-dlp thoát với mã {completed.returncode}",
+            f"yt-dlp thoát với mã {completed.returncode}"
+            f"{_summarize_stderr(raw_stderr)}",
         )
 
     files = sorted(
