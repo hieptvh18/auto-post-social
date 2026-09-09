@@ -81,7 +81,7 @@ describe('PublishMediaService', () => {
     const mediaCache = new MediaCacheService(
       driveFactory as unknown as DriveStorageFactory,
       {
-        mediaCache: { dir: cacheDir, ttlMs: 600_000 },
+        mediaCache: { dir: cacheDir, ttlMs: 600_000, stallTimeoutMs: 30_000 },
       } as unknown as AppConfigService,
       clock,
     );

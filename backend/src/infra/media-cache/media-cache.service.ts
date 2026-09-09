@@ -1,8 +1,14 @@
 import { createWriteStream } from 'node:fs';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { AppConfigService } from '../../config/app-config.service';
 import { ClockService } from '../clock/clock.service';
@@ -152,6 +158,73 @@ export class MediaCacheService implements OnModuleInit {
   }
 
   /**
+   * Đổ `source` xuống `partPath`, huỷ nếu dòng dữ liệu **đứng im** quá
+   * `stallTimeoutMs`.
+   *
+   * Vì sao phải có: kết nối tới Drive có thể chết câm — TCP không đóng, stream
+   * không phát `end` cũng không phát `error`, byte thì ngừng chảy. `pipeline()`
+   * khi đó không bao giờ settle, nên `withLocalFile` không bao giờ trả về và
+   * worker BullMQ (concurrency 1) kẹt cứng ở job đó; mọi job sau xếp hàng chờ
+   * vô hạn. Process vẫn sống nên BullMQ vẫn gia hạn lock đều đặn ⇒ cơ chế phát
+   * hiện job "stalled" **không** cứu được. Đúng kịch bản sự cố prod 2026-09-09:
+   * file dừng ở 10.9MB lúc 09:00 UTC, 3 job kẹt sau nó tới 18:23 giờ VN.
+   *
+   * Đo theo **khoảng lặng giữa hai chunk**, không phải tổng thời gian tải: video
+   * lớn chạy vài phút là bình thường, thứ bất thường là im lặng kéo dài.
+   */
+  private async pipeWithStallGuard(
+    driveFileId: string,
+    source: Readable,
+    partPath: string,
+  ): Promise<void> {
+    const stallMs = this.config.mediaCache.stallTimeoutMs;
+    const controller = new AbortController();
+    let stalled = false;
+    let timer: NodeJS.Timeout | undefined;
+
+    const armWatchdog = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(() => {
+        stalled = true;
+        // `abort` làm `pipeline` destroy cả hai đầu rồi reject — nhờ đó socket
+        // Drive được đóng thật, không rò kết nối lại lần sau.
+        controller.abort();
+      }, stallMs);
+    };
+
+    // Đếm nhịp bằng một Transform trung gian thay vì `source.on('data')`:
+    // gắn listener 'data' sẽ bật flowing mode ngay lập tức, chunk chảy đi trước
+    // khi `pipeline` kịp nối đích ⇒ mất dữ liệu đầu file.
+    let received = 0;
+    const heartbeat = new Transform({
+      transform(chunk: Buffer, _encoding, callback): void {
+        received += chunk.length;
+        armWatchdog();
+        callback(null, chunk);
+      },
+    });
+
+    armWatchdog();
+    try {
+      await pipeline(source, heartbeat, createWriteStream(partPath), {
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (stalled) {
+        this.logger.error(
+          `Tải file ${driveFileId} đứng im quá ${stallMs}ms ở ${received} byte — huỷ lượt tải`,
+        );
+        throw new ServiceUnavailableException(
+          `Tải file ${driveFileId} từ Google Drive bị treo (không nhận thêm dữ liệu quá ${Math.round(stallMs / 1000)}s) — sẽ thử lại`,
+        );
+      }
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /**
    * Tải xuống `<id>.part` rồi mới đổi tên: crash giữa chừng sẽ để lại `.part`
    * (bị dọn lúc khởi động) chứ không để lại file cụt mang đúng tên thật —
    * file cụt đó sẽ bị coi là hợp lệ và đăng lên Facebook một video hỏng.
@@ -166,7 +239,7 @@ export class MediaCacheService implements OnModuleInit {
     const source = await storage.createReadStream(driveFileId);
 
     try {
-      await pipeline(source, createWriteStream(partPath));
+      await this.pipeWithStallGuard(driveFileId, source, partPath);
       await rename(partPath, finalPath);
     } catch (error) {
       await rm(partPath, { force: true });

@@ -220,6 +220,21 @@ export class EnvVars {
   MEDIA_CACHE_TTL_MS = 600_000;
 
   /**
+   * Tối đa bao lâu **không nhận thêm byte nào** từ Drive thì coi kết nối đã
+   * chết và huỷ lượt tải. Không phải tổng thời gian tải: video lớn chạy vài
+   * phút là bình thường, thứ bất thường là dòng dữ liệu đứng im.
+   *
+   * Thiếu mốc này thì stream treo vĩnh viễn: `pipeline()` không bao giờ settle,
+   * worker BullMQ (concurrency 1) kẹt luôn ở job đó, mọi job sau xếp hàng chờ
+   * mãi — và vì process vẫn sống nên BullMQ vẫn gia hạn lock, cơ chế phát hiện
+   * job "stalled" không bao giờ nổ (sự cố prod 2026-09-09).
+   */
+  @Transform(toInt)
+  @IsInt()
+  @Min(1000)
+  MEDIA_CACHE_STALL_TIMEOUT_MS = 120_000;
+
+  /**
    * Nơi giữ file đã nhận từ trình duyệt trong lúc chờ worker đẩy lên Drive
    * (plan 23). KHÔNG dùng chung `MEDIA_CACHE_DIR` — thư mục đó bị xoá sạch mỗi
    * lần boot, job đang chờ sẽ mất file.

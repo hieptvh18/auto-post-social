@@ -25,12 +25,15 @@ describe('MediaCacheService', () => {
 
   const T0 = Date.parse('2026-08-03T12:00:00.000Z');
 
-  async function makeService(ttlMs = 60_000): Promise<MediaCacheService> {
+  async function makeService(
+    ttlMs = 60_000,
+    stallTimeoutMs = 60,
+  ): Promise<MediaCacheService> {
     const clock: ClockService = { now: () => new Date(nowMs) };
     const instance = new MediaCacheService(
       driveFactory as unknown as DriveStorageFactory,
       {
-        mediaCache: { dir: cacheDir, ttlMs },
+        mediaCache: { dir: cacheDir, ttlMs, stallTimeoutMs },
       } as unknown as AppConfigService,
       clock,
     );
@@ -220,6 +223,82 @@ describe('MediaCacheService', () => {
       await mkdir(join(cacheDir, 'drive-1', 'con'), { recursive: true });
 
       await expect(service.sweep(new Date(T0 + 60_001))).resolves.toBe(0);
+    });
+  });
+
+  /**
+   * Sự cố prod 2026-09-09: kết nối Drive chết câm giữa chừng — không `end`,
+   * không `error`, chỉ ngừng chảy byte. `pipeline()` treo vĩnh viễn ⇒ worker
+   * BullMQ (concurrency 1) kẹt luôn, mọi job sau xếp hàng chờ mãi.
+   */
+  describe('stream chết câm giữa chừng', () => {
+    /** Đẩy 1 chunk rồi im lặng mãi: không push thêm, không end, không error. */
+    function silentAfterFirstChunk(): Readable {
+      let sent = false;
+      return new Readable({
+        read(): void {
+          if (sent) return;
+          sent = true;
+          this.push(Buffer.from('một-nửa'));
+        },
+      });
+    }
+
+    it('huỷ lượt tải thay vì treo vĩnh viễn khi hết thời gian im lặng', async () => {
+      storage.createReadStream.mockResolvedValue(silentAfterFirstChunk());
+
+      await expect(
+        service.withLocalFile('drive-1', () => Promise.resolve(null)),
+      ).rejects.toThrow(/treo/);
+    });
+
+    it('không để lại file .part sau khi huỷ', async () => {
+      storage.createReadStream.mockResolvedValue(silentAfterFirstChunk());
+
+      await service
+        .withLocalFile('drive-1', () => Promise.resolve(null))
+        .catch(() => undefined);
+
+      await expect(readdir(cacheDir)).resolves.toEqual([]);
+    });
+
+    it('huỷ xong thì lần sau tải lại được, không kẹt ở promise cũ', async () => {
+      storage.createReadStream.mockResolvedValueOnce(silentAfterFirstChunk());
+
+      await service
+        .withLocalFile('drive-1', () => Promise.resolve(null))
+        .catch(() => undefined);
+      const content = await service.withLocalFile('drive-1', (file) =>
+        readFile(file.path, 'utf8'),
+      );
+
+      expect(content).toBe('video-bytes');
+    });
+
+    it('video tải lâu nhưng byte vẫn chảy đều ⇒ KHÔNG bị huỷ (đo khoảng lặng, không đo tổng thời gian)', async () => {
+      // 5 chunk × 20ms = 100ms tổng, dài hơn ngưỡng 60ms, nhưng chưa lần nào
+      // im lặng quá 60ms ⇒ phải tải xong bình thường.
+      let remaining = 5;
+      storage.createReadStream.mockResolvedValue(
+        new Readable({
+          read(): void {
+            setTimeout(() => {
+              if (remaining === 0) {
+                this.push(null);
+                return;
+              }
+              remaining -= 1;
+              this.push(Buffer.from('xx'));
+            }, 20);
+          },
+        }),
+      );
+
+      const content = await service.withLocalFile('drive-1', (file) =>
+        readFile(file.path, 'utf8'),
+      );
+
+      expect(content).toBe('xxxxxxxxxx');
     });
   });
 

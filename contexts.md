@@ -4,8 +4,47 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-08-16 (Plan 32 — cấu hình giờ chạy cron reup từ giao diện)
-**Session gần nhất (mới nhất):** **Plan 32 — cấu hình giờ chạy cron reup từ giao diện.**
+**Cập nhật lần cuối:** 2026-09-09 (Sự cố prod — worker treo vĩnh viễn vì tải Drive không có timeout)
+**Session gần nhất (mới nhất):** **Sự cố prod: toàn bộ hàng đợi đăng bài đứng 2h23'
+(không có file plan — fix bug khẩn theo yêu cầu user).** Màn Monitor báo 1 job kẹt
+`PUBLISHING` 141 phút, Redis 1 active + 3 waiting không nhúc nhích. **Banner của hệ thống
+đoán sai** ("worker nhiều khả năng đã chết") — PM2 cho thấy uptime 8 ngày, **0 lần restart**:
+worker còn sống nguyên, nó bị **treo**. **Nguyên nhân gốc:** `MediaCacheService.download()`
+đổ stream Drive xuống đĩa bằng `pipeline()` **không timeout, không phát hiện đứng dòng**.
+Kết nối Drive chết câm giữa chừng — TCP không đóng, stream không phát `end` cũng không phát
+`error`, byte ngừng chảy ⇒ `pipeline()` không bao giờ settle ⇒ `process()` của worker không
+bao giờ trả về. Worker BullMQ chạy **concurrency 1** nên mọi job sau xếp hàng chờ vô hạn; và
+vì process vẫn sống, BullMQ **vẫn gia hạn lock đều đặn** nên cơ chế phát hiện job "stalled"
+**không bao giờ nổ**. Bằng chứng khớp tuyệt đối: file `1kWeQaGq2bN6MEzICQpxzkrNcl_qHkb8i.part`
+đứng im ở **10.9MB từ 09:00 UTC**, đúng `driveFileId` của job kẹt; job chỉ có 2 event
+`ENQUEUED`+`STARTED`, không có FAILED/SUCCEEDED; log không còn một dòng
+`PublishExecutor`/`MediaCache`/`FacebookPublisher` nào sau 08:55:46. **Sửa:** thêm
+`pipeWithStallGuard()` — watchdog đo **khoảng lặng giữa hai chunk** (không đo tổng thời gian,
+vì video lớn chạy vài phút là bình thường), quá `MEDIA_CACHE_STALL_TIMEOUT_MS` (mặc định 120s)
+không nhận thêm byte ⇒ `AbortController` destroy cả hai đầu, ném lỗi rõ ràng, BullMQ retry
+bình thường. Nhịp được đếm bằng một `Transform` trung gian **chứ không phải `source.on('data')`**
+— gắn listener `data` sẽ bật flowing mode ngay trước khi `pipeline` kịp nối đích và **mất dữ
+liệu đầu file**. Không đụng schema (`erd.md` giữ nguyên), thêm 1 biến env
+`MEDIA_CACHE_STALL_TIMEOUT_MS` (đã vào `.env.example`; class validation có default nên prod
+thiếu key vẫn chạy — **`.env` prod chưa thêm tay, xem §6**). BE **+4 test (1127 tổng)**: huỷ
+đúng lúc thay vì treo, không để lại `.part`, lần sau tải lại được, và **video tải lâu nhưng
+byte vẫn chảy đều thì KHÔNG bị huỷ** (khoá lại đúng ranh giới idle-vs-tổng-thời-gian).
+Lint/build/test xanh. **Phục hồi prod (đã làm, có xác minh):** rebuild + `pm2 restart nest-api`
+⇒ boot xong `onModuleInit` tự dọn `.part` mồ côi, bull job cũ của job kẹt được giao lại và
+**bị bỏ qua an toàn** (`status ≠ QUEUED`, không gọi Facebook), 3 job tồn đăng bù thành công
+lúc 11:42:17 · 11:44:17 · 11:45:06 UTC (111MB/82MB/32MB). Job kẹt `54229beb` **không thể tự
+khỏi** (xem §6 nợ 40) nên gỡ tay bằng script chép **đúng** logic `markFailure` — content về
+`PUBLISHED` (bài đã đăng ở page khác hôm 08/09) chứ không set mù `APPROVED` — kèm chốt chặn
+"nếu assignment đã có `publishedAt` thì dừng, không gỡ". Đã xác minh trước khi gỡ:
+`facebookPostId=null`, `publishedAt=null` ⇒ bài **chưa hề lên Facebook**, gỡ xong đẩy lại
+queue theo đúng khuôn `PublishJobsService.retry()`. **Còn nợ:** thêm
+`MEDIA_CACHE_STALL_TIMEOUT_MS` vào `.env` prod; và lỗ hổng "job kẹt PUBLISHING không có đường
+tự phục hồi" (§6 nợ 40) — user đã chốt **để lại làm ở session riêng có plan**, không vá vội
+trong lúc đang xử lý sự cố vì chỗ đó chạm thẳng vào guard chống đăng trùng.
+
+---
+
+**Session trước đó:** **Plan 32 — cấu hình giờ chạy cron reup từ giao diện.**
 Hai cron reup (quét 02:00, dọn dẹp 03:00) trước đây hardcode bằng `@Cron('0 2 * * *')` —
 đổi giờ phải sửa code + deploy lại. Xoá hẳn `reup-discovery.scheduler.ts` và
 `reup-cleanup.scheduler.ts`; logic tick chuyển vào `ReupScheduleService` (implements
@@ -685,6 +724,19 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 ## 5. Nhật ký module đã hoàn thành
 
 > Mỗi module xong ghi 1 mục ở đây theo mẫu trong `.claude/rules/03-context-protocol.md`.
+
+### Fix sự cố prod — worker đăng bài treo vĩnh viễn vì tải Drive không có timeout — ✅ 2026-09-09
+
+- **Phạm vi:** toàn bộ hàng đợi đăng bài đứng 2h23'. Thêm watchdog chống đứng dòng cho
+  `MediaCacheService.download()`; phục hồi prod (3 bài đăng bù + gỡ 1 job kẹt `PUBLISHING`).
+- **File chính:** `backend/src/infra/media-cache/media-cache.service.ts` (`pipeWithStallGuard`),
+  `backend/src/config/env.validation.ts`, `backend/src/config/app-config.service.ts`, `.env.example`
+- **Quyết định:** đo **khoảng lặng giữa hai chunk**, không đo tổng thời gian tải — video lớn
+  chạy vài phút là hợp lệ, thứ bất thường là byte ngừng chảy. Đếm nhịp bằng `Transform` trung
+  gian, **không** dùng `source.on('data')` (bật flowing mode sớm ⇒ mất dữ liệu đầu file).
+- **Test:** +4 test (1127 tổng), gồm 1 test khoá ranh giới "tải lâu nhưng vẫn chảy ⇒ không huỷ".
+- **Còn nợ:** `.env` prod chưa thêm `MEDIA_CACHE_STALL_TIMEOUT_MS` (có default nên vẫn chạy);
+  lỗ hổng job kẹt `PUBLISHING` không tự phục hồi — xem §6 nợ 40.
 
 ### Nhập từ link Drive — checkbox "Copy data" (Plan 24 bổ sung) — 🟡 2026-08-08 (chưa bấm tay)
 
@@ -1493,6 +1545,8 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 36 | **Responsive mobile/tablet chưa bấm tay trên thiết bị thật** | Code xong, lint/build/67 test FE xanh, nhưng **chưa mở bằng điện thoại/tablet thật** lần nào — loại thay đổi này chỉ lộ lỗi khi chạm tay (rule 02 không test component). Cần kiểm: (1) ở ≤991px hiện nút hamburger, mở Drawer menu, bấm 1 mục ⇒ **Drawer tự đóng và điều hướng đúng**; (2) xoay ngang / phóng to cửa sổ qua 992px ⇒ Drawer tự đóng, `Sider` thật hiện ra, **không chồng nhau**; (3) **header dính khi cuộn** (đây là thứ dễ hỏng nhất — xem ghi chú `overflow-x` ở §7) và ở `/timeline` desktop thẻ lọc vẫn dính, mobile thì không; (4) mọi bảng cuộn ngang **trong khung của nó**, cả trang không trượt ngang; (5) Modal "Thêm Ảnh/Video" (2 tab), Drawer sửa bài, ConnectPagesModal vừa màn hình; (6) `/dashboard` các chart không vỡ; (7) đăng nhập/upload/đăng bài chạy y như cũ. |
 | 35 | **Thumbnail Google Drive hết hạn ⇒ ảnh 404 trên mọi màn có ảnh** | `content_assets.thumbnail_url` lưu nguyên `thumbnailLink` mà Drive trả lúc upload (`lh3.googleusercontent.com/...`). Link này **hết hạn** sau một thời gian ⇒ ảnh vỡ ở `/content` (Drawer preview) lẫn `/pages/:id/insights`. Đã vá tạm ở màn thống kê: `onError` ẩn hẳn thẻ `<img>` thay vì để icon ảnh hỏng. **Cách sửa gốc** (chưa làm, cần user chốt vì đụng nhiều màn): thêm endpoint proxy `GET /media/:driveFileId/thumbnail` ở backend, stream ảnh xuống bằng credential Drive của hệ thống và cache — khi đó FE chỉ cần trỏ vào URL của chính mình, không phụ thuộc link tạm của Google. Cách rẻ hơn nhưng kém bền: mỗi lần đọc bài thì gọi Drive lấy `thumbnailLink` mới (tốn 1 call/bài). |
 | 37 | **M12 Reup (plan 26-30) chưa chạy end-to-end trên hạ tầng thật** | Code + test xanh cho cả 5 plan (BE 1101 test, FE 83 test). **Chặn bởi `REUP_PYTHON_BIN`/`REUP_PROJECT_DIR` chưa có trong `.env`** (việc của user, xem `plans/reup/ISSUES-TO-REVIEW.md` mục V1) — thiếu 2 biến này thì tính năng reup tự động báo `DOWNLOADER_UNAVAILABLE`, không crash app (QĐ-6) nhưng cũng không chạy được. Khi có: (1) tạo chủ đề quota 2 ⇒ Quét ngay ⇒ 2 video `IMPORTED`, file có thật trên Drive; (2) bài `APPROVED` được auto-post đăng thật lên Page; (3) đợi qua N ngày hoặc chỉnh `retentionDays` xuống thấp ⇒ bấm "Dọn ngay" ở tab Dọn dẹp ⇒ file **biến mất thật** trên Drive (mở link ⇒ 404), Tag "Đã xoá file" hiện đúng ở cả 3 màn (Video đã kéo, Timeline, Quản lý Ảnh/Video); (4) đổi tên thư mục `ai-video-downloader` giữa lúc chạy ⇒ `SKIPPED/DOWNLOADER_UNAVAILABLE`, không kéo sập cron auto-post. Xem chi tiết còn nợ ở từng plan §7. |
+| 39 | **`.env` prod chưa có `MEDIA_CACHE_STALL_TIMEOUT_MS`** | Sửa sự cố 2026-09-09 thêm biến này (đã vào `.env.example`), nhưng **file `.env` trên prod chưa thêm tay** — quyền ghi bị chặn trong session đó. **Không gấp:** `env.validation.ts` có default `120_000` nên thiếu key app vẫn boot và watchdog vẫn hoạt động đúng; thêm vào chỉ để đúng rule 04 (`.env` và `.env.example` cùng danh sách key) và để chỉnh được ngưỡng mà không phải sửa code. Chỉnh xuống thấp hơn nếu mạng tới Drive ổn định và muốn phát hiện treo sớm hơn 2 phút. |
+| 40 | **Job kẹt `PUBLISHING` không có đường tự phục hồi — phải sửa DB tay** | Lộ ra khi xử lý sự cố 2026-09-09. `PublishExecutorService.execute()` chỉ chạy khi `status === QUEUED`, còn `PublishJobsService.retry()` chỉ nhận `RETRYABLE_STATUSES = [FAILED, CANCELLED, SCHEDULED]`. Nên job đã sang `PUBLISHING` mà worker chết/treo giữa chừng sẽ **kẹt vĩnh viễn**: executor bỏ qua, nút "Đăng lại" từ chối, restart cũng không khỏi — chỉ hiện cảnh báo đỏ ở màn Monitor mãi mãi. Lần này gỡ bằng script tay (chép đúng logic `markFailure`, có chốt chặn kiểm `publishedAt` trước khi gỡ). **Hướng vá (user đã chốt để lại session riêng, có plan đàng hoàng):** cho `retry()` nhận cả `PUBLISHING` khi job đã quá ngưỡng kẹt (dùng lại `MONITOR_STUCK_MINUTES`) **và** chưa có published assignment. **Phải hết sức cẩn thận + test dày:** đây đúng chỗ dễ gây **đăng trùng lên page thật** — ngưỡng phải lớn hơn thời gian đăng video dài nhất có thể (`FB_VIDEO_TIMEOUT_MS` = 900s), nếu không sẽ requeue một job vẫn đang upload dở. Watchdog của nợ 39 đã chặn nguyên nhân gốc nên việc này **không gấp**. |
 | 34 | **M11 (plan 25) chưa smoke UI + chưa nộp App Review `read_insights`** | Code BE+FE xong (BE 880 test, FE 63). **Chưa bấm tay** — chạy §5 của plan 25: (1) `/pages` bấm "Kết nối bằng Facebook" ⇒ màn consent phải **hiện mục "Read Insights"** (nếu không hiện thì scope chưa vào, xem lại `OAUTH_SCOPES`); (2) tên page bấm được, mở đúng Page ở tab mới; (3) nút "Chi tiết" mở `/pages/:id/insights`, **bài mới nhất nằm trên cùng khi vừa mở**; (4) bấm tiêu đề bài ⇒ mở **đúng bài đó**; (5) "Đồng bộ ngay" ⇒ số điền vào, "Cập nhật lần cuối" nhảy; bấm lại ngay ⇒ **429** kèm câu giải thích; (6) đối chiếu số với **Meta Business Suite** cùng bài (lệch nhỏ do trễ là bình thường); (7) xoá 1 bài trên Facebook ⇒ lần đồng bộ sau bài đó có Tag đỏ "Đã bị xoá", **các bài khác vẫn cập nhật**; (8) page kết nối **trước 08/08** phải hiện Tag vàng "Thiếu quyền thống kê" + Alert + nút "Đồng bộ ngay" bị khoá. **Quan trọng:** scope đã cấp là bất biến ⇒ mọi kết nối cũ phải bấm "Kết nối lại", đây là ca dễ tưởng là bug nhất. Còn lại: nộp **App Review** cho `read_insights` (cần Business Verification + screencast quay từ consent tới màn hiện số) nếu mở cho user ngoài team — với page mà tài khoản có role trong Meta app thì Standard Access đã chạy được, **không chặn** việc nghiệm thu. Xong thì `git mv plans/25-page-post-insights.md plans/DONE/`. |
 
 ---
@@ -1503,6 +1557,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 
 | Vấn đề | Nguyên nhân & cách xử lý |
 |--------|--------------------------|
+| **Stream không có timeout treo worker VĨNH VIỄN — và cơ chế "stalled job" của BullMQ KHÔNG cứu được** | Sự cố prod 2026-09-09: kết nối Google Drive chết câm giữa chừng (TCP không đóng, stream không phát `end` cũng không phát `error`, byte ngừng chảy). `pipeline()` không bao giờ settle ⇒ `process()` của worker không bao giờ trả về ⇒ worker BullMQ **concurrency 1** kẹt cứng, mọi job sau chờ vô hạn. **Cái bẫy thật sự:** ai cũng tưởng BullMQ tự cứu bằng phát hiện "stalled" — **không**. Stalled chỉ nổ khi worker **mất lock**, mà process vẫn sống nên nó **vẫn gia hạn lock đều đặn**; job treo mãi mãi mà queue nhìn vẫn "khoẻ" (1 active). Triệu chứng đánh lừa: PM2 uptime 8 ngày **0 restart** trong khi banner hệ thống đoán "worker đã chết" — thực ra worker sống mà bị treo, hai thứ hoàn toàn khác nhau khi đi tìm nguyên nhân. **Cách xử lý: mọi thao tác I/O mạng dài trong worker phải có mốc thời gian riêng.** Với stream, đo **khoảng lặng giữa hai chunk** (idle timeout) chứ đừng đo tổng thời gian — file lớn chạy lâu là hợp lệ. Đếm nhịp bằng `Transform` trung gian, **cấm** `source.on('data')` (bật flowing mode trước khi `pipeline` nối đích ⇒ mất dữ liệu đầu file). Dấu vết để lần ra: file `.part` đứng im trong `media-cache/` + log im bặt hoàn toàn ở một mốc giờ. |
 | **`overflow-x: hidden` để chống tràn ngang sẽ GIẾT `position: sticky` của mọi phần tử con** | Phản xạ đầu tiên khi làm responsive là đặt `overflow-x: hidden` lên `body`/`#root`/khối `Content` cho khỏi trượt ngang. Làm vậy là phần tử đó thành **scroll container**, nên `sticky` bên trong bám vào nó thay vì viewport — mà nó không bao giờ cuộn ⇒ header dính của `AdminLayout` và thẻ lọc dính ở `/timeline` **đứng im, nhìn như tính năng biến mất** và không có lỗi nào báo. Cách đúng: xử lý **nguồn** gây tràn — bảng đặt `scroll={{ x }}` để cuộn trong khung, `img/video/iframe` `max-width: 100%`, `pre/code` `word-break: break-word`, flex item thêm `min-width: 0`. Đã ghi comment cảnh báo ngay tại `frontend/src/index.css` và `AdminLayout.tsx` để không ai vô tình thêm lại. |
 | **Graph API dùng chung `code = 100` cho "object không tồn tại" VÀ "tên metric sai"** ⇒ suy ra "bài đã bị xoá" là sai và **mất dữ liệu âm thầm** | Ngày 2026-08-08, adapter insights map `code ∈ {100, 803}` thành `isMissing` ⇒ 3 bài **đang sống** bị ghi `missing_on_fb_at`, mà repository lọc `missing_on_fb_at IS NULL` nên chúng **vĩnh viễn** không được đồng bộ lại — không log, không cảnh báo, chỉ là số liệu đứng im. **Cách xử lý:** chỉ kết luận "đã xoá" khi có `error_subcode = 33`; đọc `message` để nhận diện lỗi cấu hình (`"valid insights metric"`) và dừng cả page thay vì đổ lỗi lên từng bài. **Bài học chung: cờ nào khiến hệ thống NGỪNG VĨNH VIỄN làm một việc thì phải dựa trên tín hiệu hẹp nhất có thể, không dựa vào error code dùng chung.** |
 | **Meta cấp bộ metric Insights KHÁC NHAU tuỳ page ⇒ prod hỏng trong khi dev xanh** | Sau khi sửa tên metric, máy dev chạy tốt nhưng prod vẫn báo "không chấp nhận chỉ số đang dùng" — cùng code, cùng `META_GRAPH_API_VERSION`. Nguyên nhân: page "New Page Experience" và page cũ có bộ metric khác nhau ⇒ **mọi danh sách metric hard-code đều sẽ hỏng ở page nào đó**. **Cách xử lý:** adapter **tự dò** — khi Graph chê metric (nó không nói metric nào), gửi 1 request hỏi từng metric một trên 1 bài, ghi nhớ metric hỏng **theo từng page**, loại ra rồi thử lại; hết metric thì bỏ hẳn khối `insights` nhưng vẫn lấy like/comment/share. **Bài học: với API bên thứ ba trả "tính năng khác nhau tuỳ đối tượng", đừng cấu hình cứng — hãy dò một lần rồi nhớ.** |

@@ -105,10 +105,11 @@ export class AppConfigService {
   }
 
   /** Cache file Drive dùng chung giữa các job đăng cùng một video. */
-  get mediaCache(): { dir: string; ttlMs: number } {
+  get mediaCache(): { dir: string; ttlMs: number; stallTimeoutMs: number } {
     return {
       dir: this.get('MEDIA_CACHE_DIR'),
       ttlMs: this.get('MEDIA_CACHE_TTL_MS'),
+      stallTimeoutMs: this.get('MEDIA_CACHE_STALL_TIMEOUT_MS'),
     };
   }
 
