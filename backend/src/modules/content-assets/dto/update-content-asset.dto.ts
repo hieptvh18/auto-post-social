@@ -76,6 +76,14 @@ export class UpdateContentAssetDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Plan 36: true = Nguồn mới, false = Nguồn cũ. Không phải field duyệt ⇒ ai sửa được bài thì đổi được',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isSourceNew?: boolean;
+
   @ApiPropertyOptional({ description: 'Bắt buộc khi chuyển sang REJECTED' })
   @IsOptional()
   @IsString()

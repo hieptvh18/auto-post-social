@@ -1,6 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsArray, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 /**
  * Field form đi kèm file trong multipart. Multipart **không có kiểu** — mọi giá
@@ -45,6 +51,27 @@ export class CreateMediaUploadJobDto {
   @IsOptional()
   @IsUUID()
   editorId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Plan 36: 'true' = Nguồn mới (mặc định), 'false' = Nguồn cũ. Multipart gửi dạng chuỗi",
+    default: true,
+  })
+  @IsOptional()
+  // Đọc giá trị GỐC từ `obj`: implicit conversion đã biến chuỗi 'false' thành
+  // `true` trước khi @Transform chạy (cùng bẫy `?isAds=false`, xem query DTO).
+  @Transform(({ obj }): unknown =>
+    parseBooleanField((obj as Record<string, unknown>).isSourceNew),
+  )
+  @IsBoolean()
+  isSourceNew?: boolean;
+}
+
+/** `'true'`/`'false'` của multipart → boolean; giá trị khác để `@IsBoolean` báo lỗi. */
+function parseBooleanField(raw: unknown): unknown {
+  if (raw === 'true' || raw === true) return true;
+  if (raw === 'false' || raw === false) return false;
+  return raw;
 }
 
 /** `'["a","b"]'` | `'a'` | `['a','b']` -> `string[]`; rỗng -> `[]`. */

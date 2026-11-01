@@ -90,6 +90,8 @@ export interface FindContentAssetsFilter {
   isAds?: boolean;
   /** Lọc "Đang dùng / Ngưng dùng" — không truyền ⇒ lấy cả hai (đây là màn quản kho). */
   isActive?: boolean;
+  /** Plan 36: Nguồn mới / cũ — không truyền ⇒ lấy cả hai. */
+  isSourceNew?: boolean;
   search?: string;
   createdBy?: string;
   /** Lọc theo người dựng video/ảnh. */
@@ -133,6 +135,8 @@ export interface CreateContentAssetData {
   updatedById: string;
   /** Người dựng video/ảnh — optional, bỏ trống ⇒ null. */
   editorId?: string;
+  /** Plan 36: bỏ trống ⇒ default `true` (Nguồn mới) của schema. */
+  isSourceNew?: boolean;
   /** Bỏ trống ⇒ dùng default PENDING_REVIEW của schema. */
   status?: ContentStatus;
   /** Chỉ set khi bài vào thẳng APPROVED (ADMIN tự upload). */
@@ -166,6 +170,8 @@ export interface UpdateContentAssetData {
   isAds?: boolean;
   /** `false` = ngưng dùng: Bot không lấy bài này nữa. */
   isActive?: boolean;
+  /** Plan 36: nhãn Nguồn mới / cũ. */
+  isSourceNew?: boolean;
   /** `null` = xoá lý do (khi duyệt lại hoặc trả về chờ duyệt). */
   rejectComment?: string | null;
   /** `null` = rút phê duyệt. */
@@ -196,6 +202,9 @@ export class ContentAssetsRepository {
     if (filter.status !== undefined) where.status = filter.status;
     if (filter.isAds !== undefined) where.isAds = filter.isAds;
     if (filter.isActive !== undefined) where.isActive = filter.isActive;
+    if (filter.isSourceNew !== undefined) {
+      where.isSourceNew = filter.isSourceNew;
+    }
     if (filter.createdBy !== undefined) where.createdById = filter.createdBy;
     if (filter.editorId !== undefined) where.editorId = filter.editorId;
     if (filter.sourceType !== undefined) where.sourceType = filter.sourceType;
@@ -249,6 +258,7 @@ export class ContentAssetsRepository {
         createdById: data.createdById,
         updatedById: data.updatedById,
         editorId: data.editorId,
+        isSourceNew: data.isSourceNew,
         status: data.status,
         approvedById: data.approvedById,
         assignments:

@@ -3,6 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -130,4 +131,19 @@ export class QueryPublishReportDto extends QueryPostsByPageDto {
   @ArrayMaxSize(MAX_REPORT_CATEGORIES)
   @IsString({ each: true })
   categories?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Plan 36: true = chỉ bài Nguồn mới, false = chỉ Nguồn cũ. Bỏ trống = tất cả',
+  })
+  @IsOptional()
+  // Đọc giá trị gốc: implicit conversion đã biến 'false' thành true trước @Transform.
+  @Transform(({ obj }): unknown => {
+    const raw = (obj as Record<string, unknown>).isSourceNew;
+    if (raw === 'true' || raw === true) return true;
+    if (raw === 'false' || raw === false) return false;
+    return raw;
+  })
+  @IsBoolean()
+  isSourceNew?: boolean;
 }

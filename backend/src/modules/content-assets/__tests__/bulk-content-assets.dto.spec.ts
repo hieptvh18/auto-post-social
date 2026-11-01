@@ -70,18 +70,21 @@ describe('QueryContentAssetsDto — bộ lọc boolean từ query string', () =>
       enableImplicitConversion: true,
     });
 
-  it.each(['isAds', 'isActive'] as const)(
+  it.each(['isAds', 'isActive', 'isSourceNew'] as const)(
     '%s=false ⇒ false (không bị Boolean("false") biến thành true)',
     (field) => {
       expect(parse({ [field]: 'false' })[field]).toBe(false);
     },
   );
 
-  it.each(['isAds', 'isActive'] as const)('%s=true ⇒ true', (field) => {
-    expect(parse({ [field]: 'true' })[field]).toBe(true);
-  });
+  it.each(['isAds', 'isActive', 'isSourceNew'] as const)(
+    '%s=true ⇒ true',
+    (field) => {
+      expect(parse({ [field]: 'true' })[field]).toBe(true);
+    },
+  );
 
-  it.each(['isAds', 'isActive'] as const)(
+  it.each(['isAds', 'isActive', 'isSourceNew'] as const)(
     'không truyền %s ⇒ undefined (không lọc)',
     (field) => {
       expect(parse({})[field]).toBeUndefined();

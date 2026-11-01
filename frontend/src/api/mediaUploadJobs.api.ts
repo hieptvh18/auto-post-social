@@ -28,6 +28,9 @@ export const mediaUploadJobsApi = {
     if (body.description) formData.append('description', body.description);
     if (body.hashtags) formData.append('hashtags', body.hashtags);
     if (body.editorId) formData.append('editorId', body.editorId);
+    if (body.isSourceNew !== undefined) {
+      formData.append('isSourceNew', String(body.isSourceNew));
+    }
     // Multipart không có kiểu ⇒ gửi mảng dưới dạng chuỗi JSON, backend parse lại.
     formData.append('assignedPageIds', JSON.stringify(body.assignedPageIds ?? []));
 

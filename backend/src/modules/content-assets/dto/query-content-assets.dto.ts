@@ -81,6 +81,17 @@ export class QueryContentAssetsDto {
 
   @ApiPropertyOptional({
     description:
+      'Plan 36: lọc Nguồn mới (true) / Nguồn cũ (false). Bỏ trống = tất cả',
+  })
+  @IsOptional()
+  @Transform(({ obj }): unknown =>
+    toBoolean((obj as Record<string, unknown>).isSourceNew),
+  )
+  @IsBoolean()
+  isSourceNew?: boolean;
+
+  @ApiPropertyOptional({
+    description:
       'Lọc theo trạng thái dùng. Bỏ trống ⇒ lấy cả bài đã ngưng dùng (màn quản kho hiện hết)',
   })
   @IsOptional()

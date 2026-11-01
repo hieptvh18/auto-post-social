@@ -1,7 +1,7 @@
 # Plan 36 — Cờ "Nguồn mới" (`is_source_new`) cho Ảnh/Video
 
 **Milestone:** Phase 2 — mở rộng M3/M4 (Quản lý Ảnh/Video, plan 04)
-**Trạng thái:** ⬜ chưa làm
+**Trạng thái:** 🟡 code + test + migrate DB dev xong 2026-11-01 — **chưa bấm tay trên UI thật**
 **Phụ thuộc:** Plan 04 (`content_assets`), Plan 23 (upload qua `media_upload_jobs`),
 Plan 24 (nhập link Drive), Plan 29 (reup tạo content)
 **Spec tham chiếu:** `docs/03` (content) · `.claude/rules/05-database-erd.md`
@@ -76,20 +76,20 @@ bảng Index của `erd.md` kèm lý do.
 
 ## 4. Task
 
-- [ ] Sửa `schema.prisma` (thêm `isSourceNew`)
-- [ ] **Cập nhật `erd.md`**: cột `boolean is_source_new` ở `content_assets`, ghi chú ràng buộc
+- [x] Sửa `schema.prisma` (thêm `isSourceNew`)
+- [x] **Cập nhật `erd.md`**: cột `boolean is_source_new` ở `content_assets`, ghi chú ràng buộc
       ("chỉ là nhãn, Bot không dùng"), Lịch sử thay đổi, ngày + migration mới nhất ở đầu file
-- [ ] `npx prisma migrate dev --name content_is_source_new`
-- [ ] BE: DTO create/update/query, repository, mapper
-- [ ] BE: media-upload-jobs (DTO + multipart transform + metadata + worker) và drive-imports
-- [ ] Test: `query-content-assets.dto` — `isSourceNew=false` ra `false` (không bị thành `true`);
+- [x] `npx prisma migrate dev --name content_is_source_new`
+- [x] BE: DTO create/update/query, repository, mapper
+- [x] BE: media-upload-jobs (DTO + multipart transform + metadata + worker) và drive-imports
+- [x] Test: `query-content-assets.dto` — `isSourceNew=false` ra `false` (không bị thành `true`);
       `content-assets.service.spec` — filter truyền đúng xuống repository; media-upload worker
       — metadata thiếu key ⇒ không truyền (dùng default)
-- [ ] FE: type + api, Checkbox ở 2 popup tạo + popup sửa, filter, Tag trên bảng, mock
-- [ ] `npm run lint && npm run build` xanh BE + FE; `npm run test` BE
+- [x] FE: type + api, Checkbox ở 2 popup tạo + popup sửa, filter, Tag trên bảng, mock
+- [x] `npm run lint && npm run build` xanh BE + FE; `npm run test` BE
 - [ ] Bấm tay UI thật (§5)
-- [ ] Cập nhật `contexts.md` + thêm dòng plan 36 vào `PLAN-MVP.md`
-- [ ] Nếu plan 35 đã xong: thêm filter Mới/Cũ cho tab Thống kê đăng bài (plan 35 §3.6)
+- [x] Cập nhật `contexts.md` + thêm dòng plan 36 vào `PLAN-MVP.md`
+- [x] Nếu plan 35 đã xong: thêm filter Mới/Cũ cho tab Thống kê đăng bài (plan 35 §3.6)
 
 ## 5. Điều kiện nghiệm thu
 
@@ -122,9 +122,20 @@ bảng Index của `erd.md` kèm lý do.
 
 ## 8. Kết quả (điền khi xong)
 
-- **Ngày xong:**
-- **File chính:**
-- **Migration:**
-- **Khác thiết kế ban đầu:**
-- **Test:** N test
-- **Còn nợ:**
+- **Ngày xong:** code 2026-11-01 (chờ bấm tay UI thật)
+- **File chính:** BE `backend/prisma/schema.prisma`, `backend/src/modules/content-assets/**`
+  (DTO create/update/query, repository, service, mapper), `backend/src/modules/media-upload-jobs/**`
+  (DTO multipart + drive-import, metadata, 2 worker); FE `frontend/src/pages/ContentManagementPage.tsx`,
+  `frontend/src/components/common/DriveImportPanel.tsx`, `frontend/src/types/index.ts`,
+  `frontend/src/api/mediaUploadJobs.api.ts`
+- **Migration:** `20261101153822_content_is_source_new` (đã chạy trên DB dev, **chưa chạy prod**)
+- **Khác thiết kế ban đầu:** câu hỏi mở §7 chưa được trả lời ⇒ code theo đề xuất:
+  (1) bài đã có **để `true` (Mới)** theo "default true" của user — nếu muốn bài cũ là Cũ thì phải
+  sửa migration **trước khi commit**; (2) ai sửa được bài thì sửa được cờ; (3) filter là Select
+  "Nguồn mới / Nguồn cũ" (bỏ trống = tất cả). Không thêm index. Mock mode màn Quản lý Ảnh/Video
+  **chưa** có checkbox/filter (chỉ thêm field optional vào type). Đã làm luôn filter Nguồn cho
+  tab Thống kê đăng bài (plan 35 §3.6), param URL `rSource=new|old`.
+- **Test:** BE +14 (DTO query/multipart boolean, filter xuống repository, CONTENT đổi được cờ,
+  không gửi thì không đụng cột, metadata job → worker, job cũ thiếu key, filter dashboard) —
+  toàn bộ 1150 test xanh.
+- **Còn nợ:** bấm tay UI thật (§5); chạy migration trên prod khi deploy.

@@ -285,6 +285,8 @@ function uploadJobToRow(job: MediaUploadJobResponse): ContentRow {
     status: 'PENDING_REVIEW',
     isAds: false,
     isActive: true,
+    // Dòng mờ không hiện tag nào — giá trị này chỉ để khớp type.
+    isSourceNew: true,
     // Dòng "mờ" luôn là upload TAY của chính người đang ngồi đây — job reup
     // chạy nền phía server, không đi qua hàng đợi trình duyệt này.
     sourceType: 'MANUAL',
@@ -1042,6 +1044,8 @@ function RealContentManagementPage() {
   // const [uploaderFilter, setUploaderFilter] = useState<string | undefined>();
   const [editorFilter, setEditorFilter] = useState<string | undefined>();
   const [activeFilter, setActiveFilter] = useState<boolean | undefined>();
+  /** Plan 36: Nguồn mới (true) / cũ (false); undefined = tất cả. */
+  const [sourceNewFilter, setSourceNewFilter] = useState<boolean | undefined>();
   /**
    * Plan 27 §3.2 — bộ lọc "Loại", **chỉ SUPER_ADMIN thấy**. Mặc định `REUP`
    * đúng như user chốt: đây là màn chính để duyệt bài reup. Role khác không có
@@ -1081,6 +1085,7 @@ function RealContentManagementPage() {
     status: statusFilter,
     editorId: editorFilter,
     isActive: activeFilter,
+    isSourceNew: sourceNewFilter,
     // Role thường KHÔNG gửi field này. Kể cả có gửi, backend cũng ép cứng
     // MANUAL — đây chỉ là để URL/cache sạch, không phải hàng rào bảo mật.
     sourceType: canViewReup ? sourceTypeFilter : undefined,
@@ -1154,6 +1159,7 @@ function RealContentManagementPage() {
         assignedPageIds: record.assignedPageIds,
         editorId: record.editorId ?? undefined,
         isActive: record.isActive,
+        isSourceNew: record.isSourceNew,
         status: record.status,
         isAds: record.isAds,
         rejectComment: record.rejectComment ?? '',
@@ -1242,6 +1248,7 @@ function RealContentManagementPage() {
     assignedPageIds?: string[];
     editorId?: string;
     isActive: boolean;
+    isSourceNew: boolean;
     status: ContentStatus;
     isAds: boolean;
     rejectComment?: string;
@@ -1257,6 +1264,7 @@ function RealContentManagementPage() {
       // Bỏ trống ô Editor ⇒ gửi null để gỡ người dựng đang gán.
       editorId: values.editorId ?? null,
       isActive: values.isActive,
+      isSourceNew: values.isSourceNew,
       ...(canReview
         ? {
             // Bài do bot đang xử lý: ô trạng thái bị khoá nên không gửi `status`
@@ -1323,6 +1331,7 @@ function RealContentManagementPage() {
     hashtags?: string;
     assignedPageIds?: string[];
     editorId?: string;
+    isSourceNew: boolean;
   }) => {
     if (fileList.length === 0) {
       message.error('Vui lòng chọn file ảnh hoặc video');
@@ -1343,6 +1352,7 @@ function RealContentManagementPage() {
         hashtags: values.hashtags,
         assignedPageIds: values.assignedPageIds ?? [],
         editorId: values.editorId,
+        isSourceNew: values.isSourceNew,
       },
       rawFiles,
     );
@@ -1435,6 +1445,7 @@ function RealContentManagementPage() {
               assignedCount={record.assignedPageIds.length}
             />
             {record.isAds && <Tag color="gold">Đạt ADS</Tag>}
+            {record.isSourceNew && <Tag color="green">Mới</Tag>}
             {!record.isActive && <Tag>Ngưng dùng</Tag>}
             {/* Chỉ hiện khi đang xem "Tất cả": lúc đang lọc đúng 1 loại thì tag
                 này lặp lại y hệt trên mọi dòng, chỉ tổ chiếm chỗ. */}
@@ -1664,6 +1675,19 @@ function RealContentManagementPage() {
             resetPageAndSelection();
           }}
         />
+        <Select
+          placeholder="Nguồn"
+          allowClear
+          style={{ width: 140 }}
+          options={[
+            { value: 'new', label: 'Nguồn mới' },
+            { value: 'old', label: 'Nguồn cũ' },
+          ]}
+          onChange={(v: 'new' | 'old' | undefined) => {
+            setSourceNewFilter(v === undefined ? undefined : v === 'new');
+            resetPageAndSelection();
+          }}
+        />
         <Input.Search
           placeholder="Tìm theo tiêu đề..."
           allowClear
@@ -1871,6 +1895,9 @@ function RealContentManagementPage() {
             >
               <Switch checkedChildren="Đang dùng" unCheckedChildren="Ngưng dùng" />
             </Form.Item>
+            <Form.Item name="isSourceNew" valuePropName="checked">
+              <Checkbox>Nguồn mới</Checkbox>
+            </Form.Item>
 
             {canReview && (
               <>
@@ -1957,7 +1984,13 @@ function RealContentManagementPage() {
               label: 'Tải từ máy',
               children: (
         <div>
-          <Form form={createForm} layout="vertical" onFinish={handleCreate}>
+          <Form
+            form={createForm}
+            layout="vertical"
+            onFinish={handleCreate}
+            // Plan 36: "Nguồn mới" tick sẵn; resetFields() cũng quay về giá trị này.
+            initialValues={{ isSourceNew: true }}
+          >
           <Form.Item
             label="File ảnh/video"
             required
@@ -2051,6 +2084,9 @@ function RealContentManagementPage() {
               placeholder="Chọn account Editor (không bắt buộc)"
               options={editorSelectOptions}
             />
+          </Form.Item>
+          <Form.Item name="isSourceNew" valuePropName="checked">
+            <Checkbox>Nguồn mới</Checkbox>
           </Form.Item>
           </Form>
         </div>

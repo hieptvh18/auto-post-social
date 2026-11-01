@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -108,6 +109,14 @@ export class CreateContentAssetDto {
   @IsOptional()
   @IsUUID()
   editorId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Plan 36: true = Nguồn mới (mặc định), false = Nguồn cũ',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isSourceNew?: boolean;
 
   @ApiPropertyOptional({
     description:

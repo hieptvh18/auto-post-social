@@ -272,6 +272,23 @@ describe('MediaUploadJobsService', () => {
       );
     });
 
+    it('lưu cờ Nguồn mới/cũ người dùng chọn vào metadata (plan 36)', async () => {
+      const { service, repository } = build();
+
+      await service.createJob(
+        [makeFile()],
+        { ...DTO, isSourceNew: false },
+        ACTOR,
+      );
+
+      const metadataMatcher: unknown = expect.objectContaining({
+        isSourceNew: false,
+      });
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: metadataMatcher }),
+      );
+    });
+
     it('nhận N ảnh trong MỘT job (bài nhiều ảnh của plan 22)', async () => {
       const { service, repository } = build();
 
@@ -385,6 +402,44 @@ describe('MediaUploadJobsService', () => {
         errorMessage: null,
         filesRemovedAt: NOW,
       });
+    });
+
+    it('worker tạo bài với đúng cờ Nguồn mới/cũ trong metadata (plan 36)', async () => {
+      const { service, repository, contentAssets } = build();
+      const job = makeJob();
+      repository.findById.mockResolvedValue({
+        ...job,
+        metadata: { ...job.metadata, isSourceNew: false },
+      });
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(contentAssets.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isSourceNew: false }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('job tạo trước plan 36 (metadata không có cờ) ⇒ để undefined, DB tự default true', async () => {
+      const { service, repository, contentAssets } = build();
+      repository.findById.mockResolvedValue(makeJob());
+
+      await service.process({
+        mediaUploadJobId: 'job-1',
+        attemptNo: 1,
+        isLastAttempt: false,
+      });
+
+      expect(contentAssets.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isSourceNew: undefined }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('bài nhiều ảnh: ảnh đầu là record chính, phần còn lại vào extraFiles', async () => {

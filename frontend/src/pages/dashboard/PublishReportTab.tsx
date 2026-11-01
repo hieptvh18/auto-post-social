@@ -65,6 +65,8 @@ interface ReportFilters {
   categories: string[];
   mediaType: MediaType | 'all';
   groupBy: PublishReportGroupBy;
+  /** Plan 36: undefined = mọi nguồn. */
+  isSourceNew?: boolean;
 }
 
 interface Option {
@@ -94,6 +96,7 @@ function RealPublishReport() {
       categories: splitParam(searchParams.get('rCats')),
       mediaType: (searchParams.get('rMedia') as MediaType | null) ?? 'all',
       groupBy: searchParams.get('rGroup') === 'month' ? 'month' : 'day',
+      isSourceNew: parseSourceParam(searchParams.get('rSource')),
     }),
     [searchParams],
   );
@@ -111,6 +114,10 @@ function RealPublishReport() {
       put('rCats', next.categories.join(','));
       put('rMedia', next.mediaType === 'all' ? undefined : next.mediaType);
       put('rGroup', next.groupBy === 'day' ? undefined : next.groupBy);
+      put(
+        'rSource',
+        next.isSourceNew === undefined ? undefined : next.isSourceNew ? 'new' : 'old',
+      );
       return params;
     });
   };
@@ -233,6 +240,8 @@ function buildMockReport(jobs: PublishJob[], filters: ReportFilters): PublishRep
     if (filters.pageIds.length && !filters.pageIds.includes(job.facebookPageId)) continue;
     if (filters.categories.length && !filters.categories.includes(job.category ?? '')) continue;
     if (filters.mediaType !== 'all' && job.mediaType !== filters.mediaType) continue;
+    // Mock publishJobs không mang cờ Nguồn ⇒ coi mọi bài là Nguồn mới (default DB).
+    if (filters.isSourceNew === false) continue;
     const i = index.get(filters.groupBy === 'month' ? at.format('YYYY-MM') : day);
     if (i === undefined) continue;
     const page = mockPages.find((p) => p.id === job.facebookPageId);
@@ -312,7 +321,7 @@ function ReportView({
     <div>
       <Card size="small" style={{ marginBottom: 16 }}>
         <Row gutter={[16, 12]}>
-          <Col xs={24} md={12} xl={7}>
+          <Col xs={24} md={12} xl={6}>
             <FilterLabel>Page</FilterLabel>
             <Select
               mode="multiple"
@@ -339,7 +348,7 @@ function ReportView({
               }}
             />
           </Col>
-          <Col xs={24} md={12} xl={6}>
+          <Col xs={24} md={12} xl={5}>
             <FilterLabel>Danh mục (Dạng)</FilterLabel>
             <Select
               mode="multiple"
@@ -351,6 +360,28 @@ function ReportView({
               value={filters.categories}
               onChange={(categories: string[]) => set({ categories })}
               options={categoryOptions}
+            />
+          </Col>
+          <Col xs={12} sm={6} xl={3}>
+            <FilterLabel>Nguồn</FilterLabel>
+            <Select
+              allowClear
+              placeholder="Tất cả"
+              style={{ width: '100%' }}
+              value={
+                filters.isSourceNew === undefined
+                  ? undefined
+                  : filters.isSourceNew
+                    ? 'new'
+                    : 'old'
+              }
+              onChange={(v: 'new' | 'old' | undefined) =>
+                set({ isSourceNew: v === undefined ? undefined : v === 'new' })
+              }
+              options={[
+                { value: 'new', label: 'Nguồn mới' },
+                { value: 'old', label: 'Nguồn cũ' },
+              ]}
             />
           </Col>
           <Col xs={24} sm={12} xl={5}>
@@ -747,6 +778,12 @@ function rangePresets(): { label: string; value: [Dayjs, Dayjs] }[] {
     },
     { label: '3 tháng gần nhất', value: [today.subtract(2, 'month').startOf('month'), today] },
   ];
+}
+
+function parseSourceParam(value: string | null): boolean | undefined {
+  if (value === 'new') return true;
+  if (value === 'old') return false;
+  return undefined;
 }
 
 function splitParam(value: string | null): string[] {

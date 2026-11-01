@@ -415,6 +415,16 @@ describe('DashboardService', () => {
       expect(report.scopedToOwnContent).toBe(true);
     });
 
+    it('truyền bộ lọc Nguồn mới/cũ xuống repository (plan 36)', async () => {
+      const { repository, service } = setup();
+
+      await service.getPublishReport(query({ isSourceNew: false }), ADMIN);
+
+      expect(repository.publishReportByPagePeriod).toHaveBeenCalledWith(
+        expect.objectContaining({ isSourceNew: false }),
+      );
+    });
+
     it('ADMIN không bị scope', async () => {
       const { repository, service } = setup();
 

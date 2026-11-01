@@ -87,6 +87,8 @@ export interface CreateContentAssetInput {
   mimeType?: string;
   fileSize?: number;
   editorId?: string;
+  /** Plan 36: bỏ trống ⇒ `true` (Nguồn mới). */
+  isSourceNew?: boolean;
   assignedPageIds?: string[];
   extraFiles?: CreateContentAssetFileInput[];
   /** Plan 24: fileId GỐC bên Drive người khác khi bài được nhập bằng link. */
@@ -138,6 +140,7 @@ export class ContentAssetsService {
       status: query.status,
       isAds: query.isAds,
       isActive: query.isActive,
+      isSourceNew: query.isSourceNew,
       search: query.search,
       createdBy,
       editorId: query.editorId,
@@ -283,6 +286,7 @@ export class ContentAssetsService {
       createdById: actor.id,
       updatedById: actor.id,
       editorId: dto.editorId,
+      isSourceNew: dto.isSourceNew,
       assignedPageIds,
       status: autoApproved ? ContentStatus.APPROVED : undefined,
       approvedById: autoApproved ? actor.id : undefined,
@@ -328,6 +332,8 @@ export class ContentAssetsService {
     if (dto.isAds !== undefined) data.isAds = dto.isAds;
     // "Đang dùng" không phải field duyệt ⇒ ai sửa được bài thì đổi được.
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    // Plan 36: nhãn phân loại, không phải field duyệt ⇒ cũng không cần `content:review`.
+    if (dto.isSourceNew !== undefined) data.isSourceNew = dto.isSourceNew;
     // `null` = gỡ người dựng; `undefined` = không đụng tới field này.
     if (dto.editorId !== undefined) data.editorId = dto.editorId;
 

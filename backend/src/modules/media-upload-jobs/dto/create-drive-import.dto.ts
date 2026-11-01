@@ -37,4 +37,12 @@ export class CreateDriveImportDto {
   @IsOptional()
   @IsBoolean()
   copyData?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Plan 36: true = Nguồn mới (mặc định), false = Nguồn cũ',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isSourceNew?: boolean;
 }

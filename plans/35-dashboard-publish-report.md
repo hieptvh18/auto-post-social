@@ -247,4 +247,4 @@ trên FE. Nếu plan 36 chưa xong khi làm plan này ⇒ bỏ qua, ghi task và
     không đè `from`/`to` của tab 2; tab 2 đổi kỳ giờ giữ các param khác (trước đây ghi đè cả URL).
   - Chart dùng recharts sẵn có (BarChart stack), không thêm dependency.
 - **Test:** BE +9 test (6 `getPublishReport`, 3 `listMonths`) — dashboard 39/39 xanh. FE: chưa viết test (không bắt buộc).
-- **Còn nợ:** bấm tay UI thật (§5); filter Mới/Cũ chờ plan 36.
+- **Còn nợ:** bấm tay UI thật (§5). Filter Mới/Cũ (§3.6) đã làm cùng plan 36 ngày 2026-11-01.

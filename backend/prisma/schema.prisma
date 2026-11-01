@@ -219,6 +219,9 @@ model ContentAsset {
   status        ContentStatus @default(PENDING_REVIEW)
   isAds         Boolean       @default(false) @map("is_ads") // Đạt ADS
   isActive      Boolean       @default(true) @map("is_active") // false = ngưng dùng: Bot không lấy nữa (khác status duyệt)
+  /// Plan 36: true = nguồn ảnh/video MỚI, false = nguồn CŨ. Chỉ là nhãn phân loại
+  /// cho người dùng lọc — Bot/picker KHÔNG dùng cột này để chọn bài.
+  isSourceNew   Boolean       @default(true) @map("is_source_new")
   rejectComment String?       @map("reject_comment") @db.Text
   createdById   String        @map("created_by") @db.Uuid
   approvedById  String?       @map("approved_by") @db.Uuid

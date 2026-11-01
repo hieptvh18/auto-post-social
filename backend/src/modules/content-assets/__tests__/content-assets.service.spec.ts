@@ -53,6 +53,7 @@ const makeAsset = (
   updatedById: 'content-1',
   editorId: null,
   isActive: true,
+  isSourceNew: true,
   sourceType: ContentSource.MANUAL,
   resourceDeletedAt: null,
   createdBy: actor('content-1'),
@@ -192,6 +193,19 @@ describe('ContentAssetsService', () => {
 
       expect(repository.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ createdBy: 'content-1' }),
+      );
+    });
+
+    it('truyền bộ lọc Nguồn mới/cũ xuống repository (plan 36)', async () => {
+      repository.findMany.mockResolvedValue({ data: [], total: 0 });
+
+      await service.findAll(
+        { page: 1, limit: 20, isSourceNew: false },
+        editorUser,
+      );
+
+      expect(repository.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ isSourceNew: false }),
       );
     });
 
@@ -1049,6 +1063,41 @@ describe('ContentAssetsService', () => {
 
       expect(result.succeeded).toEqual([]);
       expect(repository.setActiveMany).not.toHaveBeenCalled();
+    });
+
+    it('CONTENT đổi được cờ Nguồn mới trên bài của mình — không phải field duyệt (plan 36)', async () => {
+      const current = makeAsset({ isSourceNew: true });
+      repository.findById.mockResolvedValue(current);
+      repository.update.mockResolvedValue({ ...current, isSourceNew: false });
+
+      const result = await service.update(
+        'asset-1',
+        { isSourceNew: false },
+        contentUser,
+      );
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'asset-1',
+        expect.objectContaining({ isSourceNew: false }),
+        undefined,
+      );
+      expect(result.isSourceNew).toBe(false);
+    });
+
+    it('không gửi isSourceNew ⇒ không đụng tới cột này', async () => {
+      const current = makeAsset();
+      repository.findById.mockResolvedValue(current);
+      repository.update.mockResolvedValue(current);
+
+      await service.update('asset-1', { title: 'Mới' }, contentUser);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'asset-1',
+        expect.not.objectContaining({
+          isSourceNew: expect.anything() as unknown,
+        }),
+        undefined,
+      );
     });
 
     it('đổi isActive lẻ 1 bài ⇒ ghi audit CONTENT_ACTIVE_TOGGLE', async () => {

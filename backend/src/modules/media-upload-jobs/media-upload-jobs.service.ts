@@ -154,6 +154,7 @@ export class MediaUploadJobsService implements OnModuleInit {
           hashtags: dto.hashtags,
           assignedPageIds: dto.assignedPageIds ?? [],
           editorId: dto.editorId,
+          isSourceNew: dto.isSourceNew,
         },
         createdById: actor.id,
       });
@@ -439,6 +440,7 @@ export class MediaUploadJobsService implements OnModuleInit {
         mimeType: primary.mimeType,
         fileSize: primary.size,
         editorId: job.metadata.editorId,
+        isSourceNew: job.metadata.isSourceNew,
         assignedPageIds: job.metadata.assignedPageIds,
         extraFiles,
         forceReview: job.metadata.forceReview,

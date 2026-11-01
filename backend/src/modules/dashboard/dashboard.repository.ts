@@ -71,6 +71,8 @@ export interface PublishReportFilter {
   pageIds: string[];
   categories: string[];
   mediaType: 'image' | 'video' | 'all';
+  /** Plan 36: `undefined` = không lọc theo Nguồn mới/cũ. */
+  isSourceNew?: boolean;
   ownerId: string | null;
 }
 
@@ -446,6 +448,9 @@ function publishReportWhere(filter: PublishReportFilter): Prisma.Sql {
     conditions.push(
       Prisma.sql`c.media_type = ${filter.mediaType}::"MediaType"`,
     );
+  }
+  if (filter.isSourceNew !== undefined) {
+    conditions.push(Prisma.sql`c.is_source_new = ${filter.isSourceNew}`);
   }
   if (filter.ownerId !== null) {
     conditions.push(Prisma.sql`c.created_by = ${filter.ownerId}::uuid`);

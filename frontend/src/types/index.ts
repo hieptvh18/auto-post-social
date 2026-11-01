@@ -235,6 +235,8 @@ export interface ContentAsset {
   thumbnailUrl?: string;
   status: ContentStatus;
   isAds: boolean;
+  /** Plan 36: true = Nguồn mới, false = Nguồn cũ. Bỏ trống (mock cũ) ⇒ coi là Mới. */
+  isSourceNew?: boolean;
   assignedPageIds: string[];
   publishedPageIds: string[];
   createdBy: string;
@@ -624,6 +626,8 @@ export interface QueryPublishReportParams extends QueryPostsByPageParams {
   pageIds?: string[];
   /** Rỗng = mọi danh mục. */
   categories?: string[];
+  /** Plan 36: Nguồn mới (true) / cũ (false); bỏ trống = tất cả. */
+  isSourceNew?: boolean;
 }
 
 export interface PublishReportPageRow {
@@ -725,6 +729,8 @@ export interface CreateMediaUploadJobBody {
   hashtags?: string;
   assignedPageIds?: string[];
   editorId?: string;
+  /** Plan 36: bỏ trống ⇒ backend mặc định Nguồn mới. */
+  isSourceNew?: boolean;
 }
 
 /** Vì sao một dòng link bị bỏ qua khi nhập từ Drive (plan 24). */
@@ -785,6 +791,8 @@ export interface CreateDriveImportBody {
    * Bỏ trống = **chỉ lưu link** gốc — mặc định, để không phình Drive cá nhân.
    */
   copyData?: boolean;
+  /** Plan 36: bỏ trống ⇒ backend mặc định Nguồn mới. */
+  isSourceNew?: boolean;
 }
 
 export type DriveAuthMode = 'service_account' | 'oauth2';
@@ -866,6 +874,8 @@ export interface ContentAssetResponse {
   isAds: boolean;
   /** `false` = ngưng dùng: vẫn hiện trong kho (làm mờ) nhưng Bot không lấy nữa. */
   isActive: boolean;
+  /** Plan 36: true = Nguồn mới, false = Nguồn cũ. Chỉ là nhãn, Bot không dùng. */
+  isSourceNew: boolean;
   /** Plan 27: `MANUAL` = tự upload · `REUP` = cron tự kéo về từ nguồn ngoài. */
   sourceType: ContentSource;
   /**
@@ -968,6 +978,8 @@ export interface QueryContentAssetsParams {
   isAds?: boolean;
   /** Lọc "Đang dùng / Ngưng dùng"; bỏ trống ⇒ lấy cả hai. */
   isActive?: boolean;
+  /** Plan 36: Nguồn mới (true) / cũ (false); bỏ trống ⇒ cả hai. */
+  isSourceNew?: boolean;
   search?: string;
   createdBy?: string;
   /** Lọc theo người dựng video/ảnh. */
@@ -996,6 +1008,8 @@ export interface CreateContentAssetBody {
   fileSize?: number;
   /** Người dựng video/ảnh — không bắt buộc. */
   editorId?: string;
+  /** Plan 36: bỏ trống ⇒ Nguồn mới. */
+  isSourceNew?: boolean;
   assignedPageIds?: string[];
   /**
    * Ảnh phụ của bài nhiều ảnh, ĐÚNG thứ tự đăng. Chỉ hợp lệ với `mediaType: 'image'`;
@@ -1027,6 +1041,8 @@ export interface UpdateContentAssetBody {
   isAds?: boolean;
   /** `false` = ngưng dùng — không phải field duyệt, ai sửa được bài thì đổi được. */
   isActive?: boolean;
+  /** Plan 36: nhãn Nguồn mới/cũ — ai sửa được bài thì đổi được. */
+  isSourceNew?: boolean;
   rejectComment?: string;
   /** Người dựng video/ảnh; gửi `null` để gỡ. */
   editorId?: string | null;

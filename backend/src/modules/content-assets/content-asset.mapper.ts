@@ -41,6 +41,8 @@ export interface ContentAssetResponse {
   isAds: boolean;
   /** `false` = ngưng dùng: vẫn hiện ở kho (làm mờ) nhưng Bot không lấy nữa. */
   isActive: boolean;
+  /** Plan 36: true = Nguồn mới, false = Nguồn cũ. */
+  isSourceNew: boolean;
   /** Plan 27: `MANUAL` = tự upload · `REUP` = cron tự kéo về từ nguồn ngoài. */
   sourceType: ContentAsset['sourceType'];
   /**
@@ -97,6 +99,7 @@ export function toContentAssetResponse(
     status: asset.status,
     isAds: asset.isAds,
     isActive: asset.isActive,
+    isSourceNew: asset.isSourceNew,
     sourceType: asset.sourceType,
     resourceDeletedAt: asset.resourceDeletedAt,
     rejectComment: asset.rejectComment,

@@ -207,6 +207,7 @@ export class DriveImportsService {
           forceReview: true,
           assignedPageIds: [],
           copyToDrive: dto.copyData === true,
+          isSourceNew: dto.isSourceNew,
         },
         createdById: actor.id,
       });
@@ -522,6 +523,7 @@ export class DriveImportsService {
         mimeType: primary.mimeType,
         fileSize: primary.size,
         editorId: job.metadata.editorId,
+        isSourceNew: job.metadata.isSourceNew,
         assignedPageIds: job.metadata.assignedPageIds,
         extraFiles,
         // fileId GỐC — chỉ để cảnh báo nhập trùng lần sau. `driveFileId` ở trên

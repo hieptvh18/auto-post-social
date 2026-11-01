@@ -64,6 +64,7 @@ export class MediaUploadJobsController {
         hashtags: { type: 'string' },
         assignedPageIds: { type: 'string', example: '["<uuid>"]' },
         editorId: { type: 'string' },
+        isSourceNew: { type: 'string', enum: ['true', 'false'] },
       },
     },
   })

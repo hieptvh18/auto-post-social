@@ -3,8 +3,8 @@
 > **Bản đồ dữ liệu chính thức.** Mọi thay đổi schema PHẢI cập nhật file này —
 > xem [.claude/rules/05-database-erd.md](./.claude/rules/05-database-erd.md).
 
-**Cập nhật:** 2026-08-15
-**Migration tương ứng:** `20260815010000_reup_topics_videos_runs` (plan 27)
+**Cập nhật:** 2026-11-01
+**Migration tương ứng:** `20261101153822_content_is_source_new` (plan 36)
 **Nguồn sự thật:** `backend/prisma/schema.prisma`
 
 ---
@@ -98,6 +98,7 @@ erDiagram
         enum status
         boolean is_ads
         boolean is_active
+        boolean is_source_new
         text reject_comment
         uuid created_by FK
         uuid approved_by FK
@@ -401,6 +402,7 @@ erDiagram
 | Mọi timestamp lưu **UTC** | Prisma mặc định; UI convert sang `Asia/Ho_Chi_Minh` |
 | `content_assets.updated_at` = mốc xếp hàng cho Bot (thời điểm duyệt gần nhất) | `@updatedAt` |
 | `content_assets.is_active` = **bài còn được đem ra dùng không**, độc lập với `status` (duyệt). `false` ⇒ Bot **không lấy nữa**, nhưng **không** gỡ bài đã đăng và không đụng `publish_jobs`. Mọi nơi *tiêu thụ* bài (cron picker, đếm kho, đăng tay, lịch đăng, dashboard) phải lọc `is_active = TRUE`; riêng `GET /content-assets` **cố ý không lọc** vì đó là màn quản kho | Picker raw SQL + `ContentAssetsService`; xem `plans/19-bulk-actions.md` §2.2 |
+| `content_assets.is_source_new` = nhãn **Nguồn mới / Nguồn cũ** do người dùng tick (mặc định `true`). **Chỉ để lọc/hiển thị** ở màn Quản lý Ảnh/Video — cron picker, đăng tay, dashboard **không** dùng cột này để chọn bài. Không đòi quyền duyệt: ai sửa được bài thì đổi được | `ContentAssetsService`; `plans/36-content-source-new-flag.md` |
 | `content_assets.editor_id` = người **dựng** video/ảnh (account role `EDITOR`, đang active). Khác hẳn `created_by` (người upload) và `updated_by` (người sửa gần nhất). Nullable — không bắt buộc. Ràng buộc "phải là EDITOR + active" kiểm ở **service**, DB chỉ ràng FK | `ContentAssetsService.assertEditorSelectable()` |
 | `content_assets.updated_by` = người **sửa gần nhất** (không phải người duyệt — đó là `approved_by`). `null` = bài cũ có trước khi bật tracking | `ContentAssetsService.create()/update()` set `= actor.id` |
 | Xóa page = soft delete (`deleted_at = now()`, kèm `is_active=false`) | Service — vì `publish_jobs` còn tham chiếu. **`deleted_at` (đã xoá, ẩn khỏi UI) khác `is_active` (tạm dừng, vẫn hiện ở UI)** — không dùng lẫn |
@@ -452,6 +454,7 @@ erDiagram
 
 | Ngày | Migration | Nội dung |
 |------|-----------|----------|
+| 2026-11-01 | `20261101153822_content_is_source_new` | **Plan 36 (cờ Nguồn mới).** Thêm `content_assets.is_source_new` (boolean, `NOT NULL DEFAULT true` ⇒ **toàn bộ bài đã có được tính là Mới**, theo yêu cầu user "default true"). Chỉ là nhãn để lọc/hiển thị ở màn Quản lý Ảnh/Video — Bot không dùng. **Không thêm index**: cột boolean selectivity thấp, luôn đi kèm các bộ lọc khác của màn kho; cần thì thêm migration sau. |
 | 2026-08-15 | `20260815010000_reup_topics_videos_runs` | **Plan 27 (nền dữ liệu reup).** **Hoàn toàn additive — không DROP, không đổi kiểu, không backfill.** (1) 4 enum mới: `ContentSource`, `ReupPlatform`, `ReupVideoStatus`, `ReupRunStatus`; thêm giá trị `REUP` cho `MediaUploadSource`. (2) 3 bảng mới: `reup_topics` (chủ đề người vận hành khai báo + bộ lọc + `daily_quota` + `auto_approve`), `reup_videos` (video nguồn đã phát hiện — UNIQUE `(platform, external_id)` là chỗ **chống tải trùng**), `reup_runs` (nhật ký cron, khuôn từ `slot_runs`, UNIQUE `(topic_id, run_date)` **chống double-fire**). (3) `content_assets` thêm **2 cột**: `source_type` (`DEFAULT 'MANUAL'` ⇒ toàn bộ bài cũ giữ nguyên hành vi) + `resource_deleted_at` (nullable, plan 30 dùng), kèm index `source_type`. (4) `media_upload_jobs.reup_video_id` (nullable) + index — điểm nối để worker upload có sẵn đóng sổ ngược về `reup_videos` (plan 29 §3.3 cách a); nhánh `NULL` = upload tay chạy **y như cũ**. Gộp sẵn `reup_runs.quota_used` và `MediaUploadSource.REUP` của plan 29 vào migration này để không phải `ALTER TYPE` thêm lần nữa. `source_type` chỉ dùng để **tách 2 menu**; metadata nguồn (link gốc, tác giả, view) nằm ở `reup_videos` chứ không nhồi vào `content_assets` (QĐ-4). |
 | 2026-08-15 | `20260815000000_add_super_admin_role` | **Plan 26 (role SUPER_ADMIN).** Thêm **một giá trị** vào enum `UserRole`: `SUPER_ADMIN`, đặt `BEFORE 'ADMIN'` để thứ tự enum phản ánh thứ bậc quyền. **Không** đổi `@default(CONTENT)`, **không** đụng dòng dữ liệu nào ⇒ không cần backfill, mọi user cũ giữ nguyên role. `ALTER TYPE ... ADD VALUE` đứng **một mình** trong migration vì ở nhiều phiên bản Postgres nó không chạy được trong transaction cùng DDL khác. Lý do tồn tại: `ADMIN` trước đây nắm **toàn bộ** permission (`ROLE_PERMISSIONS[ADMIN] = PERMISSIONS`) nên không có cách nào tạo người quản trị đứng trên ADMIN; 2 permission mới `reup:view`/`reup:manage` (không lưu DB, hardcode ở `common/permissions.ts`) chỉ cấp cho `SUPER_ADMIN` để làm nền phân quyền cho menu Reup của plan 27→31. |
 | 2026-08-08 | `20260808064846_post_insights_real_metrics` | **Plan 25 §8 — sửa sau khi đo Graph API thật.** Migration trước đặt sai giả định. (1) **Bỏ** `impressions`, `impressions_unique` ở cả 2 bảng: Meta đã **gỡ hẳn** họ `post_impressions*` / `post_reach` / `page_impressions*` khỏi Graph API — kiểm chứng trên v19·v20·v21·v22·v23 đều trả `(#100) The value must be a valid insights metric`, không phải lỗi quyền (token có `read_insights`, loại PAGE, `expires_at=0`). (2) **Thêm** `fan_reach` (`post_fan_reach`) và `clicks` (`post_clicks`) — 2 chỉ số còn đọc được cho mọi loại bài; `video_views` (`post_video_views`) giữ nguyên, chỉ có ở bài video. (3) **Mọi cột số chuyển sang NULLABLE, bỏ `DEFAULT 0`**, kể cả `like_count`/`comment_count`/`share_count`; `fetched_at` cũng thành nullable. Lý do: nhánh `create` cũ ghi `?? 0` nên lần đồng bộ đầu tiên mà không lấy được số sẽ **ghi 0 vào DB** ⇒ UI hiện "0 lượt xem" cho bài chưa hề đo được — đúng triệu chứng user gặp. Nay `NULL` = chưa đo, `0` = đo được 0. Bảng đang rỗng dữ liệu thật (4 dòng đều là lỗi) nên không cần backfill. |

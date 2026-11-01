@@ -47,6 +47,8 @@ export function DriveImportPanel({ onCreated, onCancel }: Props) {
   // Mặc định KHÔNG copy (yêu cầu user 2026-08-08): chỉ lưu link để Drive đang
   // cấu hình không phình dung lượng.
   const [copyData, setCopyData] = useState(false);
+  // Plan 36: mặc định tick "Nguồn mới", giống popup tải từ máy.
+  const [isSourceNew, setIsSourceNew] = useState(true);
   const [skipped, setSkipped] = useState<DriveImportSkipped[]>([]);
   const [inspected, setInspected] = useState<DriveImportInspectItem[] | null>(
     null,
@@ -125,6 +127,7 @@ export function DriveImportPanel({ onCreated, onCancel }: Props) {
         links,
         mergeImagesIntoOnePost: mergeImages,
         copyData,
+        isSourceNew,
       });
 
       if (result.duplicates.length > 0) {
@@ -222,6 +225,15 @@ export function DriveImportPanel({ onCreated, onCancel }: Props) {
               : 'Đang tắt ⇒ chỉ lưu link gốc, không tốn dung lượng Drive. Lưu ý: file gốc bị xoá hoặc bỏ chia sẻ thì bài sẽ không đăng được.'}
           </Text>
         </div>
+      </div>
+
+      <div>
+        <Checkbox
+          checked={isSourceNew}
+          onChange={(e) => setIsSourceNew(e.target.checked)}
+        >
+          Nguồn mới
+        </Checkbox>
       </div>
 
       {skipped.length > 0 && (

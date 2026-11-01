@@ -195,6 +195,7 @@ export class DashboardService {
       pageIds,
       categories: query.categories ?? [],
       mediaType: query.mediaType ?? DashboardMediaType.all,
+      isSourceNew: query.isSourceNew,
       ownerId,
     };
 

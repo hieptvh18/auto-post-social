@@ -79,6 +79,11 @@ export interface MediaUploadMetadata {
   assignedPageIds: string[];
   editorId?: string;
   /**
+   * Plan 36: nhãn Nguồn mới/cũ người dùng tick lúc upload. Job tạo trước plan 36
+   * không có key ⇒ `undefined` ⇒ DB default `true`.
+   */
+  isSourceNew?: boolean;
+  /**
    * Plan 24 §0.3-1: caption bỏ trống ⇒ bài phải vào `PENDING_REVIEW` **kể cả**
    * khi người nhập là ADMIN. Caption `'-'` là chỗ giữ chỗ, không phải nội dung
    * đăng được — để nó tự APPROVED thì Bot có thể đăng bài "-" lên Page thật.

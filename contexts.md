@@ -4,9 +4,9 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-11-01 (Plan 35 — Dashboard tab "Thống kê đăng bài")
+**Cập nhật lần cuối:** 2026-11-01 (Plan 35 Dashboard "Thống kê đăng bài" + Plan 36 cờ Nguồn mới)
 **Session gần nhất (mới nhất):** **Plan 35 — tab "Thống kê đăng bài" trên Dashboard**
-(+ viết plan 36 cờ "Nguồn mới", chưa code). User cần biết page nào đăng bao nhiêu bài theo
+User cần biết page nào đăng bao nhiêu bài theo
 ngày/tháng, lọc page + danh mục. Thêm `GET /dashboard/publish-report` (ngoài `docs/04` §8):
 đếm `publish_jobs` SUCCESS theo **`published_at`** giờ VN (khác tab cũ đếm theo `schedule_time`
 — có tooltip "Cách đếm" trên UI), trả bảng page × kỳ (`byPeriod[]` khớp `periods[]`) + theo danh
@@ -14,6 +14,11 @@ mục; page được chọn mà 0 bài vẫn có dòng. `/dashboard` thành 2 ta
 định)** và "Tổng quan hệ thống" (= màn cũ, chuyển nguyên sang `pages/dashboard/OverviewTab.tsx`).
 Không đổi schema, không thêm env. BE +9 test, lint/build 2 phía xanh, smoke SQL trên DB dev đạt;
 **chưa bấm tay UI thật** (§6 mục 41). Mockup tham khảo: artifact "Mockup Dashboard Thống kê đăng bài".
+Cùng session làm luôn **plan 36 — cờ `is_source_new`** (Nguồn mới/cũ) cho Ảnh/Video: cột mới
+`content_assets.is_source_new` `DEFAULT true` (migration `20261101153822_content_is_source_new`,
+`erd.md` đã cập nhật) ⇒ **toàn bộ bài cũ thành "Mới"**. Checkbox "Nguồn mới" (tick sẵn) ở popup tải
+từ máy, tab nhập link Drive và popup Sửa; filter "Nguồn" + tag "Mới" trên bảng; filter Nguồn trên
+tab Thống kê. Không phải field duyệt. Bot không dùng cờ này. BE tổng 1150 test xanh.
 
 ---
 
@@ -725,7 +730,7 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M11 — Tracking lượt xem bài đã đăng (Facebook Insights) | 🟡 | 2026-08-08 — code + 45 test mới xanh, lint/build 2 phía xanh ([plans/25-page-post-insights.md](./plans/25-page-post-insights.md)); **chưa gọi Graph Insights thật** ⇒ chưa chuyển plan sang DONE (§6 mục 33, 34) |
 | M12 — Reup: tự tìm/tải/đăng lại video trending + dọn dẹp | 🟡 | 2026-08-16 — plan 26·27·28·29·30·32 code+test xong ([plans/reup/README.md](./plans/reup/README.md)); plan 31 (audit log)·33 (unified queue monitor) chưa làm; **chưa chạy trọn end-to-end trên hạ tầng thật** (Python downloader + Drive + Facebook) ⇒ chưa chuyển plan sang DONE |
 
-| M13 — Dashboard "Thống kê đăng bài" (plan 35) + cờ Nguồn mới (plan 36) | 🟡 | 2026-11-01 — plan 35 code + test xanh, smoke SQL; **chưa smoke UI** (§6 mục 41). Plan 36 chưa code, chờ user chốt §7 của plan |
+| M13 — Dashboard "Thống kê đăng bài" (plan 35) + cờ Nguồn mới (plan 36) | 🟡 | 2026-11-01 — cả 2 plan code + test xanh, smoke SQL, migrate DB dev; **chưa smoke UI** (§6 mục 41, 42) |
 
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
@@ -738,6 +743,20 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 ## 5. Nhật ký module đã hoàn thành
 
 > Mỗi module xong ghi 1 mục ở đây theo mẫu trong `.claude/rules/03-context-protocol.md`.
+
+### Cờ Nguồn mới `is_source_new` cho Ảnh/Video (plan 36) — 🟡 2026-11-01
+
+- **Phạm vi:** cột `content_assets.is_source_new` (`DEFAULT true`); create/update/filter `GET/PATCH/POST
+  /content-assets`, upload multipart + nhập link Drive mang cờ qua `media_upload_jobs.metadata`;
+  FE checkbox ở 3 form, filter "Nguồn", tag "Mới"; filter Nguồn ở tab Thống kê đăng bài.
+- **File chính:** `backend/prisma/migrations/20261101153822_content_is_source_new/`,
+  `backend/src/modules/content-assets/**`, `backend/src/modules/media-upload-jobs/**`,
+  `frontend/src/pages/ContentManagementPage.tsx`, `frontend/src/components/common/DriveImportPanel.tsx`
+- **Quyết định:** bài đã có = Mới (đúng chữ "default true" của user — câu hỏi backfill chưa được
+  trả lời rõ); không đòi `content:review`; không index. Multipart gửi `'false'` ⇒ đọc giá trị gốc từ
+  `obj` (bẫy implicit conversion như `?isAds=false`). Job upload cũ thiếu key ⇒ DB default.
+- **Test:** +14, toàn bộ BE 1150 xanh. Mock mode màn kho chưa có checkbox/filter.
+- **Còn nợ:** bấm tay UI (§6 mục 42); chạy migration prod khi deploy.
 
 ### Dashboard tab "Thống kê đăng bài" (plan 35) — 🟡 2026-11-01
 
@@ -1576,6 +1595,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 39 | **`.env` prod chưa có `MEDIA_CACHE_STALL_TIMEOUT_MS`** | Sửa sự cố 2026-09-09 thêm biến này (đã vào `.env.example`), nhưng **file `.env` trên prod chưa thêm tay** — quyền ghi bị chặn trong session đó. **Không gấp:** `env.validation.ts` có default `120_000` nên thiếu key app vẫn boot và watchdog vẫn hoạt động đúng; thêm vào chỉ để đúng rule 04 (`.env` và `.env.example` cùng danh sách key) và để chỉnh được ngưỡng mà không phải sửa code. Chỉnh xuống thấp hơn nếu mạng tới Drive ổn định và muốn phát hiện treo sớm hơn 2 phút. |
 | 40 | **Job kẹt `PUBLISHING` không có đường tự phục hồi — phải sửa DB tay** | Lộ ra khi xử lý sự cố 2026-09-09. `PublishExecutorService.execute()` chỉ chạy khi `status === QUEUED`, còn `PublishJobsService.retry()` chỉ nhận `RETRYABLE_STATUSES = [FAILED, CANCELLED, SCHEDULED]`. Nên job đã sang `PUBLISHING` mà worker chết/treo giữa chừng sẽ **kẹt vĩnh viễn**: executor bỏ qua, nút "Đăng lại" từ chối, restart cũng không khỏi — chỉ hiện cảnh báo đỏ ở màn Monitor mãi mãi. Lần này gỡ bằng script tay (chép đúng logic `markFailure`, có chốt chặn kiểm `publishedAt` trước khi gỡ). **Hướng vá (user đã chốt để lại session riêng, có plan đàng hoàng):** cho `retry()` nhận cả `PUBLISHING` khi job đã quá ngưỡng kẹt (dùng lại `MONITOR_STUCK_MINUTES`) **và** chưa có published assignment. **Phải hết sức cẩn thận + test dày:** đây đúng chỗ dễ gây **đăng trùng lên page thật** — ngưỡng phải lớn hơn thời gian đăng video dài nhất có thể (`FB_VIDEO_TIMEOUT_MS` = 900s), nếu không sẽ requeue một job vẫn đang upload dở. Watchdog của nợ 39 đã chặn nguyên nhân gốc nên việc này **không gấp**. |
 | 41 | **Plan 35 (Dashboard tab Thống kê đăng bài) chưa bấm tay UI thật** | Backend dev đang chạy `node dist/main` (build cũ) ⇒ phải restart để nạp route `/dashboard/publish-report`. Sau đó vào `/dashboard`: lọc 1 page / nhiều page / 1 danh mục / Ảnh-Video / theo tháng, so tổng với DB; chọn page không có bài ⇒ vẫn có dòng; F5 giữ tab + bộ lọc; tab "Tổng quan hệ thống" chạy y như cũ; đăng nhập CONTENT chỉ thấy bài mình. Xong thì chuyển plan 35 sang `plans/DONE/`. |
+| 42 | **Plan 36 (cờ Nguồn mới) chưa bấm tay UI + chưa migrate prod** | Restart backend (cùng mục 41). Vào `/content`: popup Thêm mới có "Nguồn mới" tick sẵn; bỏ tick khi tải từ máy **và** khi nhập link Drive ⇒ bài ra `false`; popup Sửa đổi được (cả role CONTENT); filter Nguồn mới/cũ đúng; tag "Mới" hiện. Deploy prod: `prisma migrate deploy` sẽ thêm cột với mọi bài cũ = Mới. Muốn bài cũ = Cũ thì phải đổi migration **trước khi commit**. |
 | 34 | **M11 (plan 25) chưa smoke UI + chưa nộp App Review `read_insights`** | Code BE+FE xong (BE 880 test, FE 63). **Chưa bấm tay** — chạy §5 của plan 25: (1) `/pages` bấm "Kết nối bằng Facebook" ⇒ màn consent phải **hiện mục "Read Insights"** (nếu không hiện thì scope chưa vào, xem lại `OAUTH_SCOPES`); (2) tên page bấm được, mở đúng Page ở tab mới; (3) nút "Chi tiết" mở `/pages/:id/insights`, **bài mới nhất nằm trên cùng khi vừa mở**; (4) bấm tiêu đề bài ⇒ mở **đúng bài đó**; (5) "Đồng bộ ngay" ⇒ số điền vào, "Cập nhật lần cuối" nhảy; bấm lại ngay ⇒ **429** kèm câu giải thích; (6) đối chiếu số với **Meta Business Suite** cùng bài (lệch nhỏ do trễ là bình thường); (7) xoá 1 bài trên Facebook ⇒ lần đồng bộ sau bài đó có Tag đỏ "Đã bị xoá", **các bài khác vẫn cập nhật**; (8) page kết nối **trước 08/08** phải hiện Tag vàng "Thiếu quyền thống kê" + Alert + nút "Đồng bộ ngay" bị khoá. **Quan trọng:** scope đã cấp là bất biến ⇒ mọi kết nối cũ phải bấm "Kết nối lại", đây là ca dễ tưởng là bug nhất. Còn lại: nộp **App Review** cho `read_insights` (cần Business Verification + screencast quay từ consent tới màn hiện số) nếu mở cho user ngoài team — với page mà tài khoản có role trong Meta app thì Standard Access đã chạy được, **không chặn** việc nghiệm thu. Xong thì `git mv plans/25-page-post-insights.md plans/DONE/`. |
 
 ---
