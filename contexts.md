@@ -4,8 +4,20 @@
 > Claude PHẢI đọc file này đầu mỗi session và cập nhật nó mỗi khi hoàn thành 1 module
 > hoặc kết thúc session. Xem quy tắc cập nhật ở [.claude/rules/03-context-protocol.md](.claude/rules/03-context-protocol.md).
 
-**Cập nhật lần cuối:** 2026-09-09 (Sự cố prod — worker treo vĩnh viễn vì tải Drive không có timeout)
-**Session gần nhất (mới nhất):** **Sự cố prod: toàn bộ hàng đợi đăng bài đứng 2h23'
+**Cập nhật lần cuối:** 2026-11-01 (Plan 35 — Dashboard tab "Thống kê đăng bài")
+**Session gần nhất (mới nhất):** **Plan 35 — tab "Thống kê đăng bài" trên Dashboard**
+(+ viết plan 36 cờ "Nguồn mới", chưa code). User cần biết page nào đăng bao nhiêu bài theo
+ngày/tháng, lọc page + danh mục. Thêm `GET /dashboard/publish-report` (ngoài `docs/04` §8):
+đếm `publish_jobs` SUCCESS theo **`published_at`** giờ VN (khác tab cũ đếm theo `schedule_time`
+— có tooltip "Cách đếm" trên UI), trả bảng page × kỳ (`byPeriod[]` khớp `periods[]`) + theo danh
+mục; page được chọn mà 0 bài vẫn có dòng. `/dashboard` thành 2 tab: **"Thống kê đăng bài" (mặc
+định)** và "Tổng quan hệ thống" (= màn cũ, chuyển nguyên sang `pages/dashboard/OverviewTab.tsx`).
+Không đổi schema, không thêm env. BE +9 test, lint/build 2 phía xanh, smoke SQL trên DB dev đạt;
+**chưa bấm tay UI thật** (§6 mục 41). Mockup tham khảo: artifact "Mockup Dashboard Thống kê đăng bài".
+
+---
+
+**Session trước nữa:** **Sự cố prod: toàn bộ hàng đợi đăng bài đứng 2h23'
 (không có file plan — fix bug khẩn theo yêu cầu user).** Màn Monitor báo 1 job kẹt
 `PUBLISHING` 141 phút, Redis 1 active + 3 waiting không nhúc nhích. **Banner của hệ thống
 đoán sai** ("worker nhiều khả năng đã chết") — PM2 cho thấy uptime 8 ngày, **0 lần restart**:
@@ -713,6 +725,8 @@ Xem kế hoạch chi tiết: [PLAN-MVP.md](./PLAN-MVP.md)
 | M11 — Tracking lượt xem bài đã đăng (Facebook Insights) | 🟡 | 2026-08-08 — code + 45 test mới xanh, lint/build 2 phía xanh ([plans/25-page-post-insights.md](./plans/25-page-post-insights.md)); **chưa gọi Graph Insights thật** ⇒ chưa chuyển plan sang DONE (§6 mục 33, 34) |
 | M12 — Reup: tự tìm/tải/đăng lại video trending + dọn dẹp | 🟡 | 2026-08-16 — plan 26·27·28·29·30·32 code+test xong ([plans/reup/README.md](./plans/reup/README.md)); plan 31 (audit log)·33 (unified queue monitor) chưa làm; **chưa chạy trọn end-to-end trên hạ tầng thật** (Python downloader + Drive + Facebook) ⇒ chưa chuyển plan sang DONE |
 
+| M13 — Dashboard "Thống kê đăng bài" (plan 35) + cờ Nguồn mới (plan 36) | 🟡 | 2026-11-01 — plan 35 code + test xanh, smoke SQL; **chưa smoke UI** (§6 mục 41). Plan 36 chưa code, chờ user chốt §7 của plan |
+
 Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage đạt)
 
 > **Cách đọc bảng này sau 2026-07-25:** ✅ ở M3–M7 nghĩa là *code + test xanh + smoke API*,
@@ -724,6 +738,20 @@ Ký hiệu: ⬜ chưa làm · 🟡 đang làm · ✅ xong (test pass + coverage 
 ## 5. Nhật ký module đã hoàn thành
 
 > Mỗi module xong ghi 1 mục ở đây theo mẫu trong `.claude/rules/03-context-protocol.md`.
+
+### Dashboard tab "Thống kê đăng bài" (plan 35) — 🟡 2026-11-01
+
+- **Phạm vi:** `GET /dashboard/publish-report?from&to&groupBy=day|month&pageIds&categories&mediaType`;
+  FE `/dashboard` chia 2 tab, tab mới có bộ lọc + 4 thẻ số + bảng page × ngày/tháng (dòng TỔNG,
+  ô tô đậm theo số bài) + bảng danh mục + chart cột chồng theo page.
+- **File chính:** `backend/src/modules/dashboard/{dashboard.service,dashboard.repository,dashboard-range}.ts`,
+  `frontend/src/pages/DashboardPage.tsx`, `frontend/src/pages/dashboard/{PublishReportTab,OverviewTab}.tsx`
+- **Quyết định:** đếm theo `published_at` (không phải `schedule_time`); gồm Bot + đăng tay; tab mới
+  mở mặc định (theo mockup user duyệt — câu hỏi mở plan 35 §7 chưa trả lời rõ); bộ lọc tab mới lưu
+  URL với tiền tố `r…` để không đè `from/to` của tab cũ; tab cũ đổi kỳ giờ giữ các param khác.
+- **Test:** +9 (6 `getPublishReport`, 3 `listMonths`), dashboard 39/39 xanh. Không thêm index
+  `published_at` (rủi ro chậm khi `publish_jobs` lớn — plan 35 §6).
+- **Còn nợ:** bấm tay UI thật (§6 mục 41).
 
 ### Fix sự cố prod — worker đăng bài treo vĩnh viễn vì tải Drive không có timeout — ✅ 2026-09-09
 
@@ -1547,6 +1575,7 @@ không mở lại). Đăng nhập CONTENT kiểm không vào được trang. |
 | 37 | **M12 Reup (plan 26-30) chưa chạy end-to-end trên hạ tầng thật** | Code + test xanh cho cả 5 plan (BE 1101 test, FE 83 test). **Chặn bởi `REUP_PYTHON_BIN`/`REUP_PROJECT_DIR` chưa có trong `.env`** (việc của user, xem `plans/reup/ISSUES-TO-REVIEW.md` mục V1) — thiếu 2 biến này thì tính năng reup tự động báo `DOWNLOADER_UNAVAILABLE`, không crash app (QĐ-6) nhưng cũng không chạy được. Khi có: (1) tạo chủ đề quota 2 ⇒ Quét ngay ⇒ 2 video `IMPORTED`, file có thật trên Drive; (2) bài `APPROVED` được auto-post đăng thật lên Page; (3) đợi qua N ngày hoặc chỉnh `retentionDays` xuống thấp ⇒ bấm "Dọn ngay" ở tab Dọn dẹp ⇒ file **biến mất thật** trên Drive (mở link ⇒ 404), Tag "Đã xoá file" hiện đúng ở cả 3 màn (Video đã kéo, Timeline, Quản lý Ảnh/Video); (4) đổi tên thư mục `ai-video-downloader` giữa lúc chạy ⇒ `SKIPPED/DOWNLOADER_UNAVAILABLE`, không kéo sập cron auto-post. Xem chi tiết còn nợ ở từng plan §7. |
 | 39 | **`.env` prod chưa có `MEDIA_CACHE_STALL_TIMEOUT_MS`** | Sửa sự cố 2026-09-09 thêm biến này (đã vào `.env.example`), nhưng **file `.env` trên prod chưa thêm tay** — quyền ghi bị chặn trong session đó. **Không gấp:** `env.validation.ts` có default `120_000` nên thiếu key app vẫn boot và watchdog vẫn hoạt động đúng; thêm vào chỉ để đúng rule 04 (`.env` và `.env.example` cùng danh sách key) và để chỉnh được ngưỡng mà không phải sửa code. Chỉnh xuống thấp hơn nếu mạng tới Drive ổn định và muốn phát hiện treo sớm hơn 2 phút. |
 | 40 | **Job kẹt `PUBLISHING` không có đường tự phục hồi — phải sửa DB tay** | Lộ ra khi xử lý sự cố 2026-09-09. `PublishExecutorService.execute()` chỉ chạy khi `status === QUEUED`, còn `PublishJobsService.retry()` chỉ nhận `RETRYABLE_STATUSES = [FAILED, CANCELLED, SCHEDULED]`. Nên job đã sang `PUBLISHING` mà worker chết/treo giữa chừng sẽ **kẹt vĩnh viễn**: executor bỏ qua, nút "Đăng lại" từ chối, restart cũng không khỏi — chỉ hiện cảnh báo đỏ ở màn Monitor mãi mãi. Lần này gỡ bằng script tay (chép đúng logic `markFailure`, có chốt chặn kiểm `publishedAt` trước khi gỡ). **Hướng vá (user đã chốt để lại session riêng, có plan đàng hoàng):** cho `retry()` nhận cả `PUBLISHING` khi job đã quá ngưỡng kẹt (dùng lại `MONITOR_STUCK_MINUTES`) **và** chưa có published assignment. **Phải hết sức cẩn thận + test dày:** đây đúng chỗ dễ gây **đăng trùng lên page thật** — ngưỡng phải lớn hơn thời gian đăng video dài nhất có thể (`FB_VIDEO_TIMEOUT_MS` = 900s), nếu không sẽ requeue một job vẫn đang upload dở. Watchdog của nợ 39 đã chặn nguyên nhân gốc nên việc này **không gấp**. |
+| 41 | **Plan 35 (Dashboard tab Thống kê đăng bài) chưa bấm tay UI thật** | Backend dev đang chạy `node dist/main` (build cũ) ⇒ phải restart để nạp route `/dashboard/publish-report`. Sau đó vào `/dashboard`: lọc 1 page / nhiều page / 1 danh mục / Ảnh-Video / theo tháng, so tổng với DB; chọn page không có bài ⇒ vẫn có dòng; F5 giữ tab + bộ lọc; tab "Tổng quan hệ thống" chạy y như cũ; đăng nhập CONTENT chỉ thấy bài mình. Xong thì chuyển plan 35 sang `plans/DONE/`. |
 | 34 | **M11 (plan 25) chưa smoke UI + chưa nộp App Review `read_insights`** | Code BE+FE xong (BE 880 test, FE 63). **Chưa bấm tay** — chạy §5 của plan 25: (1) `/pages` bấm "Kết nối bằng Facebook" ⇒ màn consent phải **hiện mục "Read Insights"** (nếu không hiện thì scope chưa vào, xem lại `OAUTH_SCOPES`); (2) tên page bấm được, mở đúng Page ở tab mới; (3) nút "Chi tiết" mở `/pages/:id/insights`, **bài mới nhất nằm trên cùng khi vừa mở**; (4) bấm tiêu đề bài ⇒ mở **đúng bài đó**; (5) "Đồng bộ ngay" ⇒ số điền vào, "Cập nhật lần cuối" nhảy; bấm lại ngay ⇒ **429** kèm câu giải thích; (6) đối chiếu số với **Meta Business Suite** cùng bài (lệch nhỏ do trễ là bình thường); (7) xoá 1 bài trên Facebook ⇒ lần đồng bộ sau bài đó có Tag đỏ "Đã bị xoá", **các bài khác vẫn cập nhật**; (8) page kết nối **trước 08/08** phải hiện Tag vàng "Thiếu quyền thống kê" + Alert + nút "Đồng bộ ngay" bị khoá. **Quan trọng:** scope đã cấp là bất biến ⇒ mọi kết nối cũ phải bấm "Kết nối lại", đây là ca dễ tưởng là bug nhất. Còn lại: nộp **App Review** cho `read_insights` (cần Business Verification + screencast quay từ consent tới màn hiện số) nếu mở cho user ngoài team — với page mà tài khoản có role trong Meta app thì Standard Access đã chạy được, **không chặn** việc nghiệm thu. Xong thì `git mv plans/25-page-post-insights.md plans/DONE/`. |
 
 ---

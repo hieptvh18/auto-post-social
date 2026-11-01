@@ -3,8 +3,10 @@ import type {
   DashboardHealth,
   DashboardStats,
   PostsByPage,
+  PublishReport,
   QueryDashboardParams,
   QueryPostsByPageParams,
+  QueryPublishReportParams,
   QueryTopCategoriesParams,
   TopCategories,
 } from '../types';
@@ -37,6 +39,18 @@ export const dashboardApi = {
   ): Promise<TopCategories> {
     return apiRequest<TopCategories>(
       `/dashboard/top-categories${toQueryString(params)}`,
+    );
+  },
+
+  /** GET /dashboard/publish-report — số bài đã đăng theo page × ngày/tháng (plan 35). */
+  getPublishReport(params: QueryPublishReportParams = {}): Promise<PublishReport> {
+    const { pageIds, categories, ...rest } = params;
+    return apiRequest<PublishReport>(
+      `/dashboard/publish-report${toQueryString({
+        ...rest,
+        pageIds: pageIds?.length ? pageIds.join(',') : undefined,
+        categories: categories?.length ? categories.join(',') : undefined,
+      })}`,
     );
   },
 

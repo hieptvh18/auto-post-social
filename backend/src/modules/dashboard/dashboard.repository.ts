@@ -48,6 +48,38 @@ export interface TopCategoryRow {
   pageCount: number;
 }
 
+/** Plan 35: số bài đăng thành công của 1 page trong 1 kỳ (ngày hoặc tháng). */
+export interface PublishReportRow {
+  pageId: string;
+  pageName: string;
+  isActive: boolean;
+  period: string;
+  imagePosts: number;
+  videoPosts: number;
+}
+
+export interface PublishReportCategoryCount {
+  category: string;
+  total: number;
+  pageCount: number;
+}
+
+export interface PublishReportFilter {
+  range: DashboardRange;
+  timezone: string;
+  groupBy: 'day' | 'month';
+  pageIds: string[];
+  categories: string[];
+  mediaType: 'image' | 'video' | 'all';
+  ownerId: string | null;
+}
+
+export interface ReportPage {
+  id: string;
+  pageName: string;
+  isActive: boolean;
+}
+
 export interface PageCounts {
   activePages: number;
   autopostEnabledPages: number;
@@ -316,6 +348,62 @@ export class DashboardRepository {
     `;
   }
 
+  /**
+   * Plan 35 — số bài **đăng thành công** theo page × kỳ.
+   *
+   * Khác các hàm trên: đếm theo `published_at` (thời điểm lên Facebook thật),
+   * không theo `schedule_time` — câu hỏi ở đây là "page đã đăng ngày nào".
+   * Job SUCCESS luôn có `published_at`.
+   */
+  publishReportByPagePeriod(
+    filter: PublishReportFilter,
+  ): Promise<PublishReportRow[]> {
+    // Whitelist định dạng — không bao giờ nối chuỗi từ input vào SQL.
+    const format = filter.groupBy === 'month' ? 'YYYY-MM' : 'YYYY-MM-DD';
+    return this.prisma.$queryRaw<PublishReportRow[]>`
+      SELECT p.id        AS "pageId",
+             p.page_name AS "pageName",
+             p.is_active AS "isActive",
+             to_char(
+               j.published_at AT TIME ZONE 'UTC' AT TIME ZONE ${filter.timezone},
+               ${format}
+             ) AS "period",
+             COUNT(*) FILTER (WHERE c.media_type = 'image')::int AS "imagePosts",
+             COUNT(*) FILTER (WHERE c.media_type = 'video')::int AS "videoPosts"
+        FROM publish_jobs j
+        JOIN content_assets c ON c.id = j.content_asset_id
+        JOIN facebook_pages p ON p.id = j.facebook_page_id
+       WHERE ${publishReportWhere(filter)}
+       GROUP BY p.id, p.page_name, p.is_active, 4
+    `;
+  }
+
+  /** Plan 35 — cùng bộ lọc, gộp theo danh mục. */
+  publishReportByCategory(
+    filter: PublishReportFilter,
+  ): Promise<PublishReportCategoryCount[]> {
+    return this.prisma.$queryRaw<PublishReportCategoryCount[]>`
+      SELECT c.category AS "category",
+             COUNT(*)::int AS "total",
+             COUNT(DISTINCT j.facebook_page_id)::int AS "pageCount"
+        FROM publish_jobs j
+        JOIN content_assets c ON c.id = j.content_asset_id
+        JOIN facebook_pages p ON p.id = j.facebook_page_id
+       WHERE ${publishReportWhere(filter)}
+       GROUP BY c.category
+       ORDER BY COUNT(*) DESC, c.category ASC
+    `;
+  }
+
+  /** Tên các page user đã chọn — để page 0 bài trong kỳ vẫn có dòng (plan 35 §3.4). */
+  findReportPages(ids: string[]): Promise<ReportPage[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.facebookPage.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true, pageName: true, isActive: true },
+    });
+  }
+
   /** Page có token sắp hết hạn ⇒ Bot sẽ đăng hỏng mà không ai biết trước. */
   findPagesWithExpiringToken(before: Date): Promise<ExpiringTokenPage[]> {
     return this.prisma.facebookPage.findMany({
@@ -332,4 +420,35 @@ export class DashboardRepository {
 /** Scope role CONTENT: chỉ job của bài do chính người đó tạo (plan 14 §3.4). */
 function ownerScope(ownerId: string | null): Prisma.PublishJobWhereInput {
   return ownerId === null ? {} : { contentAsset: { createdById: ownerId } };
+}
+
+/** Điều kiện WHERE dùng chung cho 2 query báo cáo plan 35. */
+function publishReportWhere(filter: PublishReportFilter): Prisma.Sql {
+  const conditions: Prisma.Sql[] = [
+    Prisma.sql`j.status = 'SUCCESS'`,
+    Prisma.sql`j.published_at >= ${filter.range.fromUtc}`,
+    Prisma.sql`j.published_at < ${filter.range.toUtc}`,
+    Prisma.sql`p.deleted_at IS NULL`,
+  ];
+  if (filter.pageIds.length > 0) {
+    conditions.push(
+      Prisma.sql`j.facebook_page_id IN (${Prisma.join(
+        filter.pageIds.map((id) => Prisma.sql`${id}::uuid`),
+      )})`,
+    );
+  }
+  if (filter.categories.length > 0) {
+    conditions.push(
+      Prisma.sql`c.category IN (${Prisma.join(filter.categories)})`,
+    );
+  }
+  if (filter.mediaType !== 'all') {
+    conditions.push(
+      Prisma.sql`c.media_type = ${filter.mediaType}::"MediaType"`,
+    );
+  }
+  if (filter.ownerId !== null) {
+    conditions.push(Prisma.sql`c.created_by = ${filter.ownerId}::uuid`);
+  }
+  return Prisma.join(conditions, ' AND ');
 }

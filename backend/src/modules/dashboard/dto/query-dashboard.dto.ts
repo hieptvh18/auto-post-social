@@ -1,6 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -58,4 +69,65 @@ export class QueryTopCategoriesDto extends QueryDashboardDto {
   @Min(1)
   @Max(MAX_TOP_CATEGORIES_LIMIT)
   limit: number = DEFAULT_TOP_CATEGORIES_LIMIT;
+}
+
+/** Plan 35: đếm số bài đã đăng theo từng ngày hay gộp theo tháng. */
+export enum PublishReportGroupBy {
+  day = 'day',
+  month = 'month',
+}
+
+const MAX_REPORT_PAGE_IDS = 100;
+const MAX_REPORT_CATEGORIES = 50;
+
+/**
+ * Query string chỉ có chuỗi: `pageIds=a,b` hoặc lặp `pageIds=a&pageIds=b` đều
+ * được. Tách theo dấu phẩy, bỏ phần rỗng; không có gì ⇒ `undefined` (không lọc).
+ */
+function toStringList(value: unknown): string[] | undefined {
+  const raw = Array.isArray(value) ? value : [value];
+  const items = raw
+    .filter((item): item is string => typeof item === 'string')
+    .flatMap((item) => item.split(','))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return items.length > 0 ? [...new Set(items)] : undefined;
+}
+
+/**
+ * Tab "Thống kê đăng bài" (plan 35) — bổ sung ngoài `docs/04` §8.
+ * Kế thừa `from`/`to`/`mediaType` của chart theo page.
+ */
+export class QueryPublishReportDto extends QueryPostsByPageDto {
+  @ApiPropertyOptional({
+    enum: PublishReportGroupBy,
+    default: PublishReportGroupBy.day,
+  })
+  @IsOptional()
+  @IsEnum(PublishReportGroupBy)
+  groupBy: PublishReportGroupBy = PublishReportGroupBy.day;
+
+  @ApiPropertyOptional({
+    type: String,
+    description:
+      'Danh sách id page (uuid nội bộ), ngăn cách bằng dấu phẩy. Bỏ trống = mọi page',
+  })
+  @IsOptional()
+  @Transform(({ value }): unknown => toStringList(value))
+  @IsArray()
+  @ArrayMaxSize(MAX_REPORT_PAGE_IDS)
+  @IsUUID('all', { each: true })
+  pageIds?: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    description:
+      'Danh sách danh mục ("Dạng"), ngăn cách bằng dấu phẩy. Bỏ trống = mọi danh mục',
+  })
+  @IsOptional()
+  @Transform(({ value }): unknown => toStringList(value))
+  @IsArray()
+  @ArrayMaxSize(MAX_REPORT_CATEGORIES)
+  @IsString({ each: true })
+  categories?: string[];
 }

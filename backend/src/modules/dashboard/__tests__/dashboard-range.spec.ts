@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import {
   fillDateRange,
   listDates,
+  listMonths,
   resolveDashboardRange,
 } from '../dashboard-range';
 
@@ -91,5 +92,31 @@ describe('fillDateRange', () => {
 
     expect(filled).toHaveLength(7);
     expect(filled.every((row) => row.success === 0)).toBe(true);
+  });
+});
+
+describe('listMonths', () => {
+  const range = (from: string, to: string) =>
+    resolveDashboardRange(from, to, NOW, TZ);
+
+  it('khoảng nằm gọn trong 1 tháng ⇒ đúng 1 tháng', () => {
+    expect(listMonths(range('2026-07-03', '2026-07-05'))).toEqual(['2026-07']);
+  });
+
+  it('cắt tháng đầu/cuối nhưng vẫn liệt kê đủ các tháng chạm tới', () => {
+    expect(listMonths(range('2026-05-15', '2026-07-02'))).toEqual([
+      '2026-05',
+      '2026-06',
+      '2026-07',
+    ]);
+  });
+
+  it('qua năm mới không bị kẹt ở tháng 13', () => {
+    expect(listMonths(range('2025-11-20', '2026-02-01'))).toEqual([
+      '2025-11',
+      '2025-12',
+      '2026-01',
+      '2026-02',
+    ]);
   });
 });

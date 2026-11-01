@@ -54,6 +54,7 @@ phải chỉ qua curl/Swagger.
 | **M10** | **Kết nối Page bằng đăng nhập Facebook** (thay dán token tay) | [plans/15-facebook-login-connect.md](./plans/15-facebook-login-connect.md) | 🟡 code+test xong 27/07, chưa chạy với Meta app thật | PageManagementPage, SettingsPage |
 | **M11** | **Tracking lượt xem bài đã đăng** (Facebook Post Insights) | [plans/25-page-post-insights.md](./plans/25-page-post-insights.md) | 🟡 code+test xong 08/08, chưa chạy với Graph thật | PageManagementPage, PageInsightsPage (mới) |
 | **M12** | **Reup pipeline** — tự tìm video trending theo chủ đề, tải về, đưa vào kho, dọn file sau khi đăng | [plans/reup/README.md](./plans/reup/README.md) (6 plan: 26→31) | ⬜ chốt thiết kế 15/08, chưa code | ReupSettingsPage (mới), UserManagementPage, ContentManagementPage, AuditLogsPage |
+| **M13** | **Dashboard tab "Thống kê đăng bài"** (lọc page · ngày/tháng · danh mục) + cờ "Nguồn mới" cho Ảnh/Video | [plans/35-dashboard-publish-report.md](./plans/35-dashboard-publish-report.md) · [plans/36-content-source-new-flag.md](./plans/36-content-source-new-flag.md) | 🟡 plan 35 code+test xong 01/11, chưa smoke UI · plan 36 ⬜ chờ chốt câu hỏi mở | DashboardPage, ContentManagementPage |
 
 Thứ tự đã chạy: M0 → M1 → (M2 ∥ M4) → M2.5 → M3 → M5 → **M6** → M7 → **M8** → **M9**.
 M8 phụ thuộc M6 (dữ liệu `publish_jobs` + `publish_job_events`) và M1 (`audit_logs`).

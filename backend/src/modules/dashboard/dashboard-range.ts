@@ -80,6 +80,27 @@ export function listDates(range: DashboardRange, timezone: string): string[] {
 }
 
 /**
+ * Danh sách tháng `'YYYY-MM'` mà khoảng ngày chạm tới (plan 35). Tháng đầu/cuối
+ * có thể chỉ là **một phần** tháng — số đếm chỉ tính các ngày nằm trong khoảng.
+ */
+export function listMonths(range: DashboardRange): string[] {
+  const months: string[] = [];
+  const last = range.to.slice(0, 7);
+  let [year, month] = range.from.slice(0, 7).split('-').map(Number);
+  for (;;) {
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    months.push(key);
+    if (key >= last) break;
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return months;
+}
+
+/**
  * Điền ngày trống bằng giá trị 0. Không điền thì chart nhảy cóc từ 19/07 sang
  * 23/07 và người đọc tưởng 3 ngày kia mất dữ liệu chứ không phải không có bài.
  */

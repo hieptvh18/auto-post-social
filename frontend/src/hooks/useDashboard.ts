@@ -1,12 +1,18 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useQuery,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { dashboardApi } from '../api/dashboard.api';
 import type {
   DailyChart,
   DashboardHealth,
   DashboardStats,
   PostsByPage,
+  PublishReport,
   QueryDashboardParams,
   QueryPostsByPageParams,
+  QueryPublishReportParams,
   QueryTopCategoriesParams,
   TopCategories,
 } from '../types';
@@ -64,5 +70,16 @@ export function useDashboardHealth(
     queryKey: [DASHBOARD_KEY, 'health'],
     queryFn: () => dashboardApi.getHealth(),
     enabled,
+  });
+}
+
+/** Tab "Thống kê đăng bài" (plan 35). Giữ dữ liệu cũ khi đổi bộ lọc để bảng không nháy trống. */
+export function usePublishReport(
+  params: QueryPublishReportParams,
+): UseQueryResult<PublishReport> {
+  return useQuery({
+    queryKey: [DASHBOARD_KEY, 'publish-report', params],
+    queryFn: () => dashboardApi.getPublishReport(params),
+    placeholderData: keepPreviousData,
   });
 }

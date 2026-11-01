@@ -12,11 +12,13 @@ import type {
   DailyChart,
   DashboardStats,
   PostsByPage,
+  PublishReport,
   TopCategories,
 } from './dashboard.types';
 import {
   QueryDashboardDto,
   QueryPostsByPageDto,
+  QueryPublishReportDto,
   QueryTopCategoriesDto,
 } from './dto/query-dashboard.dto';
 
@@ -73,6 +75,18 @@ export class DashboardController {
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<TopCategories> {
     return this.service.getTopCategories(query, actor);
+  }
+
+  @Get('publish-report')
+  @ApiOperation({
+    summary:
+      'Thống kê số bài đã đăng thành công theo page × ngày/tháng, lọc page/danh mục/media (plan 35, ngoài docs/04 §8)',
+  })
+  getPublishReport(
+    @Query() query: QueryPublishReportDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ): Promise<PublishReport> {
+    return this.service.getPublishReport(query, actor);
   }
 
   @Get('health')

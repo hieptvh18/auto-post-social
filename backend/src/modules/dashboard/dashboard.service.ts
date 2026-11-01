@@ -10,10 +10,16 @@ import { SlotRunService } from '../auto-post/slot-run.service';
 import { MonitorService } from '../monitor/monitor.service';
 import {
   fillDateRange,
+  listDates,
+  listMonths,
   resolveDashboardRange,
   type DashboardRange,
 } from './dashboard-range';
-import { DashboardRepository } from './dashboard.repository';
+import {
+  DashboardRepository,
+  type PublishReportRow,
+  type ReportPage,
+} from './dashboard.repository';
 import {
   AlertCode,
   AlertLevel,
@@ -22,13 +28,17 @@ import {
   type DashboardHealth,
   type DashboardStats,
   type PostsByPage,
+  type PublishReport,
+  type PublishReportPageRow,
   type TopCategories,
 } from './dashboard.types';
 import {
   DashboardMediaType,
   DEFAULT_TOP_CATEGORIES_LIMIT,
   type QueryDashboardDto,
+  PublishReportGroupBy,
   type QueryPostsByPageDto,
+  type QueryPublishReportDto,
   type QueryTopCategoriesDto,
 } from './dto/query-dashboard.dto';
 
@@ -161,6 +171,64 @@ export class DashboardService {
   }
 
   /**
+   * Tab "Thống kê đăng bài" (plan 35, bổ sung ngoài `docs/04` §8): page nào đã
+   * đăng bao nhiêu bài theo từng ngày/tháng, lọc theo page + danh mục + media.
+   *
+   * - Page được chọn mà 0 bài trong kỳ ⇒ **vẫn có dòng toàn 0**: user chọn page
+   *   để hỏi đúng page đó, biến mất khỏi bảng là trả lời sai.
+   * - Không chọn page ⇒ chỉ page có bài (tránh bảng dài toàn số 0).
+   * - Cùng scope RBAC với các số khác: CONTENT chỉ đếm bài của chính mình.
+   */
+  async getPublishReport(
+    query: QueryPublishReportDto,
+    actor: AuthenticatedUser,
+  ): Promise<PublishReport> {
+    const range = this.resolveRange(query);
+    const timezone = this.config.timezone;
+    const groupBy = query.groupBy ?? PublishReportGroupBy.day;
+    const pageIds = query.pageIds ?? [];
+    const ownerId = scopeOwnerId(actor);
+    const filter = {
+      range,
+      timezone,
+      groupBy,
+      pageIds,
+      categories: query.categories ?? [],
+      mediaType: query.mediaType ?? DashboardMediaType.all,
+      ownerId,
+    };
+
+    const [rows, categories, selectedPages] = await Promise.all([
+      this.repository.publishReportByPagePeriod(filter),
+      this.repository.publishReportByCategory(filter),
+      this.repository.findReportPages(pageIds),
+    ]);
+
+    const periods =
+      groupBy === PublishReportGroupBy.month
+        ? listMonths(range)
+        : listDates(range, timezone);
+    const pages = pivotReportRows(rows, selectedPages, periods);
+
+    return {
+      range: { from: range.from, to: range.to },
+      groupBy,
+      periods,
+      totals: {
+        total: sum(pages.map((page) => page.total)),
+        imagePosts: sum(pages.map((page) => page.imagePosts)),
+        videoPosts: sum(pages.map((page) => page.videoPosts)),
+        byPeriod: periods.map((_, index) =>
+          sum(pages.map((page) => page.byPeriod[index] ?? 0)),
+        ),
+      },
+      pages,
+      categories,
+      scopedToOwnContent: ownerId !== null,
+    };
+  }
+
+  /**
    * Khối "Cần chú ý". Gom từ những nguồn **đã có sẵn** thay vì tính lại: job kẹt
    * lấy qua `MonitorService`, tình trạng kho lấy qua `AutoPostConfigsService`
    * (cùng hàm `resolveSlotReadiness` mà trang Cài đặt đang dùng) — hai nơi tính
@@ -285,4 +353,58 @@ function successRate(success: number, failed: number): number | null {
   const finished = success + failed;
   if (finished === 0) return null;
   return Math.round((success / finished) * 1000) / 10;
+}
+
+/**
+ * Dồn các dòng SQL (page, kỳ) thành 1 dòng / page với mảng `byPeriod` khớp
+ * index `periods`, rồi thêm dòng 0 cho page đã chọn mà không có bài.
+ * Sắp xếp: tổng giảm dần, cùng tổng thì theo tên.
+ */
+function pivotReportRows(
+  rows: PublishReportRow[],
+  selectedPages: ReportPage[],
+  periods: string[],
+): PublishReportPageRow[] {
+  const periodIndex = new Map(periods.map((period, index) => [period, index]));
+  const byPage = new Map<string, PublishReportPageRow>();
+  const ensure = (id: string, name: string, isActive: boolean) => {
+    let page = byPage.get(id);
+    if (!page) {
+      page = {
+        pageId: id,
+        pageName: name,
+        isPaused: !isActive,
+        total: 0,
+        imagePosts: 0,
+        videoPosts: 0,
+        byPeriod: periods.map(() => 0),
+      };
+      byPage.set(id, page);
+    }
+    return page;
+  };
+
+  for (const row of rows) {
+    const index = periodIndex.get(row.period);
+    // Không xảy ra nếu SQL và listDates/listMonths cùng timezone; vẫn chặn để
+    // một dòng lệch kỳ không làm tổng khác Σ cột.
+    if (index === undefined) continue;
+    const page = ensure(row.pageId, row.pageName, row.isActive);
+    const count = row.imagePosts + row.videoPosts;
+    page.byPeriod[index] += count;
+    page.total += count;
+    page.imagePosts += row.imagePosts;
+    page.videoPosts += row.videoPosts;
+  }
+  for (const page of selectedPages) {
+    ensure(page.id, page.pageName, page.isActive);
+  }
+
+  return [...byPage.values()].sort(
+    (a, b) => b.total - a.total || a.pageName.localeCompare(b.pageName, 'vi'),
+  );
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
 }

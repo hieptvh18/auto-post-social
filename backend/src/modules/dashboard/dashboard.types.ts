@@ -101,3 +101,39 @@ export interface DashboardHealth {
   /** Rỗng = mọi thứ đang chạy bình thường. Không đẻ alert giả để lấp chỗ trống. */
   alerts: DashboardAlert[];
 }
+
+/** Một dòng của bảng page × kỳ (plan 35). `byPeriod[i]` khớp `periods[i]`. */
+export interface PublishReportPageRow {
+  pageId: string;
+  pageName: string;
+  /** `true` = page đang tạm dừng — vẫn hiện vì bài đã đăng là lịch sử thật. */
+  isPaused: boolean;
+  total: number;
+  imagePosts: number;
+  videoPosts: number;
+  byPeriod: number[];
+}
+
+export interface PublishReportCategoryRow {
+  category: string;
+  total: number;
+  /** Số page KHÁC NHAU đã đăng danh mục này trong kỳ. */
+  pageCount: number;
+}
+
+export interface PublishReport {
+  range: { from: string; to: string };
+  groupBy: 'day' | 'month';
+  /** `'YYYY-MM-DD'` hoặc `'YYYY-MM'`, đã lấp đủ kỳ trống. */
+  periods: string[];
+  totals: {
+    total: number;
+    imagePosts: number;
+    videoPosts: number;
+    byPeriod: number[];
+  };
+  pages: PublishReportPageRow[];
+  categories: PublishReportCategoryRow[];
+  /** `true` khi số liệu chỉ tính trên bài của chính người đang xem (role CONTENT). */
+  scopedToOwnContent: boolean;
+}

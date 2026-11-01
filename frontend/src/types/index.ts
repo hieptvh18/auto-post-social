@@ -615,6 +615,45 @@ export interface QueryTopCategoriesParams extends QueryDashboardParams {
   limit?: number;
 }
 
+/** Plan 35 — tab "Thống kê đăng bài". */
+export type PublishReportGroupBy = 'day' | 'month';
+
+export interface QueryPublishReportParams extends QueryPostsByPageParams {
+  groupBy?: PublishReportGroupBy;
+  /** Id nội bộ page; rỗng = mọi page. Gửi lên dạng `a,b,c`. */
+  pageIds?: string[];
+  /** Rỗng = mọi danh mục. */
+  categories?: string[];
+}
+
+export interface PublishReportPageRow {
+  pageId: string;
+  pageName: string;
+  isPaused: boolean;
+  total: number;
+  imagePosts: number;
+  videoPosts: number;
+  /** `byPeriod[i]` khớp `periods[i]`. */
+  byPeriod: number[];
+}
+
+export interface PublishReportCategoryRow {
+  category: string;
+  total: number;
+  pageCount: number;
+}
+
+export interface PublishReport {
+  range: DashboardRangeInfo;
+  groupBy: PublishReportGroupBy;
+  /** `'YYYY-MM-DD'` hoặc `'YYYY-MM'`. */
+  periods: string[];
+  totals: { total: number; imagePosts: number; videoPosts: number; byPeriod: number[] };
+  pages: PublishReportPageRow[];
+  categories: PublishReportCategoryRow[];
+  scopedToOwnContent: boolean;
+}
+
 export interface AuthUser {
   id: string;
   email: string;

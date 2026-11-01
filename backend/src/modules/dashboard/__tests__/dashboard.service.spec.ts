@@ -12,7 +12,11 @@ import type { SlotRunService } from '../../auto-post/slot-run.service';
 import type { MonitorService } from '../../monitor/monitor.service';
 import { DashboardRepository } from '../dashboard.repository';
 import { DashboardService } from '../dashboard.service';
-import { DashboardMediaType } from '../dto/query-dashboard.dto';
+import {
+  DashboardMediaType,
+  PublishReportGroupBy,
+  type QueryPublishReportDto,
+} from '../dto/query-dashboard.dto';
 
 const TZ = 'Asia/Ho_Chi_Minh';
 const NOW = new Date('2026-07-25T03:00:00Z'); // 10:00 giờ VN
@@ -48,6 +52,9 @@ type RepositoryMock = jest.Mocked<
     | 'postsByPage'
     | 'topCategoriesBySuccess'
     | 'findPagesWithExpiringToken'
+    | 'publishReportByPagePeriod'
+    | 'publishReportByCategory'
+    | 'findReportPages'
   >
 >;
 
@@ -79,6 +86,9 @@ function setup(): Mocks {
     postsByPage: jest.fn().mockResolvedValue([]),
     topCategoriesBySuccess: jest.fn().mockResolvedValue([]),
     findPagesWithExpiringToken: jest.fn().mockResolvedValue([]),
+    publishReportByPagePeriod: jest.fn().mockResolvedValue([]),
+    publishReportByCategory: jest.fn().mockResolvedValue([]),
+    findReportPages: jest.fn().mockResolvedValue([]),
   };
 
   const monitor = {
@@ -267,6 +277,151 @@ describe('DashboardService', () => {
         expect.anything(),
         DashboardMediaType.video,
         CONTENT.id,
+      );
+    });
+  });
+
+  describe('getPublishReport', () => {
+    const query = (
+      overrides: Partial<QueryPublishReportDto> = {},
+    ): QueryPublishReportDto => ({
+      from: '2026-07-20',
+      to: '2026-07-22',
+      mediaType: DashboardMediaType.all,
+      groupBy: PublishReportGroupBy.day,
+      ...overrides,
+    });
+
+    const row = (
+      pageId: string,
+      period: string,
+      imagePosts: number,
+      videoPosts: number,
+      pageName = `Page ${pageId}`,
+    ) => ({ pageId, pageName, isActive: true, period, imagePosts, videoPosts });
+
+    it('dồn dòng SQL thành page × ngày, lấp 0 cho ngày trống, tổng = Σ cột', async () => {
+      const { repository, service } = setup();
+      repository.publishReportByPagePeriod.mockResolvedValue([
+        row('a', '2026-07-20', 1, 2),
+        row('a', '2026-07-22', 0, 4),
+        row('b', '2026-07-21', 2, 0),
+      ]);
+
+      const report = await service.getPublishReport(query(), ADMIN);
+
+      expect(report.periods).toEqual([
+        '2026-07-20',
+        '2026-07-21',
+        '2026-07-22',
+      ]);
+      expect(report.pages.map((p) => p.pageId)).toEqual(['a', 'b']);
+      expect(report.pages[0]).toMatchObject({
+        total: 7,
+        imagePosts: 1,
+        videoPosts: 6,
+        byPeriod: [3, 0, 4],
+      });
+      expect(report.pages[1].byPeriod).toEqual([0, 2, 0]);
+      expect(report.totals).toEqual({
+        total: 9,
+        imagePosts: 3,
+        videoPosts: 6,
+        byPeriod: [3, 2, 4],
+      });
+    });
+
+    it('xem theo tháng ⇒ cột là tháng, dòng SQL khớp đúng cột tháng', async () => {
+      const { repository, service } = setup();
+      repository.publishReportByPagePeriod.mockResolvedValue([
+        row('a', '2026-06', 5, 0),
+        row('a', '2026-07', 1, 1),
+      ]);
+
+      const report = await service.getPublishReport(
+        query({
+          from: '2026-06-15',
+          to: '2026-07-10',
+          groupBy: PublishReportGroupBy.month,
+        }),
+        ADMIN,
+      );
+
+      expect(report.groupBy).toBe('month');
+      expect(report.periods).toEqual(['2026-06', '2026-07']);
+      expect(report.pages[0].byPeriod).toEqual([5, 2]);
+      expect(repository.publishReportByPagePeriod).toHaveBeenCalledWith(
+        expect.objectContaining({ groupBy: 'month' }),
+      );
+    });
+
+    it('page được chọn mà 0 bài trong kỳ vẫn có dòng toàn 0, xếp sau page có bài', async () => {
+      const { repository, service } = setup();
+      repository.publishReportByPagePeriod.mockResolvedValue([
+        row('a', '2026-07-20', 1, 0),
+      ]);
+      repository.findReportPages.mockResolvedValue([
+        { id: 'a', pageName: 'Page a', isActive: true },
+        { id: 'z', pageName: 'Page z', isActive: false },
+      ]);
+
+      const report = await service.getPublishReport(
+        query({ pageIds: ['a', 'z'] }),
+        ADMIN,
+      );
+
+      expect(repository.findReportPages).toHaveBeenCalledWith(['a', 'z']);
+      expect(report.pages).toHaveLength(2);
+      expect(report.pages[1]).toMatchObject({
+        pageId: 'z',
+        isPaused: true,
+        total: 0,
+        byPeriod: [0, 0, 0],
+      });
+    });
+
+    it('không chọn page ⇒ chỉ có page có bài', async () => {
+      const { repository, service } = setup();
+      repository.publishReportByPagePeriod.mockResolvedValue([
+        row('a', '2026-07-20', 1, 0),
+      ]);
+
+      const report = await service.getPublishReport(query(), ADMIN);
+
+      expect(repository.findReportPages).toHaveBeenCalledWith([]);
+      expect(report.pages).toHaveLength(1);
+    });
+
+    it('truyền đủ bộ lọc xuống repository; CONTENT bị scope bài của mình', async () => {
+      const { repository, service } = setup();
+
+      const report = await service.getPublishReport(
+        query({
+          categories: ['Hài'],
+          mediaType: DashboardMediaType.video,
+        }),
+        CONTENT,
+      );
+
+      expect(repository.publishReportByCategory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categories: ['Hài'],
+          mediaType: DashboardMediaType.video,
+          pageIds: [],
+          ownerId: CONTENT.id,
+          timezone: TZ,
+        }),
+      );
+      expect(report.scopedToOwnContent).toBe(true);
+    });
+
+    it('ADMIN không bị scope', async () => {
+      const { repository, service } = setup();
+
+      await service.getPublishReport(query(), ADMIN);
+
+      expect(repository.publishReportByPagePeriod).toHaveBeenCalledWith(
+        expect.objectContaining({ ownerId: null }),
       );
     });
   });
